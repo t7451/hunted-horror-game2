@@ -1537,7 +1537,55 @@ sprintBtn.addEventListener('pointercancel', () => {
 
 // ═══════════════════════════════════════════════════════════════
 // BOOT
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════// ═══ SERVICE WORKER REGISTRATION ═══
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js')
+      .then(reg => {
+        console.log('[App] Service Worker registered:', reg);
+        
+        // Check for updates periodically
+        setInterval(() => {
+          reg.update();
+        }, 60000); // Check every minute
+        
+        // Handle new service worker waiting
+        reg.addEventListener('updatefound', () => {
+          const newWorker = reg.installing;
+          newWorker.addEventListener('statechange', () => {
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              console.log('[App] New service worker available');
+              showUpdateNotification();
+            }
+          });
+        });
+      })
+      .catch(err => console.error('[App] Service Worker registration failed:', err));
+  });
+}
+
+// Offline/Online detection
+window.addEventListener('online', () => {
+  console.log('[App] Back online');
+  setStatus('Back online - Reconnecting...');
+  if (gamePhase === 'lobby') location.reload();
+});
+
+window.addEventListener('offline', () => {
+  console.log('[App] Went offline');
+  setStatus('No internet connection');
+});
+
+function showUpdateNotification() {
+  const msg = document.getElementById('msg-popup');
+  if (msg) {
+    msg.textContent = 'Game update available - Refresh to update';
+    msg.classList.add('show');
+    setTimeout(() => msg.classList.remove('show'), 5000);
+  }
+}
+
+// ═══ BOOT ═══
 initScene();
 animate();
 connect();
