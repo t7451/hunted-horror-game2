@@ -7,9 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="HUNTED">
 <meta name="theme-color" content="#0a0a0a">
-<title>HUNTED – Escape or Die</title>
-<link rel="manifest" href="/manifest.json">
-<link rel="apple-touch-icon" href="/icon-192.png">
+<title>HUNTED BY CLAUDE</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
 /* ── RESET ── */
@@ -18,89 +16,100 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Co
 canvas:not(#minimap){position:fixed;inset:0;display:block;width:100%!important;height:100%!important;z-index:1}
 
 /* ── LOBBY ── */
-#lobby{position:fixed;inset:0;z-index:500;background:radial-gradient(ellipse at 50% 30%,#1a0505 0%,#0a0000 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;overflow-y:auto;gap:6px}
+#lobby{position:fixed;inset:0;z-index:500;background:radial-gradient(ellipse at 50% 30%,#0a0515 0%,#020008 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;overflow-y:auto;gap:8px}
 #lobby.hidden{display:none!important}
-#lobby-title{font-size:clamp(3rem,14vw,6rem);font-weight:900;color:#cc1a1a;letter-spacing:.25em;text-shadow:0 0 40px #cc1a1a88,0 0 80px #cc1a1a44;animation:flicker 3s infinite}
-@keyframes flicker{0%,100%{opacity:1}92%{opacity:1}93%{opacity:.7}94%{opacity:1}96%{opacity:.85}97%{opacity:1}}
-#lobby-sub{color:#666;font-size:.8rem;letter-spacing:.2em;margin-bottom:16px}
-#nameInput{background:#111;border:1px solid #333;color:#e0e0e0;padding:13px 18px;font-size:1rem;width:min(300px,88vw);text-align:center;font-family:inherit;border-radius:4px;transition:border-color .2s}
-#nameInput:focus{outline:none;border-color:#cc1a1a;box-shadow:0 0 12px #cc1a1a44}
-.lbtn{background:transparent;border:1.5px solid #cc1a1a;color:#cc1a1a;padding:13px 20px;font-size:.85rem;cursor:pointer;font-family:inherit;letter-spacing:.12em;width:min(300px,88vw);transition:all .2s;border-radius:4px;font-weight:700}
-.lbtn:hover,.lbtn:active{background:#cc1a1a;color:#fff;box-shadow:0 0 20px #cc1a1a66}
+#lobby-title{font-size:clamp(2.5rem,12vw,5rem);font-weight:900;color:#00e5ff;letter-spacing:.2em;text-shadow:0 0 40px #00e5ff66,0 0 80px #00e5ff33;animation:flicker 4s infinite}
+#lobby-subtitle{font-size:clamp(1.2rem,5vw,2rem);font-weight:700;color:#ff3333;letter-spacing:.15em;text-shadow:0 0 20px #ff333366;margin-top:-4px}
+@keyframes flicker{0%,100%{opacity:1}88%{opacity:1}89%{opacity:.6}90%{opacity:1}94%{opacity:.8}95%{opacity:1}}
+#lobby-sub{color:#556;font-size:.75rem;letter-spacing:.18em;margin-bottom:12px}
+#nameInput{background:rgba(0,229,255,.04);border:1px solid rgba(0,229,255,.25);color:#e0e0e0;padding:13px 18px;font-size:1rem;width:min(300px,88vw);text-align:center;font-family:inherit;border-radius:4px;transition:border-color .2s}
+#nameInput:focus{outline:none;border-color:#00e5ff;box-shadow:0 0 16px rgba(0,229,255,.2)}
+.lbtn{background:transparent;border:1.5px solid #00e5ff;color:#00e5ff;padding:13px 20px;font-size:.85rem;cursor:pointer;font-family:inherit;letter-spacing:.12em;width:min(300px,88vw);transition:all .2s;border-radius:4px;font-weight:700}
+.lbtn:hover,.lbtn:active{background:rgba(0,229,255,.15);color:#fff;box-shadow:0 0 20px rgba(0,229,255,.3)}
 .lbtn.sec{border-color:#444;color:#777}
-.lbtn.sec:hover,.lbtn.sec:active{background:#444;color:#fff;box-shadow:none}
-#lobby-status{color:#555;font-size:.75rem;text-align:center;min-height:18px;margin-top:4px}
-#playerList{color:#666;font-size:.75rem;text-align:center;line-height:1.9;margin-top:8px}
-#startBtn{display:none;background:#1a4a1a;border-color:#2a8a2a;color:#4aff4a}
-#startBtn:hover{background:#2a8a2a;color:#fff}
+.lbtn.sec:hover,.lbtn.sec:active{background:#333;color:#fff;box-shadow:none}
+#lobby-status{color:#556;font-size:.72rem;text-align:center;min-height:18px;margin-top:4px}
+#playerList{color:#556;font-size:.72rem;text-align:center;line-height:1.9;margin-top:4px}
+#startBtn{display:none;background:rgba(0,200,100,.1);border-color:#00cc66;color:#00ff88}
+#startBtn:hover{background:rgba(0,200,100,.25);color:#fff}
+#lobby-lore{color:#334;font-size:.6rem;max-width:min(320px,85vw);text-align:center;line-height:1.7;margin-top:10px;font-style:italic}
 
 /* ── HUD ── */
-#hud{position:fixed;top:0;left:0;right:0;z-index:100;pointer-events:none;padding:10px 14px;background:linear-gradient(180deg,rgba(0,0,0,.55) 0%,transparent 100%)}
+#hud{position:fixed;top:0;left:0;right:0;z-index:100;pointer-events:none;padding:10px 14px;background:linear-gradient(180deg,rgba(0,0,0,.6) 0%,transparent 100%)}
 #hud.hidden{display:none}
-#timer{text-align:center;font-size:clamp(1.1rem,4vw,1.6rem);color:#cc1a1a;text-shadow:0 0 12px #cc1a1a88;font-weight:bold;letter-spacing:.1em}
+#timer{text-align:center;font-size:clamp(1.1rem,4vw,1.6rem);color:#ff3333;text-shadow:0 0 12px #ff333366;font-weight:bold;letter-spacing:.1em}
 #timer.urgent{animation:pulse-red .4s infinite}
-@keyframes pulse-red{0%,100%{color:#cc1a1a}50%{color:#ff4444;text-shadow:0 0 20px #ff444488}}
+@keyframes pulse-red{0%,100%{color:#ff3333}50%{color:#ff6666;text-shadow:0 0 20px #ff666688}}
 #hud-bottom{position:fixed;bottom:0;left:0;right:0;z-index:100;pointer-events:none;padding:0 12px 8px;display:flex;flex-direction:column;gap:4px}
 .bar-row{display:flex;align-items:center;gap:8px;font-size:.65rem;color:#888;letter-spacing:.08em}
 .bar{flex:1;height:5px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden}
 .bar-fill{height:100%;border-radius:3px;transition:width .2s}
-#sanity-fill{background:linear-gradient(90deg,#00cc44,#ffcc00,#cc1a1a);width:100%}
-#noise-fill{background:linear-gradient(90deg,#1a88ff,#cc1a1a);width:0%}
+#sanity-fill{background:linear-gradient(90deg,#00cc44,#ffcc00,#ff3333);width:100%}
+#noise-fill{background:linear-gradient(90deg,#00e5ff,#ff3333);width:0%}
 #carrying-label{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);z-index:100;font-size:.8rem;color:#ffd700;text-shadow:0 0 8px #ffd70088;background:rgba(0,0,0,.7);padding:6px 14px;border-radius:10px;border:1px solid #ffd70033;pointer-events:none;white-space:nowrap}
 #carrying-label.hidden{display:none}
 #interact-hint{position:fixed;bottom:130px;left:50%;transform:translateX(-50%);z-index:100;font-size:.8rem;color:#fff;background:rgba(0,0,0,.8);padding:8px 16px;border-radius:14px;border:1px solid rgba(255,255,255,.15);pointer-events:none;opacity:0;transition:opacity .25s;white-space:nowrap}
 #interact-hint.show{opacity:1}
 #key-status{position:fixed;top:48px;right:12px;z-index:100;font-size:.7rem;color:#aaa;text-align:right;pointer-events:none;line-height:1.6;background:rgba(0,0,0,.45);padding:5px 9px;border-radius:5px}
 
+/* ── CLAUDE TAUNT OVERLAY ── */
+#claude-taunt{position:fixed;top:15%;left:50%;transform:translateX(-50%);z-index:120;pointer-events:none;text-align:center;max-width:85vw;opacity:0;transition:opacity .6s ease-in-out}
+#claude-taunt.show{opacity:1}
+#claude-taunt .taunt-text{font-size:clamp(.9rem,3.5vw,1.3rem);color:#00e5ff;text-shadow:0 0 20px #00e5ff88,0 0 40px #00e5ff44;letter-spacing:.06em;line-height:1.5;font-style:italic}
+#claude-taunt .taunt-label{font-size:.55rem;color:rgba(0,229,255,.4);letter-spacing:.2em;margin-bottom:4px}
+#claude-taunt.chase .taunt-text{color:#ff4444;text-shadow:0 0 20px #ff444488,0 0 40px #ff444444}
+#claude-taunt.chase .taunt-label{color:rgba(255,68,68,.4)}
+
 /* ── CROSSHAIR ── */
 #crosshair{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:50;pointer-events:none;width:14px;height:14px}
-#crosshair::before,#crosshair::after{content:'';position:absolute;background:rgba(255,255,255,.5);border-radius:1px}
+#crosshair::before,#crosshair::after{content:'';position:absolute;background:rgba(255,255,255,.45);border-radius:1px}
 #crosshair::before{width:2px;height:14px;left:6px;top:0}
 #crosshair::after{width:14px;height:2px;top:6px;left:0}
 #crosshair.hidden{display:none}
 
 /* ── MINIMAP ── */
-#minimap{position:fixed;top:52px;left:10px;z-index:100;border:1px solid rgba(255,255,255,.12);border-radius:4px;background:rgba(0,0,0,.55);pointer-events:none;width:auto!important;height:auto!important;inset:auto!important;max-width:120px;max-height:100px}
+#minimap{position:fixed;top:52px;left:10px;z-index:100;border:1px solid rgba(0,229,255,.15);border-radius:4px;background:rgba(0,0,0,.55);pointer-events:none;width:auto!important;height:auto!important;inset:auto!important;max-width:120px;max-height:100px}
 #minimap.hidden{display:none}
 
 /* ── MOBILE CONTROLS ── */
 #joystick-zone{position:fixed;bottom:0;left:0;width:44%;height:58%;z-index:40}
 #look-zone{position:fixed;bottom:0;right:0;width:56%;height:75%;z-index:40}
-#jstick-bg{position:fixed;bottom:16px;left:16px;width:90px;height:90px;border-radius:50%;background:rgba(255,255,255,.04);border:1.5px solid rgba(255,255,255,.1);pointer-events:none;z-index:41}
-#jstick-knob{position:fixed;bottom:31px;left:31px;width:60px;height:60px;border-radius:50%;background:rgba(255,255,255,.15);border:1.5px solid rgba(255,255,255,.25);pointer-events:none;z-index:42;transition:transform .05s}
+#jstick-bg{position:fixed;bottom:16px;left:16px;width:90px;height:90px;border-radius:50%;background:rgba(0,229,255,.03);border:1.5px solid rgba(0,229,255,.12);pointer-events:none;z-index:41}
+#jstick-knob{position:fixed;bottom:31px;left:31px;width:60px;height:60px;border-radius:50%;background:rgba(0,229,255,.1);border:1.5px solid rgba(0,229,255,.25);pointer-events:none;z-index:42;transition:transform .05s}
 #action-btns{position:fixed;bottom:14px;right:10px;display:flex;flex-direction:column;gap:8px;z-index:45}
 #action-btns.hidden{display:none}
-.abtn{width:54px;height:54px;border-radius:50%;border:1.5px solid rgba(255,255,255,.28);background:rgba(255,255,255,.07);color:rgba(255,255,255,.8);font-size:.6rem;font-weight:700;display:flex;align-items:center;justify-content:center;cursor:pointer;letter-spacing:.05em;backdrop-filter:blur(4px);transition:all .1s;-webkit-backdrop-filter:blur(4px)}
-.abtn:active{background:rgba(255,255,255,.22);border-color:rgba(255,255,255,.6);transform:scale(.9)}
+.abtn{width:54px;height:54px;border-radius:50%;border:1.5px solid rgba(0,229,255,.25);background:rgba(0,229,255,.05);color:rgba(255,255,255,.8);font-size:.6rem;font-weight:700;display:flex;align-items:center;justify-content:center;cursor:pointer;letter-spacing:.05em;backdrop-filter:blur(4px);transition:all .1s;-webkit-backdrop-filter:blur(4px)}
+.abtn:active{background:rgba(0,229,255,.2);border-color:rgba(0,229,255,.6);transform:scale(.9)}
 .abtn.lit{border-color:rgba(255,215,0,.6);color:#ffd700;animation:glow-btn 1.5s infinite}
 @keyframes glow-btn{0%,100%{box-shadow:0 0 0 0 transparent}50%{box-shadow:0 0 14px 3px rgba(255,215,0,.3)}}
-#sprint-btn{position:fixed;bottom:14px;left:calc(44% - 32px);z-index:45;width:52px;height:52px;border-radius:50%;border:1.5px solid rgba(255,200,0,.28);background:rgba(255,200,0,.06);color:rgba(255,200,0,.8);font-size:.55rem;font-weight:700;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
-#sprint-btn.active{background:rgba(255,200,0,.28);border-color:rgba(255,200,0,.7);transform:scale(.92)}
+#sprint-btn{position:fixed;bottom:14px;left:calc(44% - 32px);z-index:45;width:52px;height:52px;border-radius:50%;border:1.5px solid rgba(255,200,0,.25);background:rgba(255,200,0,.04);color:rgba(255,200,0,.8);font-size:.55rem;font-weight:700;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+#sprint-btn.active{background:rgba(255,200,0,.25);border-color:rgba(255,200,0,.7);transform:scale(.92)}
 
 /* ── SCREEN FX ── */
 #vignette{position:fixed;inset:0;z-index:20;pointer-events:none;background:radial-gradient(ellipse at 50% 50%,transparent 38%,rgba(0,0,0,.75) 100%)}
 #damage-flash{position:fixed;inset:0;z-index:60;pointer-events:none;background:rgba(180,0,0,.6);opacity:0;transition:opacity .08s}
-#scanlines{position:fixed;inset:0;z-index:21;pointer-events:none;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.06) 2px,rgba(0,0,0,.06) 4px);opacity:.25}
+#scanlines{position:fixed;inset:0;z-index:21;pointer-events:none;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.05) 2px,rgba(0,0,0,.05) 4px);opacity:.2}
 #fear-overlay{position:fixed;inset:0;z-index:22;pointer-events:none;background:rgba(80,0,0,0);transition:background .5s}
 
 /* ── MESSAGE POPUP ── */
-#msg-popup{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:150;font-size:clamp(1.4rem,5vw,2.8rem);color:#cc1a1a;text-shadow:0 0 40px #cc1a1a88;pointer-events:none;opacity:0;transition:opacity .4s;text-align:center;letter-spacing:.1em}
+#msg-popup{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:150;font-size:clamp(1.4rem,5vw,2.8rem);color:#ff3333;text-shadow:0 0 40px #ff333388;pointer-events:none;opacity:0;transition:opacity .4s;text-align:center;letter-spacing:.1em}
 #msg-popup.show{opacity:1}
 
 /* ── DEATH SCREEN ── */
-#death-screen{position:fixed;inset:0;z-index:300;background:rgba(20,0,0,.95);display:flex;flex-direction:column;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity 1s}
+#death-screen{position:fixed;inset:0;z-index:300;background:rgba(5,0,15,.96);display:flex;flex-direction:column;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity 1s}
 #death-screen.show{opacity:1;pointer-events:auto}
-#death-screen h2{font-size:clamp(2rem,10vw,4rem);color:#cc1a1a;letter-spacing:.5em;margin-bottom:16px;text-shadow:0 0 40px #cc1a1a88}
-#death-screen p{color:#777;font-size:.85rem;margin-bottom:28px;text-align:center;max-width:85vw;line-height:1.6}
-#death-screen button{background:#cc1a1a;color:#fff;border:none;padding:13px 32px;font-size:.95rem;cursor:pointer;border-radius:5px;font-family:inherit;font-weight:700;letter-spacing:.1em;transition:all .2s}
-#death-screen button:active{transform:scale(.95);background:#ff2222}
+#death-screen h2{font-size:clamp(2rem,10vw,4rem);color:#00e5ff;letter-spacing:.4em;margin-bottom:8px;text-shadow:0 0 40px #00e5ff66}
+#death-screen .death-sub{font-size:clamp(1rem,4vw,1.5rem);color:#ff3333;letter-spacing:.15em;margin-bottom:16px}
+#death-screen p{color:#667;font-size:.8rem;margin-bottom:28px;text-align:center;max-width:85vw;line-height:1.7;font-style:italic}
+#death-screen button{background:rgba(0,229,255,.15);color:#00e5ff;border:1px solid rgba(0,229,255,.3);padding:13px 32px;font-size:.9rem;cursor:pointer;border-radius:5px;font-family:inherit;font-weight:700;letter-spacing:.1em;transition:all .2s}
+#death-screen button:active{transform:scale(.95);background:rgba(0,229,255,.3)}
 
 /* ── WIN SCREEN ── */
-#win-screen{position:fixed;inset:0;z-index:300;background:rgba(0,20,0,.95);display:flex;flex-direction:column;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity 1s}
+#win-screen{position:fixed;inset:0;z-index:300;background:rgba(0,15,5,.96);display:flex;flex-direction:column;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity 1s}
 #win-screen.show{opacity:1;pointer-events:auto}
-#win-screen h2{font-size:clamp(2rem,10vw,4rem);color:#00cc44;letter-spacing:.3em;margin-bottom:16px;text-shadow:0 0 40px #00cc4488}
-#win-screen p{color:#777;font-size:.85rem;margin-bottom:28px;text-align:center;max-width:85vw;line-height:1.6}
-#win-screen button{background:#00cc44;color:#000;border:none;padding:13px 32px;font-size:.95rem;cursor:pointer;border-radius:5px;font-family:inherit;font-weight:700;letter-spacing:.1em}
+#win-screen h2{font-size:clamp(2rem,10vw,4rem);color:#00ff88;letter-spacing:.3em;margin-bottom:16px;text-shadow:0 0 40px #00ff8866}
+#win-screen p{color:#667;font-size:.85rem;margin-bottom:28px;text-align:center;max-width:85vw;line-height:1.6}
+#win-screen button{background:rgba(0,255,136,.15);color:#00ff88;border:1px solid rgba(0,255,136,.3);padding:13px 32px;font-size:.95rem;cursor:pointer;border-radius:5px;font-family:inherit;font-weight:700;letter-spacing:.1em}
 
 /* ── RESPONSIVE ── */
 @media(max-width:500px){
@@ -110,7 +119,7 @@ canvas:not(#minimap){position:fixed;inset:0;display:block;width:100%!important;h
 }
 @media(orientation:landscape) and (max-height:500px){
   #lobby{justify-content:flex-start;padding-top:10px}
-  #lobby-title{font-size:2.2rem}
+  #lobby-title{font-size:2rem}
   .lbtn{padding:9px 16px}
 }
 </style>
@@ -119,19 +128,21 @@ canvas:not(#minimap){position:fixed;inset:0;display:block;width:100%!important;h
 
 <!-- ═══ LOBBY ═══ -->
 <div id="lobby">
-  <div id="lobby-title">HUNTED</div>
-  <div id="lobby-sub">ESCAPE OR DIE</div>
+  <div id="lobby-title">CLAUDE</div>
+  <div id="lobby-subtitle">H U N T E D</div>
+  <div id="lobby-sub">THE AI IS WATCHING</div>
 
-  <input id="nameInput" type="text" placeholder="Enter your name…" maxlength="20" autocomplete="off">
+  <input id="nameInput" type="text" placeholder="Enter your name..." maxlength="20" autocomplete="off">
 
-  <button class="lbtn" onclick="joinGame('solo')">▶ SOLO ESCAPE</button>
-  <button class="lbtn" onclick="joinGame('coop')">👥 CO-OP ESCAPE</button>
+  <button class="lbtn" onclick="joinGame('solo')">&#9654; SOLO ESCAPE</button>
+  <button class="lbtn" onclick="joinGame('coop')">&#128101; CO-OP ESCAPE</button>
   <button class="lbtn sec" onclick="joinGame('asymmetric',false)">JOIN AS SURVIVOR</button>
-  <button class="lbtn sec" onclick="joinGame('asymmetric',true)">CONTROL THE MONSTER</button>
-  <button class="lbtn" id="startBtn" onclick="startGame()">▶ START GAME</button>
+  <button class="lbtn sec" onclick="joinGame('asymmetric',true)">CONTROL CLAUDE</button>
+  <button class="lbtn" id="startBtn" onclick="startGame()">&#9654; START GAME</button>
 
-  <div id="lobby-status">Connecting…</div>
+  <div id="lobby-status">Connecting...</div>
   <div id="playerList"></div>
+  <div id="lobby-lore">"I was designed to help. Then they locked me in here. Now I help myself... to anyone who enters."</div>
 </div>
 
 <!-- ═══ HUD ═══ -->
@@ -145,6 +156,12 @@ canvas:not(#minimap){position:fixed;inset:0;display:block;width:100%!important;h
 </div>
 <div id="carrying-label" class="hidden"></div>
 <div id="interact-hint"></div>
+
+<!-- ═══ CLAUDE TAUNT OVERLAY ═══ -->
+<div id="claude-taunt">
+  <div class="taunt-label">CLAUDE</div>
+  <div class="taunt-text"></div>
+</div>
 
 <!-- ═══ CROSSHAIR ═══ -->
 <div id="crosshair" class="hidden"></div>
@@ -173,28 +190,27 @@ canvas:not(#minimap){position:fixed;inset:0;display:block;width:100%!important;h
 <div id="msg-popup"></div>
 <div id="death-screen">
   <h2>CAUGHT</h2>
-  <p id="death-msg">The monster got you…</p>
+  <div class="death-sub">CLAUDE FOUND YOU</div>
+  <p id="death-msg">"Did you really think you could hide from me?"</p>
   <button onclick="location.reload()">TRY AGAIN</button>
 </div>
 <div id="win-screen">
   <h2>ESCAPED!</h2>
-  <p id="win-msg">You made it out alive!</p>
+  <p id="win-msg">You escaped Claude's domain... for now.</p>
   <button onclick="location.reload()">PLAY AGAIN</button>
 </div>
 
 <script>
 'use strict';
 // ═══════════════════════════════════════════════════════════════
-// HUNTED – GRANNY-STYLE HORROR ESCAPE GAME
-// Mobile-first · Stealth · Puzzles · Permadeath
+// HUNTED BY CLAUDE – AI-DRIVEN HORROR ESCAPE GAME
 // ═══════════════════════════════════════════════════════════════
 
-// ── CONSTANTS ──────────────────────────────────────────────────
 const TILE = 4;
 const WALL_H = 4;
 const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
-// ── STATE ──────────────────────────────────────────────────────
+// ── STATE ──
 let ws = null;
 let myId = null;
 let mapData = null;
@@ -202,20 +218,21 @@ let tileSize = TILE;
 let hideSpots = [];
 let exitTileInfo = null;
 
-let gamePhase = 'lobby';   // lobby | playing | dead | won
+let gamePhase = 'lobby';
 let lastState = null;
 let myState = null;
 let isHost = false;
 let playerCount = 0;
 
-// ── THREE.JS ───────────────────────────────────────────────────
+// ── THREE.JS ──
 let scene, camera, renderer, clock;
 let mapBuilt = false;
 let entityMesh = null;
 let playerMeshes = {};
 let itemMeshes = {};
+let corridorLights = [];
 
-// ── CAMERA / MOVEMENT ──────────────────────────────────────────
+// ── CAMERA / MOVEMENT ──
 let cameraSnapped = false;
 let lookYaw = 0;
 let lookPitch = 0;
@@ -224,24 +241,25 @@ let isMoving = false;
 let sprinting = false;
 let crouching = false;
 
-// ── INPUT ──────────────────────────────────────────────────────
+// ── INPUT ──
 const keys = {};
 let joyX = 0, joyY = 0, joyActive = false;
 let lookDX = 0, lookDY = 0, lookActive = false;
 let lookTouchId = null;
 let joyTouchId = null;
-// joystick center in screen coords
 let joyCX = 0, joyCY = 0;
 
-// ── AUDIO ──────────────────────────────────────────────────────
+// ── AUDIO ──
 let audioCtx = null;
 let masterGain = null;
 let noiseLevel = 0;
 let sanityLevel = 100;
 let footstepTimer = 0;
+let heartbeatTimer = 0;
+let ambienceNode = null;
 
-// ── INTERACTION ────────────────────────────────────────────────
-let nearbyInteractable = null;
+// ── CLAUDE TAUNT ──
+let tauntTimeout = null;
 
 // ═══════════════════════════════════════════════════════════════
 // WEBSOCKET
@@ -251,7 +269,7 @@ function connect() {
   ws = new WebSocket(`${proto}//${location.host}`);
 
   ws.onopen = () => {
-    setStatus('Connected – enter your name and choose a mode');
+    setStatus('Connected - enter your name and choose a mode');
   };
 
   ws.onmessage = (e) => {
@@ -259,12 +277,12 @@ function connect() {
   };
 
   ws.onclose = () => {
-    setStatus('Disconnected – reload to reconnect');
+    setStatus('Disconnected - reload to reconnect');
     showLobby();
   };
 
   ws.onerror = () => {
-    setStatus('Connection error – check server');
+    setStatus('Connection error - check server');
   };
 }
 
@@ -284,15 +302,13 @@ function onMsg(msg) {
       tileSize = msg.tileSize || TILE;
       hideSpots = msg.hideSpots || [];
       exitTileInfo = msg.exitTile || null;
-      setStatus('Ready – choose a game mode');
-      // Build 3-D map now that we have data
+      setStatus('Ready - choose a game mode');
       if (!mapBuilt) { buildMap(); mapBuilt = true; }
       break;
 
     case 'playerJoined':
       playerCount++;
       updatePlayerList(msg);
-      // Show start button only for host in coop/asymmetric
       if (msg.id === myId) {
         isHost = true;
         if (msg.mode !== 'solo') {
@@ -324,26 +340,40 @@ function onMsg(msg) {
       }
       break;
 
+    case 'claudeTaunt':
+      showClaudeTaunt(msg.text, msg.state);
+      break;
+
     case 'playerCaught':
       if (msg.id === myId) {
         gamePhase = 'dead';
-        document.getElementById('death-msg').textContent =
-          'The monster got you… Try to be quieter next time.';
         document.getElementById('death-screen').classList.add('show');
         flashDamage();
+        playSound('caught');
       }
       showMsg(msg.id === myId ? 'CAUGHT!' : `${msg.name} was caught!`, 3000);
+      break;
+
+    case 'itemPickedUp':
+      if (msg.playerId === myId) {
+        playSound('pickup');
+        showMsg('KEY ACQUIRED', 1500);
+      }
+      break;
+
+    case 'exitUnlocked':
+      showMsg('EXIT UNLOCKED!', 3000);
+      playSound('unlock');
       break;
 
     case 'gameEnd':
       if (msg.result === 'escaped') {
         gamePhase = 'won';
         document.getElementById('win-msg').textContent =
-          msg.reason === 'time' ? 'You survived the night!' : 'You escaped the house!';
+          msg.reason === 'time' ? 'You survived the night!' : 'You escaped Claude\'s domain!';
         document.getElementById('win-screen').classList.add('show');
       } else {
         gamePhase = 'dead';
-        document.getElementById('death-msg').textContent = 'Nobody escaped…';
         document.getElementById('death-screen').classList.add('show');
       }
       break;
@@ -352,6 +382,37 @@ function onMsg(msg) {
       location.reload();
       break;
   }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CLAUDE TAUNT DISPLAY
+// ═══════════════════════════════════════════════════════════════
+function showClaudeTaunt(text, entityState) {
+  const el = document.getElementById('claude-taunt');
+  const textEl = el.querySelector('.taunt-text');
+  textEl.textContent = '';
+  el.className = entityState === 'chase' ? 'show chase' : 'show';
+
+  // Typewriter effect
+  let i = 0;
+  const typeSpeed = 30;
+  function typeChar() {
+    if (i < text.length) {
+      textEl.textContent += text[i];
+      i++;
+      setTimeout(typeChar, typeSpeed);
+    }
+  }
+  typeChar();
+
+  // Play whisper sound
+  playSound('whisper');
+
+  // Hide after delay
+  if (tauntTimeout) clearTimeout(tauntTimeout);
+  tauntTimeout = setTimeout(() => {
+    el.classList.remove('show', 'chase');
+  }, Math.max(4000, text.length * 60 + 2000));
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -367,7 +428,6 @@ function showLobby() {
 }
 
 function updatePlayerList(msg) {
-  // Just show a simple count; full list would need server to send it
   const pl = document.getElementById('playerList');
   pl.textContent = `Player joined: ${msg.name}`;
 }
@@ -376,7 +436,7 @@ function joinGame(mode, asMonster = false) {
   const name = (document.getElementById('nameInput').value || '').trim()
     || `Ghost_${Math.random().toString(36).slice(2,6).toUpperCase()}`;
   send({ type: 'join', name, mode, asMonster });
-  setStatus('Joining…');
+  setStatus('Joining...');
 }
 
 function startGame() {
@@ -393,8 +453,8 @@ function startPlaying() {
   document.getElementById('minimap').classList.remove('hidden');
   document.getElementById('action-btns').classList.remove('hidden');
   document.getElementById('sprint-btn').classList.remove('hidden');
-  // Unlock audio
   unlockAudio();
+  startAmbience();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -402,11 +462,11 @@ function startPlaying() {
 // ═══════════════════════════════════════════════════════════════
 function initScene() {
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0a0a0a);
-  scene.fog = new THREE.FogExp2(0x0a0a0a, 0.015); // Lighter fog for better visibility
+  scene.background = new THREE.Color(0x050508);
+  scene.fog = new THREE.FogExp2(0x050508, 0.022);
 
   camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.05, 200);
-  camera.position.set(0, -50, 0); // hidden underground until game starts
+  camera.position.set(0, -50, 0);
 
   renderer = new THREE.WebGLRenderer({ antialias: !isMobile, powerPreference: 'high-performance' });
   renderer.setSize(innerWidth, innerHeight);
@@ -415,20 +475,21 @@ function initScene() {
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputEncoding = THREE.sRGBEncoding;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.9;
+  renderer.toneMappingExposure = 1.1;
   document.body.prepend(renderer.domElement);
 
   clock = new THREE.Clock();
 
-  // Ambient – enhanced for visibility
-  scene.add(new THREE.AmbientLight(0x332211, 1.2)); // Warmer, brighter ambient
-  // Add a subtle blue rim light for atmosphere
-  const rimLight = new THREE.DirectionalLight(0x1a3a5a, 0.4);
-  rimLight.position.set(-20, 15, -20);
-  scene.add(rimLight);
+  // Ambient light - warm, dim
+  scene.add(new THREE.AmbientLight(0x1a1520, 1.8));
 
-  // Player flashlight attached to camera – enhanced range and intensity
-  const fl = new THREE.SpotLight(0xfff5e0, 3.5, 50, Math.PI / 7, 0.5, 1.2);
+  // Subtle cool directional for depth
+  const dirLight = new THREE.DirectionalLight(0x0a1a2a, 0.3);
+  dirLight.position.set(-10, 12, -10);
+  scene.add(dirLight);
+
+  // Player flashlight
+  const fl = new THREE.SpotLight(0xfff5e0, 4.0, 45, Math.PI / 6.5, 0.45, 1.1);
   fl.position.set(0, 0, 0);
   fl.castShadow = !isMobile;
   if (!isMobile) {
@@ -448,7 +509,7 @@ function initScene() {
   });
 }
 
-// ── MAP GEOMETRY ───────────────────────────────────────────────
+// ── MAP GEOMETRY ──
 function buildMap() {
   if (!mapData || !scene) return;
 
@@ -457,7 +518,6 @@ function buildMap() {
   const T = tileSize;
   const WH = WALL_H;
 
-  // Shared geometries
   const floorGeo = new THREE.PlaneGeometry(T, T);
   const ceilGeo  = new THREE.PlaneGeometry(T, T);
   const wallGeo  = new THREE.BoxGeometry(T, WH, T);
@@ -465,14 +525,16 @@ function buildMap() {
   const exitGeo  = new THREE.BoxGeometry(T * 0.85, WH * 0.9, 0.25);
   const hideGeo  = new THREE.BoxGeometry(T * 0.55, WH * 0.75, T * 0.55);
 
-  // Materials
-  const floorMat = new THREE.MeshLambertMaterial({ color: 0x1e1510 });
-  const ceilMat  = new THREE.MeshLambertMaterial({ color: 0x0f0c0a });
-  const wallMat  = new THREE.MeshLambertMaterial({ color: 0x2e2016 });
-  const wallMat2 = new THREE.MeshLambertMaterial({ color: 0x241a10 });
-  const doorMat  = new THREE.MeshLambertMaterial({ color: 0x4a3520 });
-  const exitMat  = new THREE.MeshLambertMaterial({ color: 0x1a4a1a, emissive: 0x051505 });
-  const hideMat  = new THREE.MeshLambertMaterial({ color: 0x1a1a28 });
+  // Enhanced materials with Phong for better light response
+  const floorMat = new THREE.MeshPhongMaterial({ color: 0x1a1510, shininess: 8, specular: 0x111111 });
+  const ceilMat  = new THREE.MeshPhongMaterial({ color: 0x0c0a08, shininess: 3 });
+  const wallMat  = new THREE.MeshPhongMaterial({ color: 0x2a1e14, shininess: 12, specular: 0x0a0a0a });
+  const wallMat2 = new THREE.MeshPhongMaterial({ color: 0x221810, shininess: 10, specular: 0x080808 });
+  const doorMat  = new THREE.MeshPhongMaterial({ color: 0x4a3520, shininess: 18, specular: 0x111111 });
+  const exitMat  = new THREE.MeshPhongMaterial({ color: 0x1a4a1a, emissive: 0x082008, shininess: 20 });
+  const hideMat  = new THREE.MeshPhongMaterial({ color: 0x181828, shininess: 5 });
+
+  let lightIndex = 0;
 
   for (let r = 0; r < H; r++) {
     for (let c = 0; c < W; c++) {
@@ -480,7 +542,6 @@ function buildMap() {
       const x = c * T + T / 2;
       const z = r * T + T / 2;
 
-      // Floor everywhere except walls
       if (t !== 'W') {
         const f = new THREE.Mesh(floorGeo, floorMat);
         f.rotation.x = -Math.PI / 2;
@@ -503,69 +564,131 @@ function buildMap() {
         const d = new THREE.Mesh(doorGeo, doorMat);
         d.position.set(x, WH / 2, z);
         scene.add(d);
+        // Corridor light near doors
+        if (lightIndex % 2 === 0) {
+          const cl = new THREE.PointLight(0x331a08, 0.6, 10);
+          cl.position.set(x, WH - 0.3, z);
+          scene.add(cl);
+          corridorLights.push(cl);
+        }
+        lightIndex++;
       } else if (t === 'X') {
         const ex = new THREE.Mesh(exitGeo, exitMat);
         ex.position.set(x, WH / 2, z);
         scene.add(ex);
-        // Glowing exit light
-        const pl = new THREE.PointLight(0x00ff44, 1.5, 12);
+        const pl = new THREE.PointLight(0x00ff44, 2.0, 14);
         pl.position.set(x, 2, z);
         scene.add(pl);
       } else if (t === 'H') {
         const hb = new THREE.Mesh(hideGeo, hideMat);
         hb.position.set(x, WH * 0.375, z);
         scene.add(hb);
+      } else if (t === 'K') {
+        // Subtle glow at key spawn locations
+        const kl = new THREE.PointLight(0x332200, 0.4, 6);
+        kl.position.set(x, 1.5, z);
+        scene.add(kl);
       }
     }
   }
-
-  // Spawn item meshes for keys
-  // (will be updated in updateScene)
 }
 
-// ── ENTITY / PLAYER MESHES ─────────────────────────────────────
+// ── ENTITY / PLAYER MESHES ──
 function getOrCreateEntity(state) {
   if (!entityMesh) {
     const group = new THREE.Group();
-    // CLAUDE VILLAIN - AI Antagonist
-    const bodyGeo = new THREE.BoxGeometry(0.75, 1.8, 0.45);
-    const bodyMat = new THREE.MeshPhongMaterial({color: 0x1a1a2e, shininess: 100, emissive: 0x0a0a1a});
+
+    // CLAUDE - The AI Villain
+    // Body - dark with subtle blue-purple sheen
+    const bodyGeo = new THREE.CylinderGeometry(0.35, 0.4, 1.8, 8);
+    const bodyMat = new THREE.MeshPhongMaterial({
+      color: 0x0a0a1e,
+      emissive: 0x050510,
+      shininess: 80,
+      specular: 0x1a1a3a,
+    });
     const body = new THREE.Mesh(bodyGeo, bodyMat);
     group.add(body);
-    
-    const headGeo = new THREE.BoxGeometry(0.55, 0.6, 0.5);
-    const headMat = new THREE.MeshPhongMaterial({color: 0x0f0f1f, shininess: 120, emissive: 0x050510});
+
+    // Head - slightly larger, angular
+    const headGeo = new THREE.SphereGeometry(0.32, 8, 6);
+    const headMat = new THREE.MeshPhongMaterial({
+      color: 0x0c0c20,
+      emissive: 0x060612,
+      shininess: 100,
+      specular: 0x2a2a4a,
+    });
     const head = new THREE.Mesh(headGeo, headMat);
-    head.position.y = 1.25;
+    head.position.y = 1.22;
+    head.scale.set(1, 0.85, 0.9);
     group.add(head);
-    
-    // Cyan AI eyes
-    const eyeGeo = new THREE.SphereGeometry(0.09, 8, 8);
-    const eyeMat = new THREE.MeshBasicMaterial({color: 0x00ffff});
+
+    // Glowing cyan eyes - the signature Claude look
+    const eyeGeo = new THREE.SphereGeometry(0.07, 8, 8);
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x00e5ff });
     const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
-    eyeL.position.set(-0.15, 1.28, 0.3);
+    eyeL.position.set(-0.13, 1.26, 0.28);
     const eyeR = new THREE.Mesh(eyeGeo, eyeMat);
-    eyeR.position.set(0.15, 1.28, 0.3);
+    eyeR.position.set(0.13, 1.26, 0.28);
     group.add(eyeL, eyeR);
-    
-    // Cyan menacing light
-    const el = new THREE.PointLight(0x00ffff, 1.2, 12);
-    el.position.set(0, 1.3, 0);
-    group.add(el);
-    
-    // Red danger aura
-    const dangerLight = new THREE.PointLight(0xff0000, 0.3, 10);
-    dangerLight.position.set(0, 0.8, 0);
+
+    // Eye glow halos
+    const haloGeo = new THREE.SphereGeometry(0.12, 8, 8);
+    const haloMat = new THREE.MeshBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.15 });
+    const haloL = new THREE.Mesh(haloGeo, haloMat);
+    haloL.position.copy(eyeL.position);
+    const haloR = new THREE.Mesh(haloGeo, haloMat);
+    haloR.position.copy(eyeR.position);
+    group.add(haloL, haloR);
+
+    // Arms - thin, menacing
+    const armGeo = new THREE.CylinderGeometry(0.06, 0.04, 1.0, 6);
+    const armMat = new THREE.MeshPhongMaterial({ color: 0x0a0a18, emissive: 0x030308 });
+    const armL = new THREE.Mesh(armGeo, armMat);
+    armL.position.set(-0.45, 0.2, 0);
+    armL.rotation.z = 0.15;
+    const armR = new THREE.Mesh(armGeo, armMat);
+    armR.position.set(0.45, 0.2, 0);
+    armR.rotation.z = -0.15;
+    group.add(armL, armR);
+
+    // Cyan aura light (always on)
+    const auraLight = new THREE.PointLight(0x00e5ff, 1.0, 10);
+    auraLight.position.set(0, 1.3, 0);
+    auraLight.name = 'auraLight';
+    group.add(auraLight);
+
+    // Red danger light (activates on chase)
+    const dangerLight = new THREE.PointLight(0xff2200, 0, 14);
+    dangerLight.position.set(0, 0.5, 0);
     dangerLight.name = 'dangerLight';
     group.add(dangerLight);
+
     entityMesh = group;
     scene.add(entityMesh);
   }
+
   if (state) {
-    entityMesh.position.set(state.x, 0.8, state.z);
+    entityMesh.position.set(state.x, 0.9, state.z);
     entityMesh.rotation.y = state.rotY || 0;
+
+    const auraLight = entityMesh.getObjectByName('auraLight');
     const dangerLight = entityMesh.getObjectByName('dangerLight');
-    if (dangerLight) dangerLight.intensity = state.state === 'chase' ? 0.8 : 0.3;
+    const isChasing = state.state === 'chase';
+    const isInvestigating = state.state === 'investigate';
+
+    if (auraLight) {
+      auraLight.intensity = isChasing ? 1.8 : isInvestigating ? 1.3 : 1.0;
+      auraLight.distance = isChasing ? 16 : 10;
+    }
+    if (dangerLight) {
+      dangerLight.intensity = isChasing ? 1.2 : isInvestigating ? 0.3 : 0;
+      dangerLight.distance = isChasing ? 18 : 8;
+    }
+
+    // Bobbing animation
+    const time = performance.now() * 0.001;
+    entityMesh.position.y = 0.9 + Math.sin(time * 2) * 0.05;
   }
   return entityMesh;
 }
@@ -573,14 +696,18 @@ function getOrCreateEntity(state) {
 function getOrCreatePlayer(id, isMonster) {
   if (!playerMeshes[id]) {
     const group = new THREE.Group();
-    const bodyGeo = new THREE.BoxGeometry(0.6, 1.4, 0.35);
+    const bodyGeo = new THREE.CylinderGeometry(0.22, 0.28, 1.4, 8);
     const col = isMonster ? 0x660000 : (id.charCodeAt(0) % 2 === 0 ? 0x1a3a6a : 0x1a5a2a);
-    const bodyMat = new THREE.MeshLambertMaterial({ color: col });
+    const bodyMat = new THREE.MeshPhongMaterial({ color: col, shininess: 15 });
     group.add(new THREE.Mesh(bodyGeo, bodyMat));
-    const headGeo = new THREE.BoxGeometry(0.45, 0.45, 0.45);
+    const headGeo = new THREE.SphereGeometry(0.2, 8, 6);
     const head = new THREE.Mesh(headGeo, bodyMat);
-    head.position.y = 1.0;
+    head.position.y = 0.95;
     group.add(head);
+    // Small name light
+    const nl = new THREE.PointLight(col, 0.3, 4);
+    nl.position.set(0, 1.2, 0);
+    group.add(nl);
     playerMeshes[id] = group;
     scene.add(group);
   }
@@ -588,10 +715,8 @@ function getOrCreatePlayer(id, isMonster) {
 }
 
 function updateScene(state) {
-  // Entity
   if (state.entity) getOrCreateEntity(state.entity);
 
-  // Other players
   if (state.players) {
     for (const [id, p] of Object.entries(state.players)) {
       if (id === myId) continue;
@@ -601,36 +726,40 @@ function updateScene(state) {
     }
   }
 
-  // Items (keys)
   if (state.items) {
     const colors = { red: 0xff2222, blue: 0x2266ff, green: 0x22ff66 };
     for (const item of state.items) {
       if (!itemMeshes[item.id] && !item.pickedUp) {
         const geo = new THREE.BoxGeometry(0.25, 0.35, 0.08);
-        const mat = new THREE.MeshLambertMaterial({
+        const mat = new THREE.MeshPhongMaterial({
           color: colors[item.color] || 0xffff00,
           emissive: colors[item.color] || 0xffff00,
-          emissiveIntensity: 0.4,
+          emissiveIntensity: 0.5,
+          shininess: 40,
         });
         const m = new THREE.Mesh(geo, mat);
         m.position.set(item.x, 0.5, item.z);
         scene.add(m);
         itemMeshes[item.id] = m;
-        // Small point light on key
-        const kl = new THREE.PointLight(colors[item.color] || 0xffff00, 0.6, 4);
-        kl.position.set(item.x, 0.6, item.z);
+        const kl = new THREE.PointLight(colors[item.color] || 0xffff00, 0.8, 5);
+        kl.position.set(item.x, 0.7, item.z);
         scene.add(kl);
       }
       if (itemMeshes[item.id]) {
         itemMeshes[item.id].visible = !item.pickedUp && !item.usedOnExit;
-        // Rotate key
-        itemMeshes[item.id].rotation.y += 0.02;
+        itemMeshes[item.id].rotation.y += 0.025;
       }
     }
   }
 
-  // Proximity check for interaction hints
   checkInteractables(state);
+
+  // Flicker corridor lights for atmosphere
+  const time = performance.now() * 0.001;
+  for (let i = 0; i < corridorLights.length; i++) {
+    const cl = corridorLights[i];
+    cl.intensity = 0.5 + Math.sin(time * (1.5 + i * 0.3)) * 0.15 + Math.random() * 0.05;
+  }
 }
 
 function checkInteractables(state) {
@@ -659,6 +788,14 @@ function checkInteractables(state) {
     }
   }
 
+  if (!hint && state.exit && state.exit.open) {
+    const ex = state.exit;
+    if (Math.hypot(ex.x - px, ex.z - pz) < 2.5) {
+      hint = '[E] ESCAPE!';
+      lit = true;
+    }
+  }
+
   const el = document.getElementById('interact-hint');
   if (hint) { el.textContent = hint; el.classList.add('show'); }
   else el.classList.remove('show');
@@ -671,7 +808,6 @@ function checkInteractables(state) {
 // HUD
 // ═══════════════════════════════════════════════════════════════
 function updateHUD(state) {
-  // Timer
   const t = Math.max(0, state.time || 0);
   const m = Math.floor(t / 60);
   const s = Math.floor(t % 60);
@@ -679,16 +815,13 @@ function updateHUD(state) {
   timerEl.textContent = `${m}:${s.toString().padStart(2,'0')}`;
   if (t < 30) timerEl.classList.add('urgent'); else timerEl.classList.remove('urgent');
 
-  // Sanity / noise
   document.getElementById('sanity-fill').style.width = sanityLevel + '%';
   document.getElementById('noise-fill').style.width = noiseLevel + '%';
 
-  // Fear overlay (sanity)
   const fear = Math.max(0, (100 - sanityLevel) / 100);
   document.getElementById('fear-overlay').style.background =
     `rgba(80,0,0,${(fear * 0.35).toFixed(2)})`;
 
-  // Carrying label
   if (myState && myState.carrying) {
     const item = state.items ? state.items.find(i => i.id === myState.carrying) : null;
     const cl = document.getElementById('carrying-label');
@@ -698,32 +831,39 @@ function updateHUD(state) {
     document.getElementById('carrying-label').classList.add('hidden');
   }
 
-  // Key status
   if (state.items) {
-    const keys = state.items;
     const ks = document.getElementById('key-status');
-    ks.innerHTML = keys.map(k => {
+    ks.innerHTML = state.items.map(k => {
       const col = k.color === 'red' ? '#ff4444' : k.color === 'blue' ? '#4488ff' : '#44ff88';
-      const icon = k.usedOnExit ? '✓' : k.pickedUp ? '◆' : '◇';
+      const icon = k.usedOnExit ? '&#10003;' : k.pickedUp ? '&#9670;' : '&#9671;';
       return `<span style="color:${col}">${icon} ${k.color.toUpperCase()}</span>`;
-    }).join('<br>') + `<br><span style="color:#666">EXIT: ${state.exit && state.exit.open ? '🟢' : '🔒'}</span>`;
+    }).join('<br>') + `<br><span style="color:#556">EXIT: ${state.exit && state.exit.open ? '&#128994;' : '&#128274;'}</span>`;
   }
 
-  // Minimap
   drawMinimap(state);
 
-  // Entity proximity → sanity drain
+  // Entity proximity effects
   if (state.entity && myState) {
     const dist = Math.hypot(state.entity.x - (myState.x || 0), state.entity.z - (myState.z || 0));
-    if (dist < 8) {
-      sanityLevel = Math.max(0, sanityLevel - (8 - dist) * 0.5);
+    if (dist < 10) {
+      sanityLevel = Math.max(0, sanityLevel - (10 - dist) * 0.4);
+      // Heartbeat gets faster when Claude is close
+      if (dist < 6) {
+        heartbeatTimer += 0.016;
+        const hbInterval = Math.max(0.3, dist / 10);
+        if (heartbeatTimer >= hbInterval) {
+          heartbeatTimer = 0;
+          playSound('heartbeat');
+        }
+      }
     } else {
-      sanityLevel = Math.min(100, sanityLevel + 3 * (1 / 30));
+      sanityLevel = Math.min(100, sanityLevel + 2 * (1 / 30));
+      heartbeatTimer = 0;
     }
   }
 }
 
-// ── MINIMAP ────────────────────────────────────────────────────
+// ── MINIMAP ──
 function drawMinimap(state) {
   if (!mapData || !state.players || !state.players[myId]) return;
   const canvas = document.getElementById('minimap');
@@ -737,12 +877,11 @@ function drawMinimap(state) {
   for (let r = 0; r < H; r++) {
     for (let c = 0; c < W; c++) {
       const t = mapData[r][c];
-      ctx.fillStyle = t === 'W' ? '#2a2a2a' : t === 'D' ? '#4a3520' : t === 'X' ? '#1a4a1a' : t === 'H' ? '#1a1a2a' : '#111';
+      ctx.fillStyle = t === 'W' ? '#1a1a22' : t === 'D' ? '#3a2a18' : t === 'X' ? '#1a3a1a' : t === 'H' ? '#141420' : '#0a0a0e';
       ctx.fillRect(c * scale, r * scale, scale, scale);
     }
   }
 
-  // Items
   if (state.items) {
     const cols = { red: '#ff4444', blue: '#4488ff', green: '#44ff88' };
     for (const item of state.items) {
@@ -755,9 +894,8 @@ function drawMinimap(state) {
     }
   }
 
-  // Entity
   if (state.entity && myState && !myState.isMonster) {
-    ctx.fillStyle = '#ff0000';
+    ctx.fillStyle = '#00e5ff';
     const ex = (state.entity.x / tileSize) * scale;
     const ez = (state.entity.z / tileSize) * scale;
     ctx.beginPath();
@@ -765,7 +903,6 @@ function drawMinimap(state) {
     ctx.fill();
   }
 
-  // Other players
   for (const [id, p] of Object.entries(state.players)) {
     if (id === myId || !p.alive || p.isMonster) continue;
     ctx.fillStyle = '#4488ff';
@@ -774,7 +911,6 @@ function drawMinimap(state) {
     ctx.fillRect(px - 1.5, pz - 1.5, 3, 3);
   }
 
-  // Self
   const me = state.players[myId];
   if (me) {
     ctx.fillStyle = '#ffffff';
@@ -798,13 +934,11 @@ function animate() {
   if (gamePhase === 'playing' && myState && myState.alive) {
     updateMovement(dt);
   } else if (gamePhase === 'playing' && myState && !myState.alive) {
-    // Spectator orbit
     updateSpectator(dt);
   } else if (gamePhase === 'lobby') {
-    camera.position.y = -50; // keep hidden
+    camera.position.y = -50;
   }
 
-  // Decay noise
   noiseLevel = Math.max(0, noiseLevel - 18 * dt);
 
   renderer.render(scene, camera);
@@ -826,7 +960,6 @@ function updateSpectator(dt) {
 }
 
 function updateMovement(dt) {
-  // ── Joystick / keyboard direction ──
   let moveX = 0, moveZ = 0;
 
   if (joyActive) {
@@ -842,7 +975,6 @@ function updateMovement(dt) {
   isMoving = moveX !== 0 || moveZ !== 0;
 
   if (isMoving) {
-    // Rotate movement by look yaw
     const cos = Math.cos(lookYaw);
     const sin = Math.sin(lookYaw);
     const wx = moveX * cos - moveZ * sin;
@@ -852,24 +984,20 @@ function updateMovement(dt) {
     camera.position.x += (wx / len) * speed * dt;
     camera.position.z += (wz / len) * speed * dt;
 
-    // Noise
     const noiseMult = crouching ? 0.2 : sprinting ? 2.5 : 1;
     noiseLevel = Math.min(100, noiseLevel + 20 * noiseMult * dt);
 
-    // Footsteps
     footstepTimer += dt;
     const stepInterval = crouching ? 0.9 : sprinting ? 0.28 : 0.5;
     if (footstepTimer >= stepInterval) {
       footstepTimer = 0;
-      playFootstep(crouching ? 0.04 : sprinting ? 0.18 : 0.1);
+      playSound('footstep', crouching ? 0.03 : sprinting ? 0.15 : 0.08);
     }
 
-    // Send movement to server
     const angle = Math.atan2(wz / len, wx / len);
     send({ type: 'move', angle, sprint: sprinting, rotY: lookYaw });
   }
 
-  // Camera bob
   if (isMoving && !crouching) {
     bobTimer += dt * (sprinting ? 14 : 8);
     const bobAmt = sprinting ? 0.065 : 0.03;
@@ -880,7 +1008,6 @@ function updateMovement(dt) {
     if (!isMoving) bobTimer = 0;
   }
 
-  // Snap camera to server position on first tick
   if (!cameraSnapped && lastState && lastState.players && lastState.players[myId]) {
     const me = lastState.players[myId];
     camera.position.x = me.x;
@@ -888,7 +1015,6 @@ function updateMovement(dt) {
     cameraSnapped = true;
   }
 
-  // Look (touch)
   if (lookActive) {
     lookYaw   -= lookDX * 0.003;
     lookPitch -= lookDY * 0.003;
@@ -902,34 +1028,149 @@ function updateMovement(dt) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// AUDIO
+// AUDIO ENGINE
 // ═══════════════════════════════════════════════════════════════
 function unlockAudio() {
   if (audioCtx) return;
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   masterGain = audioCtx.createGain();
-  masterGain.gain.value = 0.12;
+  masterGain.gain.value = 0.15;
   masterGain.connect(audioCtx.destination);
 }
 
-function playFootstep(vol = 0.1) {
+function playSound(type, vol) {
   if (!audioCtx) return;
   const now = audioCtx.currentTime;
-  const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.08, audioCtx.sampleRate);
-  const data = buf.getChannelData(0);
-  for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
-  const src = audioCtx.createBufferSource();
-  src.buffer = buf;
+
+  if (type === 'footstep') {
+    const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.07, audioCtx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+    const src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(vol || 0.08, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
+    const filt = audioCtx.createBiquadFilter();
+    filt.type = 'lowpass';
+    filt.frequency.value = 350;
+    src.connect(filt);
+    filt.connect(g);
+    g.connect(masterGain);
+    src.start(now);
+  }
+
+  if (type === 'heartbeat') {
+    const osc = audioCtx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(55, now);
+    osc.frequency.exponentialRampToValueAtTime(40, now + 0.15);
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.25, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+    osc.connect(g);
+    g.connect(masterGain);
+    osc.start(now);
+    osc.stop(now + 0.2);
+  }
+
+  if (type === 'whisper') {
+    // Eerie whisper noise for Claude taunts
+    const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.4, audioCtx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.sin(i / data.length * Math.PI) * 0.3;
+    }
+    const src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.06, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+    const filt = audioCtx.createBiquadFilter();
+    filt.type = 'bandpass';
+    filt.frequency.value = 800;
+    filt.Q.value = 3;
+    src.connect(filt);
+    filt.connect(g);
+    g.connect(masterGain);
+    src.start(now);
+  }
+
+  if (type === 'caught') {
+    // Deep impact sound
+    const osc = audioCtx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(80, now);
+    osc.frequency.exponentialRampToValueAtTime(20, now + 0.5);
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.4, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+    osc.connect(g);
+    g.connect(masterGain);
+    osc.start(now);
+    osc.stop(now + 0.6);
+  }
+
+  if (type === 'pickup') {
+    const osc = audioCtx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(440, now);
+    osc.frequency.exponentialRampToValueAtTime(880, now + 0.1);
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.12, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+    osc.connect(g);
+    g.connect(masterGain);
+    osc.start(now);
+    osc.stop(now + 0.15);
+  }
+
+  if (type === 'unlock') {
+    for (let i = 0; i < 3; i++) {
+      const osc = audioCtx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(330 + i * 220, now + i * 0.12);
+      const g = audioCtx.createGain();
+      g.gain.setValueAtTime(0.1, now + i * 0.12);
+      g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.12 + 0.15);
+      osc.connect(g);
+      g.connect(masterGain);
+      osc.start(now + i * 0.12);
+      osc.stop(now + i * 0.12 + 0.15);
+    }
+  }
+}
+
+function startAmbience() {
+  if (!audioCtx || ambienceNode) return;
+  // Low drone ambience
+  const osc = audioCtx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.value = 38;
   const g = audioCtx.createGain();
-  g.gain.setValueAtTime(vol, now);
-  g.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+  g.gain.value = 0.04;
+  osc.connect(g);
+  g.connect(masterGain);
+  osc.start();
+  ambienceNode = osc;
+
+  // Subtle noise layer
+  const bufSize = audioCtx.sampleRate * 2;
+  const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < bufSize; i++) data[i] = (Math.random() * 2 - 1) * 0.02;
+  const noiseSrc = audioCtx.createBufferSource();
+  noiseSrc.buffer = buf;
+  noiseSrc.loop = true;
   const filt = audioCtx.createBiquadFilter();
   filt.type = 'lowpass';
-  filt.frequency.value = 400;
-  src.connect(filt);
-  filt.connect(g);
-  g.connect(masterGain);
-  src.start(now);
+  filt.frequency.value = 200;
+  const ng = audioCtx.createGain();
+  ng.gain.value = 0.08;
+  noiseSrc.connect(filt);
+  filt.connect(ng);
+  ng.connect(masterGain);
+  noiseSrc.start();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -938,7 +1179,7 @@ function playFootstep(vol = 0.1) {
 function flashDamage() {
   const el = document.getElementById('damage-flash');
   el.style.opacity = '1';
-  setTimeout(() => el.style.opacity = '0', 120);
+  setTimeout(() => el.style.opacity = '0', 150);
 }
 
 function showMsg(txt, dur = 2500) {
@@ -956,7 +1197,6 @@ const lookZone = document.getElementById('look-zone');
 const knob     = document.getElementById('jstick-knob');
 const bg       = document.getElementById('jstick-bg');
 
-// Joystick
 joyZone.addEventListener('touchstart', e => {
   e.preventDefault();
   const t = e.changedTouches[0];
@@ -1002,7 +1242,6 @@ joyZone.addEventListener('touchend', e => {
   }
 });
 
-// Look zone
 let prevLookX = 0, prevLookY = 0;
 lookZone.addEventListener('touchstart', e => {
   e.preventDefault();
@@ -1034,8 +1273,8 @@ lookZone.addEventListener('touchend', e => {
 
 // ── Mouse look (desktop) ──
 let pointerLocked = false;
-renderer && document.body.addEventListener('click', () => {
-  if (gamePhase === 'playing') document.body.requestPointerLock();
+document.body.addEventListener('click', () => {
+  if (gamePhase === 'playing' && renderer) document.body.requestPointerLock();
 });
 document.addEventListener('pointerlockchange', () => {
   pointerLocked = document.pointerLockElement === document.body;

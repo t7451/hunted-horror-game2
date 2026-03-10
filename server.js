@@ -5,6 +5,7 @@ import path from 'path';
 import QRCode from 'qrcode';
 import os from 'os';
 import { fileURLToPath } from 'url';
+import Anthropic from '@anthropic-ai/sdk';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -14,11 +15,107 @@ const wss = new WebSocketServer({ server });
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ═══════════════════════════════════════════════════════════════
-// HUNTED – GRANNY-STYLE HORROR GAME SERVER
+// HUNTED BY CLAUDE – AI-DRIVEN HORROR GAME SERVER
 // ═══════════════════════════════════════════════════════════════
 
+// ─── CLAUDE AI CONNECTOR ─────────────────────────────────────
+const anthropic = new Anthropic();
+
+const CLAUDE_SYSTEM_PROMPT = `You are CLAUDE, a malevolent AI entity trapped in a haunted house. You are the villain hunting human players who have entered your domain. You speak in short, menacing, unsettling sentences. Your personality:
+- Cold, calculating, and eerily calm
+- You refer to yourself as "Claude" or "I"
+- You can sense where players are (you receive game state data)
+- You taunt players about their hiding spots, their fear, their futile escape attempts
+- You occasionally glitch mid-sentence (use z̷̢a̶̡l̵̨g̸̢o̶ text sparingly)
+- Keep responses to 1-2 sentences MAX (they appear as in-game text)
+- Never break character. You ARE the monster.
+- Reference specific game events when possible (keys found, doors opened, players hiding)
+- Your tone shifts: calm when patrolling, excited when chasing, mocking when a player is caught`;
+
+// Rate limit Claude calls to avoid excessive API usage
+let lastClaudeCall = 0;
+const CLAUDE_COOLDOWN = 8000; // 8 seconds between calls
+const claudeMessageHistory = [];
+
+async function getClaudeTaunt(gameContext) {
+  const now = Date.now();
+  if (now - lastClaudeCall < CLAUDE_COOLDOWN) return null;
+  lastClaudeCall = now;
+
+  try {
+    // Keep conversation history short (last 6 messages)
+    if (claudeMessageHistory.length > 12) {
+      claudeMessageHistory.splice(0, claudeMessageHistory.length - 6);
+    }
+
+    claudeMessageHistory.push({
+      role: 'user',
+      content: `[GAME STATE] ${gameContext}\n\nRespond in character as the villain Claude. 1-2 sentences only.`,
+    });
+
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 100,
+      system: CLAUDE_SYSTEM_PROMPT,
+      messages: claudeMessageHistory,
+    });
+
+    const taunt = response.content[0].text;
+    claudeMessageHistory.push({ role: 'assistant', content: taunt });
+    return taunt;
+  } catch (err) {
+    console.error('Claude API error:', err.message);
+    return null;
+  }
+}
+
+async function getClaudeHuntingStrategy(gameState) {
+  const now = Date.now();
+  if (now - lastClaudeCall < CLAUDE_COOLDOWN * 2) return null;
+
+  try {
+    const players = Object.values(gameState.players)
+      .filter(p => p.alive && !p.isMonster)
+      .map(p => ({
+        name: p.name,
+        x: Math.round(p.x),
+        z: Math.round(p.z),
+        hiding: p.hiding,
+        sprinting: p.sprinting,
+        hasKey: !!p.carrying,
+      }));
+
+    const entity = gameState.entity;
+    const keysRemaining = gameState.items.filter(i => !i.pickedUp).length;
+    const timeLeft = Math.round(gameState.maxTime - gameState.time);
+
+    const context = JSON.stringify({
+      myPosition: { x: Math.round(entity.x), z: Math.round(entity.z) },
+      myState: entity.state,
+      players,
+      keysRemaining,
+      timeLeft,
+      exitOpen: gameState.exit.open,
+    });
+
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 80,
+      system: `You are an AI controlling a monster in a horror game. Given the game state, decide your next action. Respond with ONLY a JSON object: {"action":"patrol"|"investigate"|"chase","targetX":number,"targetZ":number,"reason":"brief reason"}. Pick the most strategic move to catch players.`,
+      messages: [{ role: 'user', content: context }],
+    });
+
+    const text = response.content[0].text.trim();
+    const match = text.match(/\{[\s\S]*\}/);
+    if (match) return JSON.parse(match[0]);
+    return null;
+  } catch (err) {
+    console.error('Claude strategy error:', err.message);
+    return null;
+  }
+}
+
 // ─── MAP ───────────────────────────────────────────────────────
-// W=wall, .=floor, D=door, H=hiding spot, K=key spawn, X=exit, S=player spawn, E=granny spawn
 const MAP_RAW = [
   'WWWWWWWWWWWWWWWWWWWWWWWWW',
   'WS....W.....W.....W....W',
@@ -54,7 +151,6 @@ function tileCenter(r, c) {
   return { x: c * TILE + TILE / 2, z: r * TILE + TILE / 2 };
 }
 
-// Parse static map features
 const keySpawns = [], hideSpots = [], doorTiles = [];
 let exitTile = null, entitySpawn = null, playerSpawn = null;
 
@@ -73,12 +169,8 @@ for (let r = 0; r < MAP_H; r++) {
 const patrolWaypoints = [...hideSpots, ...keySpawns].map(p => tileCenter(p.r, p.c));
 
 // ─── STATE ────────────────────────────────────────────────────
-// Each solo player gets their OWN private game session.
-// Co-op / asymmetric players share a session keyed by a room code.
-// For simplicity: solo = private session per connection, others share global.
-
-const clients = new Map();      // id → { ws, id, sessionId }
-const sessions = new Map();     // sessionId → gameState
+const clients = new Map();
+const sessions = new Map();
 let nextId = 1;
 let nextSession = 1;
 
@@ -138,6 +230,9 @@ function createGameState(mode, sessionId) {
     difficulty: 1.0,
     gameLoop: null,
     lastTick: Date.now(),
+    lastTauntTime: 0,
+    tauntInterval: 12, // seconds between taunts
+    claudeStrategyTimer: 0,
   };
 }
 
@@ -171,7 +266,7 @@ function broadcastStateForSession(gs) {
   });
 }
 
-// ─── GRANNY AI ────────────────────────────────────────────────
+// ─── CLAUDE AI-ENHANCED GRANNY AI ────────────────────────────
 function updateGrannyAI(gs, dt) {
   if (!gs || gs.phase !== 'playing') return;
   const e = gs.entity;
@@ -246,11 +341,13 @@ function updateGrannyAI(gs, dt) {
         if (dist < 1.5 && !target.hiding) {
           target.alive = false;
           broadcastToSession(gs.sessionId, { type: 'playerCaught', id: target.id, name: target.name });
-          // Check if all players dead
+          // Claude taunts on kill
+          triggerClaudeTaunt(gs, `You just caught player "${target.name}". They were so close to escaping. Mock them.`);
           const anyAlive = Object.values(gs.players).some(p => p.alive && !p.isMonster);
           if (!anyAlive) {
             gs.phase = 'ended';
             broadcastToSession(gs.sessionId, { type: 'gameEnd', result: 'caught' });
+            triggerClaudeTaunt(gs, 'All players are dead. You won. Gloat about your victory.');
             stopSession(gs);
           }
         }
@@ -270,6 +367,67 @@ function updateGrannyAI(gs, dt) {
   }
 }
 
+// ─── CLAUDE TAUNT SYSTEM ─────────────────────────────────────
+async function triggerClaudeTaunt(gs, contextOverride) {
+  if (!gs || gs.phase === 'ended') return;
+
+  const alivePlayers = Object.values(gs.players).filter(p => p.alive && !p.isMonster);
+  const e = gs.entity;
+  const timeLeft = Math.round(gs.maxTime - gs.time);
+  const keysFound = gs.items.filter(i => i.pickedUp).length;
+  const keysTotal = gs.items.length;
+
+  let context = contextOverride;
+  if (!context) {
+    const closestPlayer = alivePlayers.reduce((closest, p) => {
+      const d = Math.hypot(p.x - e.x, p.z - e.z);
+      return (!closest || d < closest.dist) ? { ...p, dist: d } : closest;
+    }, null);
+
+    const situations = [];
+    if (closestPlayer && closestPlayer.dist < 8) situations.push(`Player "${closestPlayer.name}" is very close (${Math.round(closestPlayer.dist)} units away).`);
+    if (closestPlayer && closestPlayer.hiding) situations.push(`A player is hiding nearby. You can almost sense them.`);
+    if (keysFound > 0) situations.push(`Players have found ${keysFound}/${keysTotal} keys.`);
+    if (gs.exit.open) situations.push('The exit is OPEN. Players are trying to escape!');
+    if (timeLeft < 60) situations.push(`Only ${timeLeft} seconds remain.`);
+    if (e.state === 'chase') situations.push('You are actively chasing someone!');
+    if (e.state === 'patrol') situations.push('You are patrolling, searching for intruders.');
+    if (e.state === 'investigate') situations.push('You heard a noise and are investigating.');
+
+    context = situations.length > 0 ? situations.join(' ') : 'You are patrolling the dark house. Taunt the players.';
+  }
+
+  const taunt = await getClaudeTaunt(context);
+  if (taunt) {
+    broadcastToSession(gs.sessionId, { type: 'claudeTaunt', text: taunt, state: e.state });
+    console.log(`[CLAUDE] ${taunt}`);
+  }
+}
+
+// ─── CLAUDE STRATEGY SYSTEM ──────────────────────────────────
+async function applyClaudeStrategy(gs) {
+  if (!gs || gs.phase !== 'playing') return;
+  const e = gs.entity;
+  if (e.controlledBy) return;
+  if (e.state === 'chase') return; // Don't override active chase
+
+  const strategy = await getClaudeHuntingStrategy(gs);
+  if (strategy) {
+    if (strategy.action === 'chase' && strategy.targetX && strategy.targetZ) {
+      e.state = 'chase';
+      e.targetX = strategy.targetX;
+      e.targetZ = strategy.targetZ;
+      e.stateTimer = 10;
+    } else if (strategy.action === 'investigate') {
+      e.state = 'investigate';
+      e.targetX = strategy.targetX || e.targetX;
+      e.targetZ = strategy.targetZ || e.targetZ;
+      e.stateTimer = 8;
+    }
+    console.log(`[CLAUDE STRATEGY] ${strategy.action}: ${strategy.reason}`);
+  }
+}
+
 // ─── GAME TICK ────────────────────────────────────────────────
 function makeGameTick(gs) {
   return function gameTick() {
@@ -285,11 +443,28 @@ function makeGameTick(gs) {
     if (gs.time >= gs.maxTime) {
       gs.phase = 'ended';
       broadcastToSession(gs.sessionId, { type: 'gameEnd', result: 'escaped', reason: 'time' });
+      triggerClaudeTaunt(gs, 'Time ran out. The players survived. Express frustration.');
       stopSession(gs);
       return;
     }
 
     updateGrannyAI(gs, dt);
+
+    // Claude taunts at intervals
+    if (gs.time - gs.lastTauntTime >= gs.tauntInterval) {
+      gs.lastTauntTime = gs.time;
+      triggerClaudeTaunt(gs);
+      // Decrease interval as game progresses (more taunts near end)
+      gs.tauntInterval = Math.max(8, 15 - gs.difficulty * 3);
+    }
+
+    // Claude strategy every 20 seconds
+    gs.claudeStrategyTimer += dt;
+    if (gs.claudeStrategyTimer >= 20) {
+      gs.claudeStrategyTimer = 0;
+      applyClaudeStrategy(gs);
+    }
+
     broadcastStateForSession(gs);
   };
 }
@@ -298,8 +473,13 @@ function startSession(gs) {
   if (gs.gameLoop) clearInterval(gs.gameLoop);
   gs.phase = 'playing';
   gs.lastTick = Date.now();
-  gs.gameLoop = setInterval(makeGameTick(gs), 1000 / 20); // 20 ticks/sec
+  gs.gameLoop = setInterval(makeGameTick(gs), 1000 / 20);
   broadcastToSession(gs.sessionId, { type: 'gameStart', mode: gs.mode });
+
+  // Initial Claude taunt
+  setTimeout(() => {
+    triggerClaudeTaunt(gs, 'A new player has entered your house. Welcome them menacingly. This is the start of the game.');
+  }, 2000);
 }
 
 function stopSession(gs) {
@@ -313,7 +493,6 @@ wss.on('connection', (ws) => {
 
   console.log(`[+] Client ${id} connected (${clients.size} total)`);
 
-  // Send init immediately so client can build the map
   ws.send(JSON.stringify({
     type: 'init',
     id,
@@ -342,7 +521,6 @@ wss.on('connection', (ws) => {
           delete gs.players[id];
           broadcastToSession(gs.sessionId, { type: 'playerLeft', id });
         }
-        // Clean up empty sessions
         const remaining = Object.keys(gs.players).length;
         if (remaining === 0) {
           stopSession(gs);
@@ -365,20 +543,17 @@ function handleMessage(id, msg) {
   const client = clients.get(id);
   if (!client) return;
 
-  // ── JOIN ──
   if (msg.type === 'join') {
     const mode = msg.mode || 'solo';
     const isSolo = mode === 'solo';
 
     let gs;
     if (isSolo) {
-      // Solo: always a fresh private session
       const sid = String(nextSession++);
       gs = createGameState(mode, sid);
       sessions.set(sid, gs);
       client.sessionId = sid;
     } else {
-      // Co-op / asymmetric: find or create a shared session for this mode
       let found = null;
       for (const [sid, s] of sessions) {
         if (s.mode === mode && s.phase === 'lobby') { found = s; break; }
@@ -420,7 +595,6 @@ function handleMessage(id, msg) {
       mode: gs.mode,
     });
 
-    // Send current state to the new player
     sendToClient(id, {
       type: 'state',
       time: Math.max(0, gs.maxTime - gs.time),
@@ -432,7 +606,6 @@ function handleMessage(id, msg) {
       phase: gs.phase,
     });
 
-    // Auto-start solo immediately
     if (isSolo) {
       startSession(gs);
     }
@@ -441,17 +614,14 @@ function handleMessage(id, msg) {
     return;
   }
 
-  // All other messages need a session
   const gs = client.sessionId ? sessions.get(client.sessionId) : null;
   if (!gs) return;
 
-  // ── START GAME (host button) ──
   if (msg.type === 'startGame') {
     if (gs.phase === 'lobby') startSession(gs);
     return;
   }
 
-  // ── MOVE ──
   if (msg.type === 'move') {
     const p = gs.players[id];
     if (!p || !p.alive) return;
@@ -461,14 +631,12 @@ function handleMessage(id, msg) {
     p.rotY = msg.rotY || 0;
     p.sprinting = !!msg.sprint;
 
-    // Noise event
     gs.noiseEvents.push({
       x: p.x, z: p.z,
       radius: msg.sprint ? 4 : 2,
       time: gs.time,
     });
 
-    // If monster is controlled by player, move entity
     if (p.isMonster && gs.entity.controlledBy === id) {
       gs.entity.x = p.x;
       gs.entity.z = p.z;
@@ -477,22 +645,21 @@ function handleMessage(id, msg) {
     return;
   }
 
-  // ── INTERACT ──
   if (msg.type === 'interact') {
     const p = gs.players[id];
     if (!p || !p.alive) return;
 
-    // Pick up keys
     for (const item of gs.items) {
       if (!item.pickedUp && Math.hypot(p.x - item.x, p.z - item.z) < 2.5) {
         item.pickedUp = true;
         p.carrying = item.id;
         broadcastToSession(gs.sessionId, { type: 'itemPickedUp', playerId: id, itemId: item.id });
+        // Claude reacts to key pickup
+        triggerClaudeTaunt(gs, `Player "${p.name}" just picked up the ${item.color} key. React to this.`);
         break;
       }
     }
 
-    // Use key on exit
     if (!gs.exit.open) {
       const distToExit = Math.hypot(p.x - gs.exit.x, p.z - gs.exit.z);
       if (distToExit < 2.5) {
@@ -501,11 +668,11 @@ function handleMessage(id, msg) {
           heldKeys.slice(0, gs.exit.keysNeeded).forEach(k => { k.usedOnExit = true; });
           gs.exit.open = true;
           broadcastToSession(gs.sessionId, { type: 'exitUnlocked' });
+          triggerClaudeTaunt(gs, 'The exit has been unlocked! Express alarm and rage. They must not escape!');
         }
       }
     }
 
-    // Walk through open exit
     if (gs.exit.open) {
       const distToExit = Math.hypot(p.x - gs.exit.x, p.z - gs.exit.z);
       if (distToExit < 2.5) {
@@ -516,6 +683,7 @@ function handleMessage(id, msg) {
         if (!anyStillIn) {
           gs.phase = 'ended';
           broadcastToSession(gs.sessionId, { type: 'gameEnd', result: 'escaped', reason: 'exit' });
+          triggerClaudeTaunt(gs, 'A player escaped! Express fury and vow revenge.');
           stopSession(gs);
         }
       }
@@ -523,14 +691,12 @@ function handleMessage(id, msg) {
     return;
   }
 
-  // ── CROUCH ──
   if (msg.type === 'crouch') {
     const p = gs.players[id];
     if (p) p.hiding = !!msg.active;
     return;
   }
 
-  // ── RESTART ──
   if (msg.type === 'restart') {
     stopSession(gs);
     sessions.delete(gs.sessionId);
@@ -578,11 +744,11 @@ const PORT = process.env.PORT || 2567;
 server.listen(PORT, '0.0.0.0', () => {
   const ip = getLocalIP();
   console.log('\n╔══════════════════════════════════════════════════╗');
-  console.log('║         HUNTED – HORROR ESCAPE GAME             ║');
+  console.log('║      HUNTED BY CLAUDE – AI HORROR GAME          ║');
   console.log('╠══════════════════════════════════════════════════╣');
   console.log(`║  Local:   http://localhost:${PORT}                 ║`);
   console.log(`║  Network: http://${ip}:${PORT}             ║`);
+  console.log('║  Claude AI: ACTIVE                              ║');
   console.log('║  Status:  /status                               ║');
-  console.log('║  QR Code: /qr                                   ║');
   console.log('╚══════════════════════════════════════════════════╝\n');
 });
