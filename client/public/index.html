@@ -143,6 +143,45 @@ canvas:not(#minimap){position:fixed;inset:0;display:block;width:100%!important;h
 #scanlines{position:fixed;inset:0;z-index:21;pointer-events:none;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.05) 2px,rgba(0,0,0,.05) 4px);opacity:.2}
 #fear-overlay{position:fixed;inset:0;z-index:22;pointer-events:none;background:rgba(80,0,0,0);transition:background .5s}
 
+/* ── CHAT SYSTEM ── */
+#chat-container{position:fixed;bottom:120px;right:20px;width:280px;max-height:300px;z-index:99;background:rgba(0,0,0,.85);border:1px solid rgba(0,229,255,.25);border-radius:8px;display:flex;flex-direction:column;pointer-events:auto;box-shadow:0 0 20px rgba(0,229,255,.1)}
+#chat-container.hidden{display:none}
+#chat-messages{flex:1;overflow-y:auto;padding:10px;font-size:.7rem;color:#aaa;line-height:1.4;scrollbar-width:thin;scrollbar-color:rgba(0,229,255,.3) transparent}
+#chat-messages::-webkit-scrollbar{width:4px}
+#chat-messages::-webkit-scrollbar-track{background:transparent}
+#chat-messages::-webkit-scrollbar-thumb{background:rgba(0,229,255,.3);border-radius:2px}
+.chat-msg{margin-bottom:6px;padding:4px 6px;border-left:2px solid rgba(0,229,255,.3)}
+.chat-msg.self{border-left-color:#00ff88;color:#00ff88}
+.chat-msg.system{color:#ff8844;border-left-color:#ff8844;font-style:italic}
+.chat-msg-name{font-weight:700;color:#00e5ff;font-size:.65rem}
+#chat-input-box{display:flex;gap:4px;padding:8px;border-top:1px solid rgba(0,229,255,.15)}
+#chat-input{flex:1;background:rgba(0,229,255,.05);border:1px solid rgba(0,229,255,.2);color:#e0e0e0;padding:6px 8px;font-size:.7rem;border-radius:3px;font-family:inherit}
+#chat-input:focus{outline:none;border-color:#00e5ff;box-shadow:0 0 8px rgba(0,229,255,.2)}
+#chat-send{background:rgba(0,229,255,.15);border:1px solid rgba(0,229,255,.3);color:#00e5ff;padding:6px 10px;font-size:.65rem;font-weight:700;border-radius:3px;cursor:pointer;transition:all .2s}
+#chat-send:hover{background:rgba(0,229,255,.25);border-color:#00e5ff}
+#chat-toggle{position:fixed;bottom:120px;right:20px;width:40px;height:40px;z-index:98;background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.3);border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#00e5ff;font-weight:700;font-size:.8rem;transition:all .2s}
+#chat-toggle:hover{background:rgba(0,229,255,.2);border-color:#00e5ff}
+#chat-toggle.hidden{display:none}
+
+/* ── STATISTICS PANEL ── */
+#stats-panel{position:fixed;top:20px;right:20px;z-index:99;background:rgba(0,0,0,.8);border:1px solid rgba(0,229,255,.25);border-radius:8px;padding:12px;font-size:.75rem;color:#aaa;min-width:180px;pointer-events:auto}
+#stats-panel.hidden{display:none}
+.stat-row{display:flex;justify-content:space-between;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid rgba(0,229,255,.1)}
+.stat-label{color:#00e5ff;font-weight:700}
+.stat-value{color:#00ff88;font-weight:700}
+
+/* ── TUTORIAL OVERLAY ── */
+#tutorial-overlay{position:fixed;inset:0;z-index:400;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;pointer-events:auto}
+#tutorial-overlay.show{display:flex}
+#tutorial-box{background:rgba(0,10,20,.95);border:2px solid #00e5ff;border-radius:12px;padding:30px;max-width:500px;text-align:center;box-shadow:0 0 40px rgba(0,229,255,.3)}
+#tutorial-box h2{color:#00e5ff;font-size:1.5rem;margin-bottom:16px;letter-spacing:.1em}
+#tutorial-box p{color:#aaa;font-size:.9rem;line-height:1.8;margin-bottom:20px}
+#tutorial-controls{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+#tutorial-controls button{background:rgba(0,229,255,.15);color:#00e5ff;border:1px solid rgba(0,229,255,.3);padding:10px 20px;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:700;transition:all .2s}
+#tutorial-controls button:hover{background:rgba(0,229,255,.3);border-color:#00e5ff}
+#tutorial-controls button.primary{background:rgba(0,255,136,.15);color:#00ff88;border-color:rgba(0,255,136,.3)}
+#tutorial-controls button.primary:hover{background:rgba(0,255,136,.3);border-color:#00ff88}
+
 /* ── MESSAGE POPUP ── */
 #msg-popup{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:150;font-size:clamp(1.4rem,5vw,2.8rem);color:#ff3333;text-shadow:0 0 40px #ff333388;pointer-events:none;opacity:0;transition:opacity .4s;text-align:center;letter-spacing:.1em}
 #msg-popup.show{opacity:1}
@@ -304,6 +343,36 @@ canvas:not(#minimap){position:fixed;inset:0;display:block;width:100%!important;h
 <div id="scanlines"></div>
 <div id="fear-overlay"></div>
 
+<!-- ═══ CHAT SYSTEM ═══ -->
+<div id="chat-toggle" class="hidden">💬</div>
+<div id="chat-container" class="hidden">
+  <div id="chat-messages"></div>
+  <div id="chat-input-box">
+    <input id="chat-input" type="text" placeholder="Say something..." maxlength="100">
+    <button id="chat-send">Send</button>
+  </div>
+</div>
+
+<!-- ═══ STATISTICS PANEL ═══ -->
+<div id="stats-panel" class="hidden">
+  <div class="stat-row"><span class="stat-label">Wins</span><span class="stat-value" id="stat-wins">0</span></div>
+  <div class="stat-row"><span class="stat-label">Losses</span><span class="stat-value" id="stat-losses">0</span></div>
+  <div class="stat-row"><span class="stat-label">Best Time</span><span class="stat-value" id="stat-best-time">--:--</span></div>
+  <div class="stat-row"><span class="stat-label">Total Played</span><span class="stat-value" id="stat-total">0</span></div>
+</div>
+
+<!-- ═══ TUTORIAL OVERLAY ═══ -->
+<div id="tutorial-overlay">
+  <div id="tutorial-box">
+    <h2 id="tutorial-title">Welcome to HUNTED</h2>
+    <p id="tutorial-text">You are trapped in Claude's domain. Collect keys, solve puzzles, and escape before time runs out!</p>
+    <div id="tutorial-controls">
+      <button id="tutorial-skip">Skip</button>
+      <button id="tutorial-next" class="primary">Next</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ POPUPS ═══ -->
 <div id="msg-popup"></div>
 <div id="death-screen">
@@ -385,28 +454,50 @@ let tauntTimeout = null;
 // ═══════════════════════════════════════════════════════════════
 // WEBSOCKET
 // ═══════════════════════════════════════════════════════════════
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
+const RECONNECT_DELAY = 2000;
+
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  // Connect to game server on port 2567
   const host = location.hostname;
-  const port = 2567;
-  ws = new WebSocket(`${proto}//${host}:${port}`);
-  console.log('[App] Connecting to game server:', `${proto}//${host}:${port}`);
-
+  const wsUrl = `${proto}//${host}/ws`; // Use Vite proxy path
+  
+  console.log('[App] Attempting WebSocket connection to:', wsUrl);
+  console.log('[App] Protocol:', proto, 'Host:', host);
+  
+  ws = new WebSocket(wsUrl);
+  
   ws.onopen = () => {
+    console.log('[App] WebSocket connected successfully');
+    reconnectAttempts = 0;
     setStatus('Connected - enter your name and choose a mode');
   };
 
   ws.onmessage = (e) => {
-    try { onMsg(JSON.parse(e.data)); } catch (_) {}
+    try { 
+      const msg = JSON.parse(e.data);
+      console.log('[App] Received message:', msg.type);
+      onMsg(msg); 
+    } catch (err) {
+      console.error('[App] Failed to parse message:', err, e.data);
+    }
   };
 
-  ws.onclose = () => {
+  ws.onclose = (event) => {
+    console.log('[App] WebSocket closed:', event.code, event.reason);
     setStatus('Disconnected - reload to reconnect');
     showLobby();
+    
+    if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+      reconnectAttempts++;
+      console.log(`[App] Reconnecting... (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
+      setTimeout(connect, RECONNECT_DELAY);
+    }
   };
 
-  ws.onerror = () => {
+  ws.onerror = (event) => {
+    console.error('[App] WebSocket error:', event);
     setStatus('Connection error - check server');
   };
 }
