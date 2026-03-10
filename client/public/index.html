@@ -20,6 +20,10 @@ canvas:not(#minimap){position:fixed;inset:0;display:block;width:100%!important;h
 #lobby.hidden{display:none!important}
 #lobby-title{font-size:clamp(2.5rem,12vw,5rem);font-weight:900;color:#00e5ff;letter-spacing:.2em;text-shadow:0 0 40px #00e5ff66,0 0 80px #00e5ff33;animation:flicker 4s infinite}
 #lobby-subtitle{font-size:clamp(1.2rem,5vw,2rem);font-weight:700;color:#ff3333;letter-spacing:.15em;text-shadow:0 0 20px #ff333366;margin-top:-4px}
+/* ── THEME-SPECIFIC STYLING ── */
+.theme-kitchen{--accent:#ff8844;--primary:#8b4513}
+.theme-house{--accent:#00e5ff;--primary:#1a1a2e}
+.theme-nightmare{--accent:#ff3333;--primary:#0a0a0a}
 @keyframes flicker{0%,100%{opacity:1}88%{opacity:1}89%{opacity:.6}90%{opacity:1}94%{opacity:.8}95%{opacity:1}}
 #lobby-sub{color:#556;font-size:.75rem;letter-spacing:.18em;margin-bottom:12px}
 #nameInput{background:rgba(0,229,255,.04);border:1px solid rgba(0,229,255,.25);color:#e0e0e0;padding:13px 18px;font-size:1rem;width:min(300px,88vw);text-align:center;font-family:inherit;border-radius:4px;transition:border-color .2s}
@@ -33,6 +37,7 @@ canvas:not(#minimap){position:fixed;inset:0;display:block;width:100%!important;h
 #startBtn{display:none;background:rgba(0,200,100,.1);border-color:#00cc66;color:#00ff88}
 #startBtn:hover{background:rgba(0,200,100,.25);color:#fff}
 #lobby-lore{color:#334;font-size:.6rem;max-width:min(320px,85vw);text-align:center;line-height:1.7;margin-top:10px;font-style:italic}
+#map-name{color:#00e5ff;font-size:.75rem;letter-spacing:.1em;margin-top:8px;text-transform:uppercase;opacity:.8}
 .diff-btn{background:transparent;border:1px solid rgba(0,229,255,.15);color:#667;padding:8px 14px;font-size:.7rem;cursor:pointer;font-family:inherit;letter-spacing:.1em;border-radius:3px;transition:all .2s;font-weight:600}
 .diff-btn:hover{border-color:rgba(0,229,255,.4);color:#aaa}
 .diff-btn.active{border-color:#00e5ff;color:#00e5ff;background:rgba(0,229,255,.1);box-shadow:0 0 12px rgba(0,229,255,.2)}
@@ -142,6 +147,7 @@ canvas:not(#minimap){position:fixed;inset:0;display:block;width:100%!important;h
     <button class="diff-btn" data-difficulty="normal" onclick="selectDifficulty('normal')">NORMAL</button>
     <button class="diff-btn" data-difficulty="hard" onclick="selectDifficulty('hard')">HARD</button>
   </div>
+  <div id="map-name">Granny's Kitchen</div>
 
   <button class="lbtn" onclick="joinGame('solo')">&#9654; SOLO ESCAPE</button>
   <button class="lbtn" onclick="joinGame('coop')">&#128101; CO-OP ESCAPE</button>
@@ -459,6 +465,13 @@ function selectDifficulty(diff) {
   document.querySelectorAll('.diff-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.difficulty === diff);
   });
+  // Update map name display
+  const mapNames = {
+    easy: 'Granny\'s Kitchen',
+    normal: 'Granny\'s House',
+    hard: 'Granny\'s Nightmare'
+  };
+  document.getElementById('map-name').textContent = mapNames[diff] || 'Unknown Map';
 }
 
 function joinGame(mode, asMonster = false) {
@@ -566,13 +579,26 @@ function buildMap() {
   const hideGeo  = new THREE.BoxGeometry(T * 0.55, WH * 0.75, T * 0.55);
 
   // Enhanced materials with Phong for better light response
-  const floorMat = new THREE.MeshPhongMaterial({ color: 0x1a1510, shininess: 8, specular: 0x111111 });
-  const ceilMat  = new THREE.MeshPhongMaterial({ color: 0x0c0a08, shininess: 3 });
-  const wallMat  = new THREE.MeshPhongMaterial({ color: 0x2a1e14, shininess: 12, specular: 0x0a0a0a });
-  const wallMat2 = new THREE.MeshPhongMaterial({ color: 0x221810, shininess: 10, specular: 0x080808 });
-  const doorMat  = new THREE.MeshPhongMaterial({ color: 0x4a3520, shininess: 18, specular: 0x111111 });
-  const exitMat  = new THREE.MeshPhongMaterial({ color: 0x1a4a1a, emissive: 0x082008, shininess: 20 });
-  const hideMat  = new THREE.MeshPhongMaterial({ color: 0x181828, shininess: 5 });
+  // Theme-specific color variations
+  let floorColor = 0x1a1510, ceilColor = 0x0c0a08, wallColor = 0x2a1e14, wallColor2 = 0x221810;
+  let doorColor = 0x4a3520, exitColor = 0x1a4a1a, hideColor = 0x181828;
+  
+  // Apply theme-specific colors based on map name
+  if (lastState && lastState.mapName) {
+    if (lastState.mapName.includes('Kitchen')) {
+      floorColor = 0x2a2015; wallColor = 0x3a2a1a; doorColor = 0x5a4520;
+    } else if (lastState.mapName.includes('Nightmare')) {
+      floorColor = 0x0a0a0a; ceilColor = 0x050505; wallColor = 0x1a1a1a; hideColor = 0x0f0f1f;
+    }
+  }
+  
+  const floorMat = new THREE.MeshPhongMaterial({ color: floorColor, shininess: 8, specular: 0x111111 });
+  const ceilMat  = new THREE.MeshPhongMaterial({ color: ceilColor, shininess: 3 });
+  const wallMat  = new THREE.MeshPhongMaterial({ color: wallColor, shininess: 12, specular: 0x0a0a0a });
+  const wallMat2 = new THREE.MeshPhongMaterial({ color: wallColor2, shininess: 10, specular: 0x080808 });
+  const doorMat  = new THREE.MeshPhongMaterial({ color: doorColor, shininess: 18, specular: 0x111111 });
+  const exitMat  = new THREE.MeshPhongMaterial({ color: exitColor, emissive: 0x082008, shininess: 20 });
+  const hideMat  = new THREE.MeshPhongMaterial({ color: hideColor, shininess: 5 });
 
   let lightIndex = 0;
 
