@@ -1,0 +1,17 @@
+{
+  "name": "horror-lan-game",
+  "version": "1.0.0",
+  "description": "LAN multiplayer horror escape game - Granny meets Dead by Daylight in the browser",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "qrcode": "^1.5.3",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "canvas": "^3.2.1"
+  }
+}
