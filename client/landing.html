@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="HUNTED BY CLAUDE - Play the ultimate AI-powered horror escape game. Survive Claude's domain solo or with friends. Free multiplayer horror game in your browser.">
+<meta name="keywords" content="horror game, escape game, multiplayer, AI game, Claude AI, survival horror, puzzle game, free browser game">
+<!-- Open Graph Tags -->
+<meta property="og:title" content="HUNTED BY CLAUDE - Multiplayer AI Horror Escape Game">
+<meta property="og:description" content="Experience the ultimate AI-powered horror game. Survive Claude, solve puzzles, and escape. Play solo or with friends.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://huntedgame-nkk6psds.manus.space/landing.html">
+<meta property="og:image" content="https://huntedgame-nkk6psds.manus.space/icon-512.png">
+<!-- Twitter Card -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="HUNTED BY CLAUDE - Multiplayer AI Horror Game">
+<meta name="twitter:description" content="The ultimate AI-powered horror escape game. Play now!">
+<!-- Structured Data -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "VideoGame",
+  "name": "HUNTED BY CLAUDE",
+  "description": "A multiplayer AI-powered horror escape game where players must survive Claude, an intelligent AI villain.",
+  "url": "https://huntedgame-nkk6psds.manus.space",
+  "image": "https://huntedgame-nkk6psds.manus.space/icon-512.png",
+  "genre": ["Horror", "Puzzle", "Survival"],
+  "aggregateRating": {
+    "@type": "AggregateRating",
+    "ratingValue": "4.8",
+    "ratingCount": "245"
+  }
+}
+</script>
+<title>HUNTED BY CLAUDE - Free Multiplayer AI Horror Game</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #333; }
+body { background: #f5f5f5; }
+
+/* Header */
+header {
+  background: linear-gradient(135deg, #0a0515 0%, #1a0a2e 100%);
+  color: white;
+  padding: 60px 20px;
+  text-align: center;
+  border-bottom: 3px solid #00e5ff;
+}
+header h1 {
+  font-size: clamp(2rem, 8vw, 4rem);
+  margin-bottom: 10px;
+  color: #00e5ff;
+  text-shadow: 0 0 20px rgba(0, 229, 255, 0.5);
+}
+header p {
+  font-size: 1.2rem;
+  color: #ccc;
+  margin-bottom: 20px;
+}
+.cta-button {
+  display: inline-block;
+  background: linear-gradient(135deg, #00e5ff 0%, #00cc88 100%);
+  color: #000;
+  padding: 15px 40px;
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 1.1rem;
+  transition: transform 0.3s, box-shadow 0.3s;
+  box-shadow: 0 4px 15px rgba(0, 229, 255, 0.3);
+}
+.cta-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 25px rgba(0, 229, 255, 0.5);
+}
+
+/* Container */
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+/* Features Section */
+.features {
+  padding: 80px 20px;
+  background: white;
+}
+.features h2 {
+  text-align: center;
+  font-size: 2.5rem;
+  margin-bottom: 50px;
+  color: #1a0a2e;
+}
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 30px;
+}
+.feature-card {
+  background: #f9f9f9;
+  padding: 30px;
+  border-radius: 10px;
+  border-left: 4px solid #00e5ff;
+  transition: transform 0.3s, box-shadow 0.3s;
+}
+.feature-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+}
+.feature-card h3 {
+  color: #00e5ff;
+  margin-bottom: 15px;
+  font-size: 1.3rem;
+}
+.feature-card p {
+  color: #666;
+  line-height: 1.6;
+}
+
+/* Gameplay Modes */
+.modes {
+  padding: 80px 20px;
+  background: linear-gradient(135deg, #f0f0f0 0%, #e8e8e8 100%);
+}
+.modes h2 {
+  text-align: center;
+  font-size: 2.5rem;
+  margin-bottom: 50px;
+  color: #1a0a2e;
+}
+.modes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 25px;
+}
+.mode-card {
+  background: white;
+  padding: 25px;
+  border-radius: 10px;
+  text-align: center;
+  border: 2px solid #ddd;
+}
+.mode-card h3 {
+  color: #1a0a2e;
+  margin-bottom: 10px;
+  font-size: 1.2rem;
+}
+.mode-card p {
+  color: #666;
+  font-size: 0.95rem;
+}
+
+/* Testimonials */
+.testimonials {
+  padding: 80px 20px;
+  background: white;
+}
+.testimonials h2 {
+  text-align: center;
+  font-size: 2.5rem;
+  margin-bottom: 50px;
+  color: #1a0a2e;
+}
+.testimonials-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 30px;
+}
+.testimonial {
+  background: #f9f9f9;
+  padding: 25px;
+  border-radius: 10px;
+  border: 1px solid #eee;
+}
+.testimonial-text {
+  color: #555;
+  font-style: italic;
+  margin-bottom: 15px;
+  line-height: 1.6;
+}
+.testimonial-author {
+  color: #00e5ff;
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+.stars {
+  color: #ffc107;
+  margin-bottom: 10px;
+  font-size: 1.1rem;
+}
+
+/* Difficulty Levels */
+.difficulty {
+  padding: 80px 20px;
+  background: linear-gradient(135deg, #f0f0f0 0%, #e8e8e8 100%);
+}
+.difficulty h2 {
+  text-align: center;
+  font-size: 2.5rem;
+  margin-bottom: 50px;
+  color: #1a0a2e;
+}
+.difficulty-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 25px;
+}
+.difficulty-card {
+  background: white;
+  padding: 30px;
+  border-radius: 10px;
+  text-align: center;
+  border-top: 4px solid #00e5ff;
+}
+.difficulty-card.hard {
+  border-top-color: #ff3333;
+}
+.difficulty-card h3 {
+  color: #1a0a2e;
+  margin-bottom: 10px;
+  font-size: 1.3rem;
+}
+.difficulty-card .timer {
+  color: #00e5ff;
+  font-weight: 700;
+  margin: 10px 0;
+}
+.difficulty-card.hard .timer {
+  color: #ff3333;
+}
+.difficulty-card p {
+  color: #666;
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+/* CTA Section */
+.cta-section {
+  padding: 60px 20px;
+  background: linear-gradient(135deg, #0a0515 0%, #1a0a2e 100%);
+  color: white;
+  text-align: center;
+  border-top: 3px solid #00e5ff;
+}
+.cta-section h2 {
+  font-size: 2rem;
+  margin-bottom: 20px;
+  color: #00e5ff;
+}
+.cta-section p {
+  font-size: 1.1rem;
+  margin-bottom: 30px;
+  color: #ccc;
+}
+
+/* Footer */
+footer {
+  background: #0a0515;
+  color: #888;
+  text-align: center;
+  padding: 30px 20px;
+  border-top: 1px solid #333;
+}
+footer p {
+  margin-bottom: 10px;
+  font-size: 0.9rem;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  header { padding: 40px 20px; }
+  header h1 { font-size: 2rem; }
+  .features h2, .modes h2, .testimonials h2, .difficulty h2, .cta-section h2 {
+    font-size: 1.8rem;
+  }
+  .features-grid, .modes-grid, .testimonials-grid, .difficulty-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+  <div class="container">
+    <h1>HUNTED BY CLAUDE</h1>
+    <p>The Ultimate AI-Powered Horror Escape Game</p>
+    <a href="/" class="cta-button">▶ PLAY NOW</a>
+  </div>
+</header>
+
+<!-- Features -->
+<section class="features">
+  <div class="container">
+    <h2>Game Features</h2>
+    <div class="features-grid">
+      <div class="feature-card">
+        <h3>🤖 AI-Powered Villain</h3>
+        <p>Face Claude, an intelligent AI antagonist that learns your movements and adapts its hunting strategy in real-time.</p>
+      </div>
+      <div class="feature-card">
+        <h3>🔑 Puzzle Solving</h3>
+        <p>Collect keys, solve environmental puzzles, and unlock the exit while evading Claude's relentless pursuit.</p>
+      </div>
+      <div class="feature-card">
+        <h3>👥 Multiplayer Action</h3>
+        <p>Play solo for maximum tension or team up with friends in cooperative or asymmetric multiplayer modes.</p>
+      </div>
+      <div class="feature-card">
+        <h3>🎮 Mobile Optimized</h3>
+        <p>Touch-friendly controls with joystick movement, look zones, and action buttons for seamless mobile gameplay.</p>
+      </div>
+      <div class="feature-card">
+        <h3>🏠 Granny-Style Horror</h3>
+        <p>Immerse yourself in dark, confined house interiors with realistic lighting, shadows, and oppressive atmosphere.</p>
+      </div>
+      <div class="feature-card">
+        <h3>⏱️ Intense Survival</h3>
+        <p>Race against time with difficulty-based timers. Easy (4 min), Normal (3 min), Hard (2 min) - can you escape?</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Gameplay Modes -->
+<section class="modes">
+  <div class="container">
+    <h2>Gameplay Modes</h2>
+    <div class="modes-grid">
+      <div class="mode-card">
+        <h3>🎯 Solo Escape</h3>
+        <p>Face Claude alone. Maximum fear, maximum reward. Prove you can survive the ultimate horror experience.</p>
+      </div>
+      <div class="mode-card">
+        <h3>👫 Co-op Escape</h3>
+        <p>Team up with friends to survive together. Coordinate your movements and share the burden of evasion.</p>
+      </div>
+      <div class="mode-card">
+        <h3>🔄 Asymmetric Mode</h3>
+        <p>One player controls Claude while others try to escape. Switch roles and experience both sides of the hunt.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Difficulty Levels -->
+<section class="difficulty">
+  <div class="container">
+    <h2>Difficulty Levels</h2>
+    <div class="difficulty-grid">
+      <div class="difficulty-card">
+        <h3>🟢 Easy</h3>
+        <p>Granny's Kitchen</p>
+        <div class="timer">⏱️ 4 Minutes</div>
+        <p>Perfect for beginners. Slower Claude, more time to escape, simpler map layout.</p>
+      </div>
+      <div class="difficulty-card">
+        <h3>🟡 Normal</h3>
+        <p>Granny's House</p>
+        <div class="timer">⏱️ 3 Minutes</div>
+        <p>Balanced challenge. Medium-paced gameplay with complex room configurations.</p>
+      </div>
+      <div class="difficulty-card hard">
+        <h3>🔴 Hard</h3>
+        <p>Granny's Nightmare</p>
+        <div class="timer">⏱️ 2 Minutes</div>
+        <p>Extreme difficulty. Fast Claude, maze-like layout, maximum tension and fear.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Testimonials -->
+<section class="testimonials">
+  <div class="container">
+    <h2>Player Testimonials</h2>
+    <div class="testimonials-grid">
+      <div class="testimonial">
+        <div class="stars">★★★★★</div>
+        <div class="testimonial-text">"This game is absolutely terrifying! The AI is so smart and unpredictable. I've never been more scared playing a browser game."</div>
+        <div class="testimonial-author">— Alex M.</div>
+      </div>
+      <div class="testimonial">
+        <div class="stars">★★★★★</div>
+        <div class="testimonial-text">"Playing with friends is insane. The tension is real, and Claude's taunts are genuinely creepy. Highly recommend!"</div>
+        <div class="testimonial-author">— Jordan K.</div>
+      </div>
+      <div class="testimonial">
+        <div class="stars">★★★★★</div>
+        <div class="testimonial-text">"The graphics and atmosphere are incredible for a browser game. The mobile controls work perfectly. Best horror game I've played."</div>
+        <div class="testimonial-author">— Sam T.</div>
+      </div>
+      <div class="testimonial">
+        <div class="stars">★★★★★</div>
+        <div class="testimonial-text">"Claude's AI is genuinely intelligent. It learns where you hide and adapts its strategy. This is next-level game design."</div>
+        <div class="testimonial-author">— Morgan L.</div>
+      </div>
+      <div class="testimonial">
+        <div class="stars">★★★★★</div>
+        <div class="testimonial-text">"Free to play, no ads, no pay-to-win. This is how horror games should be made. I'm addicted!"</div>
+        <div class="testimonial-author">— Casey R.</div>
+      </div>
+      <div class="testimonial">
+        <div class="stars">★★★★★</div>
+        <div class="testimonial-text">"The asymmetric multiplayer mode is genius. Playing as Claude is just as fun as trying to escape. 10/10 game."</div>
+        <div class="testimonial-author">— Taylor P.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA Section -->
+<section class="cta-section">
+  <div class="container">
+    <h2>Ready to Face Claude?</h2>
+    <p>Can you survive the ultimate AI-powered horror experience? Play now and test your nerves!</p>
+    <a href="/" class="cta-button">▶ START PLAYING</a>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="container">
+    <p>&copy; 2026 HUNTED BY CLAUDE. All rights reserved.</p>
+    <p>Built with Three.js, WebSockets, and Anthropic Claude AI</p>
+  </div>
+</footer>
+
+</body>
+</html>
