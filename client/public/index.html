@@ -33,6 +33,9 @@ canvas:not(#minimap){position:fixed;inset:0;display:block;width:100%!important;h
 #startBtn{display:none;background:rgba(0,200,100,.1);border-color:#00cc66;color:#00ff88}
 #startBtn:hover{background:rgba(0,200,100,.25);color:#fff}
 #lobby-lore{color:#334;font-size:.6rem;max-width:min(320px,85vw);text-align:center;line-height:1.7;margin-top:10px;font-style:italic}
+.diff-btn{background:transparent;border:1px solid rgba(0,229,255,.15);color:#667;padding:8px 14px;font-size:.7rem;cursor:pointer;font-family:inherit;letter-spacing:.1em;border-radius:3px;transition:all .2s;font-weight:600}
+.diff-btn:hover{border-color:rgba(0,229,255,.4);color:#aaa}
+.diff-btn.active{border-color:#00e5ff;color:#00e5ff;background:rgba(0,229,255,.1);box-shadow:0 0 12px rgba(0,229,255,.2)}
 
 /* ── HUD ── */
 #hud{position:fixed;top:0;left:0;right:0;z-index:100;pointer-events:none;padding:10px 14px;background:linear-gradient(180deg,rgba(0,0,0,.6) 0%,transparent 100%)}
@@ -134,6 +137,12 @@ canvas:not(#minimap){position:fixed;inset:0;display:block;width:100%!important;h
 
   <input id="nameInput" type="text" placeholder="Enter your name..." maxlength="20" autocomplete="off">
 
+  <div id="difficulty-select" style="margin:8px 0;display:flex;gap:6px;justify-content:center;flex-wrap:wrap;width:min(300px,88vw)">
+    <button class="diff-btn active" data-difficulty="easy" onclick="selectDifficulty('easy')">EASY</button>
+    <button class="diff-btn" data-difficulty="normal" onclick="selectDifficulty('normal')">NORMAL</button>
+    <button class="diff-btn" data-difficulty="hard" onclick="selectDifficulty('hard')">HARD</button>
+  </div>
+
   <button class="lbtn" onclick="joinGame('solo')">&#9654; SOLO ESCAPE</button>
   <button class="lbtn" onclick="joinGame('coop')">&#128101; CO-OP ESCAPE</button>
   <button class="lbtn sec" onclick="joinGame('asymmetric',false)">JOIN AS SURVIVOR</button>
@@ -197,6 +206,8 @@ canvas:not(#minimap){position:fixed;inset:0;display:block;width:100%!important;h
 <div id="win-screen">
   <h2>ESCAPED!</h2>
   <p id="win-msg">You escaped Claude's domain... for now.</p>
+  <div id="score-display" style="margin:16px 0;font-size:.9rem;color:#00ff88"></div>
+  <div id="leaderboard-display" style="margin:12px 0;max-height:150px;overflow-y:auto;font-size:.7rem;color:#667"></div>
   <button onclick="location.reload()">PLAY AGAIN</button>
 </div>
 
@@ -223,6 +234,7 @@ let lastState = null;
 let myState = null;
 let isHost = false;
 let playerCount = 0;
+let selectedDifficulty = 'normal';
 
 // ── THREE.JS ──
 let scene, camera, renderer, clock;
@@ -371,6 +383,16 @@ function onMsg(msg) {
         gamePhase = 'won';
         document.getElementById('win-msg').textContent =
           msg.reason === 'time' ? 'You survived the night!' : 'You escaped Claude\'s domain!';
+        if (msg.score !== undefined) {
+          document.getElementById('score-display').innerHTML = `<strong>SCORE: ${msg.score}</strong>`;
+        }
+        if (msg.leaderboard) {
+          let lb = '<strong>TOP SCORES</strong><br>';
+          msg.leaderboard.forEach((entry, i) => {
+            lb += `${i+1}. ${entry.name} - ${entry.score} (${entry.difficulty})<br>`;
+          });
+          document.getElementById('leaderboard-display').innerHTML = lb;
+        }
         document.getElementById('win-screen').classList.add('show');
       } else {
         gamePhase = 'dead';
@@ -432,10 +454,17 @@ function updatePlayerList(msg) {
   pl.textContent = `Player joined: ${msg.name}`;
 }
 
+function selectDifficulty(diff) {
+  selectedDifficulty = diff;
+  document.querySelectorAll('.diff-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.difficulty === diff);
+  });
+}
+
 function joinGame(mode, asMonster = false) {
   const name = (document.getElementById('nameInput').value || '').trim()
     || `Ghost_${Math.random().toString(36).slice(2,6).toUpperCase()}`;
-  send({ type: 'join', name, mode, asMonster });
+  send({ type: 'join', name, mode, asMonster, difficulty: selectedDifficulty });
   setStatus('Joining...');
 }
 

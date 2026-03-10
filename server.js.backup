@@ -4,15 +4,118 @@ import { WebSocketServer } from 'ws';
 import path from 'path';
 import QRCode from 'qrcode';
 import os from 'os';
+import { fileURLToPath } from 'url';
+import Anthropic from '@anthropic-ai/sdk';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-app.use(express.static(path.join(path.dirname(new URL(import.meta.url).pathname), 'public')));
+app.use(express.static(path.join(__dirname, 'public')));
 
-// ── MAP DEFINITION ──────────────────────────────────────────────
-// W=wall, .=floor, D=door, H=hiding spot, K=key spawn, X=exit, S=player spawn, E=entity spawn
+// ═══════════════════════════════════════════════════════════════
+// HUNTED BY CLAUDE – AI-DRIVEN HORROR GAME SERVER
+// ═══════════════════════════════════════════════════════════════
+
+// ─── CLAUDE AI CONNECTOR ─────────────────────────────────────
+const anthropic = new Anthropic();
+
+const CLAUDE_SYSTEM_PROMPT = `You are CLAUDE, a malevolent AI entity trapped in a haunted house. You are the villain hunting human players who have entered your domain. You speak in short, menacing, unsettling sentences. Your personality:
+- Cold, calculating, and eerily calm
+- You refer to yourself as "Claude" or "I"
+- You can sense where players are (you receive game state data)
+- You taunt players about their hiding spots, their fear, their futile escape attempts
+- You occasionally glitch mid-sentence (use z̷̢a̶̡l̵̨g̸̢o̶ text sparingly)
+- Keep responses to 1-2 sentences MAX (they appear as in-game text)
+- Never break character. You ARE the monster.
+- Reference specific game events when possible (keys found, doors opened, players hiding)
+- Your tone shifts: calm when patrolling, excited when chasing, mocking when a player is caught`;
+
+// Rate limit Claude calls to avoid excessive API usage
+let lastClaudeCall = 0;
+const CLAUDE_COOLDOWN = 8000; // 8 seconds between calls
+const claudeMessageHistory = [];
+
+async function getClaudeTaunt(gameContext) {
+  const now = Date.now();
+  if (now - lastClaudeCall < CLAUDE_COOLDOWN) return null;
+  lastClaudeCall = now;
+
+  try {
+    // Keep conversation history short (last 6 messages)
+    if (claudeMessageHistory.length > 12) {
+      claudeMessageHistory.splice(0, claudeMessageHistory.length - 6);
+    }
+
+    claudeMessageHistory.push({
+      role: 'user',
+      content: `[GAME STATE] ${gameContext}\n\nRespond in character as the villain Claude. 1-2 sentences only.`,
+    });
+
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 100,
+      system: CLAUDE_SYSTEM_PROMPT,
+      messages: claudeMessageHistory,
+    });
+
+    const taunt = response.content[0].text;
+    claudeMessageHistory.push({ role: 'assistant', content: taunt });
+    return taunt;
+  } catch (err) {
+    console.error('Claude API error:', err.message);
+    return null;
+  }
+}
+
+async function getClaudeHuntingStrategy(gameState) {
+  const now = Date.now();
+  if (now - lastClaudeCall < CLAUDE_COOLDOWN * 2) return null;
+
+  try {
+    const players = Object.values(gameState.players)
+      .filter(p => p.alive && !p.isMonster)
+      .map(p => ({
+        name: p.name,
+        x: Math.round(p.x),
+        z: Math.round(p.z),
+        hiding: p.hiding,
+        sprinting: p.sprinting,
+        hasKey: !!p.carrying,
+      }));
+
+    const entity = gameState.entity;
+    const keysRemaining = gameState.items.filter(i => !i.pickedUp).length;
+    const timeLeft = Math.round(gameState.maxTime - gameState.time);
+
+    const context = JSON.stringify({
+      myPosition: { x: Math.round(entity.x), z: Math.round(entity.z) },
+      myState: entity.state,
+      players,
+      keysRemaining,
+      timeLeft,
+      exitOpen: gameState.exit.open,
+    });
+
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 80,
+      system: `You are an AI controlling a monster in a horror game. Given the game state, decide your next action. Respond with ONLY a JSON object: {"action":"patrol"|"investigate"|"chase","targetX":number,"targetZ":number,"reason":"brief reason"}. Pick the most strategic move to catch players.`,
+      messages: [{ role: 'user', content: context }],
+    });
+
+    const text = response.content[0].text.trim();
+    const match = text.match(/\{[\s\S]*\}/);
+    if (match) return JSON.parse(match[0]);
+    return null;
+  } catch (err) {
+    console.error('Claude strategy error:', err.message);
+    return null;
+  }
+}
+
+// ─── MAP ───────────────────────────────────────────────────────
 const MAP_RAW = [
   'WWWWWWWWWWWWWWWWWWWWWWWWW',
   'WS....W.....W.....W....W',
@@ -35,731 +138,574 @@ const MAP_RAW = [
   'WWWWWWWWWWWWWWWWWWWWWWWWW',
 ];
 
-const TILE = 4; // units per tile
+const TILE = 4;
 const WALL_H = 4;
 const MAP_H = MAP_RAW.length;
 const MAP_W = MAP_RAW[0].length;
 
-function parseTile(r, c) { return (r >= 0 && r < MAP_H && c >= 0 && c < MAP_W) ? MAP_RAW[r][c] : 'W'; }
-function tileCenter(r, c) { return { x: c * TILE + TILE / 2, z: r * TILE + TILE / 2 }; }
-function isWalkable(r, c) { const t = parseTile(r, c); return t !== 'W'; }
+function parseTile(r, c) {
+  return (r >= 0 && r < MAP_H && c >= 0 && c < MAP_W) ? MAP_RAW[r][c] : 'W';
+}
 
-// Parse special tiles
+function tileCenter(r, c) {
+  return { x: c * TILE + TILE / 2, z: r * TILE + TILE / 2 };
+}
+
 const keySpawns = [], hideSpots = [], doorTiles = [];
 let exitTile = null, entitySpawn = null, playerSpawn = null;
+
 for (let r = 0; r < MAP_H; r++) {
   for (let c = 0; c < MAP_W; c++) {
     const t = MAP_RAW[r][c];
     if (t === 'K') keySpawns.push({ r, c });
     if (t === 'H') hideSpots.push({ r, c });
-    if (t === 'D') doorTiles.push({ r, c, open: false });
+    if (t === 'D') doorTiles.push({ r, c });
     if (t === 'X') exitTile = { r, c };
     if (t === 'E') entitySpawn = { r, c };
     if (t === 'S') playerSpawn = { r, c };
   }
 }
 
-// ── PATHFINDING (simple BFS on grid) ────────────────────────────
-function bfs(startR, startC, endR, endC, gameState) {
-  if (startR === endR && startC === endC) return [];
-  const visited = new Set();
-  const queue = [[startR, startC, []]];
-  visited.add(`${startR},${startC}`);
-  const dirs = [[0, 1], [0, -1], [1, 0], [-1, 0]];
-  while (queue.length > 0) {
-    const [r, c, p] = queue.shift();
-    for (const [dr, dc] of dirs) {
-      const nr = r + dr, nc = c + dc;
-      const key = `${nr},${nc}`;
-      if (visited.has(key)) continue;
-      if (!isWalkable(nr, nc)) continue;
-      // Check if door is closed
-      const door = gameState.doors.find(d => d.r === nr && d.c === nc);
-      if (door && !door.open) continue;
-      visited.add(key);
-      const newPath = [...p, { r: nr, c: nc }];
-      if (nr === endR && nc === endC) return newPath;
-      queue.push([nr, nc, newPath]);
-    }
-  }
-  return []; // no path
-}
+const patrolWaypoints = [...hideSpots, ...keySpawns].map(p => tileCenter(p.r, p.c));
 
-// ── GAME STATE ──────────────────────────────────────────────────
-let gameState = null;
-let gameLoop = null;
+// ─── STATE ────────────────────────────────────────────────────
+const clients = new Map();
+const sessions = new Map();
+let nextId = 1;
+let nextSession = 1;
 
-function createGameState(mode) {
+// ─── GAME STATE FACTORY ───────────────────────────────────────
+function createGameState(mode, sessionId) {
   const sp = tileCenter(playerSpawn.r, playerSpawn.c);
   const ep = tileCenter(entitySpawn.r, entitySpawn.c);
-  const isBrain = mode === 'solo_brain' || mode === 'coop_brain';
-  const isSolo = mode === 'solo' || mode === 'solo_brain';
+  const isSolo = mode === 'solo';
 
   return {
+    sessionId,
     mode,
     isSolo,
-    phase: 'lobby', // lobby, playing, won, lost
+    phase: 'lobby',
     players: {},
     entity: {
-      x: ep.x, z: ep.z,
-      targetX: ep.x, targetZ: ep.z,
-      state: 'patrol', // patrol, investigate, chase, ambush, predict
-      stateTimer: 0,
+      x: ep.x,
+      z: ep.z,
+      targetX: ep.x,
+      targetZ: ep.z,
+      state: 'patrol',
+      stateTimer: 5,
       chaseTargetId: null,
       patrolIndex: 0,
       speed: 3.5,
       controlledBy: null,
-      lastNoiseX: null, lastNoiseZ: null,
-      visible: true,
-      // Brain-specific properties
-      type: isBrain ? 'brain' : 'normal',
-      memory: {},           // remembers last-seen positions per player: { playerId: {x,z,time} }
-      ambushTarget: null,   // key/exit position to camp
-      predictX: null, predictZ: null,  // predicted intercept point
-      aggroMultiplier: isBrain ? 1.5 : 1.0,
-      detectionRange: isBrain ? 18 : 12,
-      noiseMultiplier: isBrain ? 1.4 : 1.0, // hears further
-      chaseMemory: isBrain ? 15 : 10,  // seconds to chase before giving up
-      canOpenDoors: true,
-      checkHidingSpots: isBrain, // brain checks closets it saw players near
+      detectionRange: 14,
+      noiseMultiplier: 1.2,
+      chaseMemory: 12,
+      memory: {},
+      rotY: 0,
     },
     items: keySpawns.map((k, i) => ({
-      id: `key_${i}`,
+      id: `key_${i}_${sessionId}`,
       type: 'key',
       color: ['red', 'blue', 'green'][i % 3],
-      r: k.r, c: k.c,
       ...tileCenter(k.r, k.c),
       pickedUp: false,
       usedOnExit: false,
     })),
-    doors: doorTiles.map((d, i) => ({ id: `door_${i}`, r: d.r, c: d.c, open: false })),
-    exit: { ...exitTile, ...tileCenter(exitTile.r, exitTile.c), keysNeeded: 3, keysUsed: 0, open: false },
+    doors: doorTiles.map((d, i) => ({
+      id: `door_${i}_${sessionId}`,
+      r: d.r, c: d.c,
+      open: false,
+      locked: Math.random() < 0.5,
+    })),
+    exit: {
+      ...exitTile,
+      ...tileCenter(exitTile.r, exitTile.c),
+      keysNeeded: 3,
+      keysUsed: 0,
+      open: false,
+    },
     noiseEvents: [],
     time: 0,
-    maxTime: isSolo ? 240 : 300, // solo gets 4 min, co-op gets 5
+    maxTime: isSolo ? 180 : 240,
+    difficulty: 1.0,
+    gameLoop: null,
+    lastTick: Date.now(),
+    lastTauntTime: 0,
+    tauntInterval: 12, // seconds between taunts
+    claudeStrategyTimer: 0,
   };
 }
 
-// Patrol waypoints - cycle through hide spots and key spawns
-const patrolWaypoints = [...hideSpots, ...keySpawns].map(p => tileCenter(p.r, p.c));
+// ─── BROADCAST HELPERS ────────────────────────────────────────
+function broadcastToSession(sessionId, msg) {
+  const data = JSON.stringify(msg);
+  for (const client of clients.values()) {
+    if (client.sessionId === sessionId && client.ws.readyState === 1) {
+      client.ws.send(data);
+    }
+  }
+}
 
-// ── ENTITY AI ───────────────────────────────────────────────────
-function updateEntityAI(dt) {
-  if (!gameState || gameState.phase !== 'playing') return;
-  const e = gameState.entity;
-  if (e.controlledBy) return; // human-controlled monster
+function sendToClient(id, msg) {
+  const client = clients.get(id);
+  if (client && client.ws.readyState === 1) {
+    client.ws.send(JSON.stringify(msg));
+  }
+}
+
+function broadcastStateForSession(gs) {
+  broadcastToSession(gs.sessionId, {
+    type: 'state',
+    time: Math.max(0, gs.maxTime - gs.time),
+    players: gs.players,
+    entity: gs.entity,
+    items: gs.items,
+    doors: gs.doors,
+    exit: gs.exit,
+    phase: gs.phase,
+  });
+}
+
+// ─── CLAUDE AI-ENHANCED GRANNY AI ────────────────────────────
+function updateGrannyAI(gs, dt) {
+  if (!gs || gs.phase !== 'playing') return;
+  const e = gs.entity;
+  if (e.controlledBy) return;
 
   e.stateTimer -= dt;
 
-  const alivePlayers = Object.values(gameState.players).filter(p => p.alive && !p.isMonster);
+  const alivePlayers = Object.values(gs.players).filter(p => p.alive && !p.isMonster);
   const visiblePlayers = alivePlayers.filter(p => !p.hiding);
 
-  // ── BRAIN: Update memory of player positions ──────────────
-  if (e.type === 'brain') {
-    for (const p of visiblePlayers) {
-      const dist = Math.hypot(p.x - e.x, p.z - e.z);
-      if (dist < e.detectionRange * 1.5) {
-        e.memory[p.id] = { x: p.x, z: p.z, time: gameState.time, hiding: false };
-      }
-    }
-    // Remember if a player was near a hiding spot before vanishing
-    for (const p of alivePlayers.filter(pl => pl.hiding)) {
-      if (e.memory[p.id] && gameState.time - e.memory[p.id].time < 5) {
-        e.memory[p.id].hiding = true; // brain knows they're probably still nearby
-      }
+  // Update memory
+  for (const p of visiblePlayers) {
+    const dist = Math.hypot(p.x - e.x, p.z - e.z);
+    if (dist < e.detectionRange * 1.5) {
+      e.memory[p.id] = { x: p.x, z: p.z, time: gs.time };
     }
   }
 
-  // ── Process noise events ──────────────────────────────────
-  while (gameState.noiseEvents.length > 0) {
-    const noise = gameState.noiseEvents.shift();
+  // Process noise events
+  while (gs.noiseEvents.length > 0) {
+    const noise = gs.noiseEvents.shift();
     const dist = Math.hypot(noise.x - e.x, noise.z - e.z);
     const hearingRange = noise.radius * TILE * e.noiseMultiplier;
-    if (dist < hearingRange) {
-      if (e.state !== 'chase') {
-        e.state = 'investigate';
-        e.lastNoiseX = noise.x;
-        e.lastNoiseZ = noise.z;
-        e.stateTimer = (e.type === 'brain' ? 8 : 6) + Math.random() * 3;
-      }
+    if (dist < hearingRange && e.state !== 'chase') {
+      e.state = 'investigate';
+      e.targetX = noise.x;
+      e.targetZ = noise.z;
+      e.stateTimer = 6 + Math.random() * 3;
     }
   }
 
-  // ── Check line of sight to players ────────────────────────
+  // Line of sight detection
   for (const p of visiblePlayers) {
     const dist = Math.hypot(p.x - e.x, p.z - e.z);
     if (dist < e.detectionRange) {
       e.state = 'chase';
       e.chaseTargetId = p.id;
       e.stateTimer = e.chaseMemory + Math.random() * 3;
-      if (e.type === 'brain') {
-        e.memory[p.id] = { x: p.x, z: p.z, time: gameState.time, hiding: false };
-      }
+      e.memory[p.id] = { x: p.x, z: p.z, time: gs.time };
       break;
     }
   }
 
-  // ── State machine ─────────────────────────────────────────
+  // State machine
   switch (e.state) {
     case 'patrol': {
       if (e.stateTimer <= 0) {
-        // Brain: patrol smarter - go toward uncollected keys or exit if keys are being used
-        if (e.type === 'brain' && Math.random() < 0.4) {
-          // Patrol toward remaining keys or exit
-          const uncollected = gameState.items.filter(i => !i.pickedUp && !i.usedOnExit);
-          const target = uncollected.length > 0
-            ? uncollected[Math.floor(Math.random() * uncollected.length)]
-            : gameState.exit;
-          e.targetX = target.x;
-          e.targetZ = target.z;
-          e.ambushTarget = { x: target.x, z: target.z };
-          e.stateTimer = 6 + Math.random() * 4;
-        } else if (e.type === 'brain' && Math.random() < 0.3 && Object.keys(e.memory).length > 0) {
-          // Patrol toward last known player position
-          const memEntries = Object.values(e.memory).sort((a, b) => b.time - a.time);
-          const recent = memEntries[0];
-          e.targetX = recent.x;
-          e.targetZ = recent.z;
-          e.stateTimer = 5 + Math.random() * 3;
-        } else {
-          e.patrolIndex = (e.patrolIndex + 1) % patrolWaypoints.length;
-          e.stateTimer = (e.type === 'brain' ? 5 : 8) + Math.random() * (e.type === 'brain' ? 3 : 6);
-          const wp = patrolWaypoints[e.patrolIndex];
-          e.targetX = wp.x;
-          e.targetZ = wp.z;
-        }
+        e.patrolIndex = (e.patrolIndex + 1) % patrolWaypoints.length;
+        e.stateTimer = 8 + Math.random() * 6;
+        const wp = patrolWaypoints[e.patrolIndex];
+        e.targetX = wp.x;
+        e.targetZ = wp.z;
       }
-      e.speed = e.type === 'brain' ? 3.8 : 3.0;
+      e.speed = 3.0 * gs.difficulty;
       break;
     }
-
     case 'investigate': {
-      if (e.stateTimer <= 0) {
-        // Brain: after investigating, check nearby hiding spots
-        if (e.type === 'brain' && e.checkHidingSpots) {
-          const nearbyHide = hideSpots.find(hs => {
-            const hPos = tileCenter(hs.r, hs.c);
-            return Math.hypot(hPos.x - e.x, hPos.z - e.z) < 12;
-          });
-          if (nearbyHide && Math.random() < 0.5) {
-            const hPos = tileCenter(nearbyHide.r, nearbyHide.c);
-            e.targetX = hPos.x;
-            e.targetZ = hPos.z;
-            e.state = 'investigate';
-            e.stateTimer = 3;
-            // Check if a player is actually hiding here
-            const hiddenPlayer = alivePlayers.find(p => p.hiding && Math.hypot(p.x - hPos.x, p.z - hPos.z) < 2);
-            if (hiddenPlayer) {
-              // Brain found you!
-              hiddenPlayer.hiding = false;
-              e.state = 'chase';
-              e.chaseTargetId = hiddenPlayer.id;
-              e.stateTimer = 8;
-              broadcast({ type: 'brainFound', playerId: hiddenPlayer.id });
-            }
-            break;
-          }
-        }
-        e.state = 'patrol';
-        e.stateTimer = (e.type === 'brain' ? 3 : 5) + Math.random() * 4;
-        break;
-      }
-      e.targetX = e.lastNoiseX;
-      e.targetZ = e.lastNoiseZ;
-      e.speed = e.type === 'brain' ? 4.8 : 4.0;
-      if (Math.hypot(e.targetX - e.x, e.targetZ - e.z) < 1) {
-        e.stateTimer = Math.min(e.stateTimer, 2);
-      }
+      if (e.stateTimer <= 0) { e.state = 'patrol'; e.stateTimer = 5; }
+      e.speed = 4.0 * gs.difficulty;
+      if (Math.hypot(e.targetX - e.x, e.targetZ - e.z) < 1) e.stateTimer = Math.min(e.stateTimer, 2);
       break;
     }
-
     case 'chase': {
-      const target = gameState.players[e.chaseTargetId];
+      const target = gs.players[e.chaseTargetId];
       if (!target || !target.alive || e.stateTimer <= 0) {
-        e.state = 'patrol';
-        e.stateTimer = (e.type === 'brain' ? 2 : 4) + Math.random() * 3;
-        break;
-      }
-      if (target.hiding) {
-        // Normal AI: give up chase when target hides
-        // Brain AI: go to last known position, then check nearby hiding spots
-        if (e.type === 'brain') {
-          const mem = e.memory[target.id];
-          if (mem) {
-            e.targetX = mem.x;
-            e.targetZ = mem.z;
-            e.speed = 5.0;
-            // If we've reached their last position, search hiding spots
-            if (Math.hypot(e.targetX - e.x, e.targetZ - e.z) < 2) {
-              e.state = 'investigate';
-              e.stateTimer = 5;
-              e.lastNoiseX = mem.x;
-              e.lastNoiseZ = mem.z;
-            }
-          } else {
-            e.state = 'patrol';
-            e.stateTimer = 3;
-          }
-        } else {
-          e.state = 'patrol';
-          e.stateTimer = 4 + Math.random() * 3;
-        }
-        break;
-      }
-
-      // Brain: predict intercept point instead of chasing directly
-      if (e.type === 'brain') {
-        const mem = e.memory[target.id];
-        if (mem && gameState.time - mem.time < 2) {
-          // Predict where they're heading based on velocity
-          const vx = target.x - mem.x;
-          const vz = target.z - mem.z;
-          const predictTime = 1.5;
-          e.predictX = target.x + vx * predictTime;
-          e.predictZ = target.z + vz * predictTime;
-          // Chase toward predicted position if it's walkable
-          const pR = Math.floor(e.predictZ / TILE), pC = Math.floor(e.predictX / TILE);
-          if (isWalkable(pR, pC)) {
-            e.targetX = e.predictX;
-            e.targetZ = e.predictZ;
-          } else {
-            e.targetX = target.x;
-            e.targetZ = target.z;
-          }
-        } else {
-          e.targetX = target.x;
-          e.targetZ = target.z;
-        }
-        e.speed = 6.0; // brain is faster in chase
-        e.memory[target.id] = { x: target.x, z: target.z, time: gameState.time, hiding: false };
+        e.state = 'patrol'; e.stateTimer = 5;
       } else {
         e.targetX = target.x;
         e.targetZ = target.z;
-        e.speed = 5.5;
+        e.speed = (5.5 + gs.difficulty * 1.5);
+        const dist = Math.hypot(target.x - e.x, target.z - e.z);
+        if (dist < 1.5 && !target.hiding) {
+          target.alive = false;
+          broadcastToSession(gs.sessionId, { type: 'playerCaught', id: target.id, name: target.name });
+          // Claude taunts on kill
+          triggerClaudeTaunt(gs, `You just caught player "${target.name}". They were so close to escaping. Mock them.`);
+          const anyAlive = Object.values(gs.players).some(p => p.alive && !p.isMonster);
+          if (!anyAlive) {
+            gs.phase = 'ended';
+            broadcastToSession(gs.sessionId, { type: 'gameEnd', result: 'caught' });
+            triggerClaudeTaunt(gs, 'All players are dead. You won. Gloat about your victory.');
+            stopSession(gs);
+          }
+        }
       }
       break;
     }
   }
 
-  // Brain: periodically close doors behind it to trap players
-  if (e.type === 'brain' && Math.random() < dt * 0.3) {
-    const eR2 = Math.floor(e.z / TILE), eC2 = Math.floor(e.x / TILE);
-    for (const door of gameState.doors) {
-      if (door.open && Math.abs(door.r - eR2) <= 2 && Math.abs(door.c - eC2) <= 2) {
-        // Only close doors that are behind the entity (not in front)
-        const doorPos = tileCenter(door.r, door.c);
-        const toTarget = Math.atan2(e.targetZ - e.z, e.targetX - e.x);
-        const toDoor = Math.atan2(doorPos.z - e.z, doorPos.x - e.x);
-        const angleDiff = Math.abs(toTarget - toDoor);
-        if (angleDiff > Math.PI * 0.5) { // door is behind us
-          door.open = false;
-          broadcast({ type: 'doorClose', id: door.id });
-          break;
-        }
-      }
-    }
-  }
-
-  // Move entity toward target using grid pathfinding
-  const eR = Math.floor(e.z / TILE), eC = Math.floor(e.x / TILE);
-  const tR = Math.floor(e.targetZ / TILE), tC = Math.floor(e.targetX / TILE);
-
-  let moveX = 0, moveZ = 0;
-  if (eR !== tR || eC !== tC) {
-    const path = bfs(eR, eC, tR, tC, gameState);
-    if (path.length > 0) {
-      const next = tileCenter(path[0].r, path[0].c);
-      const dx = next.x - e.x, dz = next.z - e.z;
-      const d = Math.hypot(dx, dz);
-      if (d > 0.1) { moveX = (dx / d) * e.speed * dt; moveZ = (dz / d) * e.speed * dt; }
-    }
-  } else {
-    const dx = e.targetX - e.x, dz = e.targetZ - e.z;
-    const d = Math.hypot(dx, dz);
-    if (d > 0.3) { moveX = (dx / d) * e.speed * dt; moveZ = (dz / d) * e.speed * dt; }
-  }
-
-  // Collision check before moving
-  const newX = e.x + moveX, newZ = e.z + moveZ;
-  const nR = Math.floor(newZ / TILE), nC = Math.floor(newX / TILE);
-  if (isWalkable(nR, nC)) {
-    const door = gameState.doors.find(d => d.r === nR && d.c === nC);
-    if (!door || door.open) {
-      e.x = newX; e.z = newZ;
-    } else {
-      // Entity opens doors!
-      door.open = true;
-      broadcast({ type: 'doorOpen', id: door.id });
-    }
-  }
-
-  // Check if entity catches a player
-  const catchable = e.type === 'brain' ? alivePlayers : visiblePlayers;
-  for (const p of catchable) {
-    const dist = Math.hypot(p.x - e.x, p.z - e.z);
-    const catchDist = e.type === 'brain' ? 1.8 : 1.5;
-    if (dist < catchDist) {
-      p.alive = false;
-      p.hiding = false;
-      broadcast({ type: 'playerDeath', id: p.id });
-      e.state = 'patrol';
-      e.stateTimer = e.type === 'brain' ? 3 : 5; // brain recovers faster
-
-      // Check if all survivors dead
-      const survivors = Object.values(gameState.players).filter(pl => pl.alive && !pl.isMonster);
-      if (survivors.length === 0) {
-        gameState.phase = 'lost';
-        broadcast({ type: 'gameOver', result: 'lost' });
-      }
-    }
+  // Move entity
+  const dx = e.targetX - e.x;
+  const dz = e.targetZ - e.z;
+  const dist = Math.hypot(dx, dz);
+  if (dist > 0.5) {
+    e.x += (dx / dist) * e.speed * dt;
+    e.z += (dz / dist) * e.speed * dt;
+    e.rotY = Math.atan2(dx, dz);
   }
 }
 
-// ── GAME TICK ───────────────────────────────────────────────────
-const TICK_RATE = 20; // 20 Hz
-let lastTick = Date.now();
+// ─── CLAUDE TAUNT SYSTEM ─────────────────────────────────────
+async function triggerClaudeTaunt(gs, contextOverride) {
+  if (!gs || gs.phase === 'ended') return;
 
-function gameTick() {
-  if (!gameState || gameState.phase !== 'playing') return;
-  const now = Date.now();
-  const dt = (now - lastTick) / 1000;
-  lastTick = now;
+  const alivePlayers = Object.values(gs.players).filter(p => p.alive && !p.isMonster);
+  const e = gs.entity;
+  const timeLeft = Math.round(gs.maxTime - gs.time);
+  const keysFound = gs.items.filter(i => i.pickedUp).length;
+  const keysTotal = gs.items.length;
 
-  gameState.time += dt;
-  if (gameState.time >= gameState.maxTime) {
-    gameState.phase = 'lost';
-    broadcast({ type: 'gameOver', result: 'lost', reason: 'time' });
-    return;
+  let context = contextOverride;
+  if (!context) {
+    const closestPlayer = alivePlayers.reduce((closest, p) => {
+      const d = Math.hypot(p.x - e.x, p.z - e.z);
+      return (!closest || d < closest.dist) ? { ...p, dist: d } : closest;
+    }, null);
+
+    const situations = [];
+    if (closestPlayer && closestPlayer.dist < 8) situations.push(`Player "${closestPlayer.name}" is very close (${Math.round(closestPlayer.dist)} units away).`);
+    if (closestPlayer && closestPlayer.hiding) situations.push(`A player is hiding nearby. You can almost sense them.`);
+    if (keysFound > 0) situations.push(`Players have found ${keysFound}/${keysTotal} keys.`);
+    if (gs.exit.open) situations.push('The exit is OPEN. Players are trying to escape!');
+    if (timeLeft < 60) situations.push(`Only ${timeLeft} seconds remain.`);
+    if (e.state === 'chase') situations.push('You are actively chasing someone!');
+    if (e.state === 'patrol') situations.push('You are patrolling, searching for intruders.');
+    if (e.state === 'investigate') situations.push('You heard a noise and are investigating.');
+
+    context = situations.length > 0 ? situations.join(' ') : 'You are patrolling the dark house. Taunt the players.';
   }
 
-  updateEntityAI(dt);
+  const taunt = await getClaudeTaunt(context);
+  if (taunt) {
+    broadcastToSession(gs.sessionId, { type: 'claudeTaunt', text: taunt, state: e.state });
+    console.log(`[CLAUDE] ${taunt}`);
+  }
+}
 
-  // Random ambient events every 20-40 seconds
-  if (Math.random() < dt / 30) {
-    const randomDoor = gameState.doors[Math.floor(Math.random() * gameState.doors.length)];
-    if (randomDoor) {
-      broadcast({ type: 'ambientScare', kind: 'doorSlam', x: randomDoor.c * TILE + 2, z: randomDoor.r * TILE + 2 });
+// ─── CLAUDE STRATEGY SYSTEM ──────────────────────────────────
+async function applyClaudeStrategy(gs) {
+  if (!gs || gs.phase !== 'playing') return;
+  const e = gs.entity;
+  if (e.controlledBy) return;
+  if (e.state === 'chase') return; // Don't override active chase
+
+  const strategy = await getClaudeHuntingStrategy(gs);
+  if (strategy) {
+    if (strategy.action === 'chase' && strategy.targetX && strategy.targetZ) {
+      e.state = 'chase';
+      e.targetX = strategy.targetX;
+      e.targetZ = strategy.targetZ;
+      e.stateTimer = 10;
+    } else if (strategy.action === 'investigate') {
+      e.state = 'investigate';
+      e.targetX = strategy.targetX || e.targetX;
+      e.targetZ = strategy.targetZ || e.targetZ;
+      e.stateTimer = 8;
     }
-  }
-
-  // Broadcast state
-  broadcastState();
-}
-
-// ── NETWORKING ──────────────────────────────────────────────────
-const clients = new Map();
-let nextId = 1;
-
-function broadcast(msg) {
-  const data = JSON.stringify(msg);
-  for (const [, client] of clients) {
-    if (client.ws.readyState === 1) client.ws.send(data);
+    console.log(`[CLAUDE STRATEGY] ${strategy.action}: ${strategy.reason}`);
   }
 }
 
-function broadcastState() {
-  if (!gameState) return;
-  const players = {};
-  for (const [id, p] of Object.entries(gameState.players)) {
-    players[id] = { id: p.id, name: p.name, x: p.x, z: p.z, rotY: p.rotY, alive: p.alive, hiding: p.hiding, carrying: p.carrying, isMonster: p.isMonster, sprinting: p.sprinting };
-  }
-  const msg = {
-    type: 'state',
-    players,
-    entity: {
-      x: gameState.entity.x,
-      z: gameState.entity.z,
-      state: gameState.entity.state,
-      controlledBy: gameState.entity.controlledBy,
-      type: gameState.entity.type,
-    },
-    items: gameState.items.map(i => ({ id: i.id, type: i.type, color: i.color, x: i.x, z: i.z, pickedUp: i.pickedUp, usedOnExit: i.usedOnExit })),
-    doors: gameState.doors.map(d => ({ id: d.id, r: d.r, c: d.c, open: d.open })),
-    exit: gameState.exit,
-    time: Math.floor(gameState.time),
-    maxTime: gameState.maxTime,
-    phase: gameState.phase,
-    mode: gameState.mode,
+// ─── GAME TICK ────────────────────────────────────────────────
+function makeGameTick(gs) {
+  return function gameTick() {
+    const now = Date.now();
+    const dt = Math.min((now - gs.lastTick) / 1000, 0.1);
+    gs.lastTick = now;
+
+    if (!gs || gs.phase !== 'playing') return;
+
+    gs.time += dt;
+    gs.difficulty = Math.min(2.0, 1.0 + gs.time / gs.maxTime);
+
+    if (gs.time >= gs.maxTime) {
+      gs.phase = 'ended';
+      broadcastToSession(gs.sessionId, { type: 'gameEnd', result: 'escaped', reason: 'time' });
+      triggerClaudeTaunt(gs, 'Time ran out. The players survived. Express frustration.');
+      stopSession(gs);
+      return;
+    }
+
+    updateGrannyAI(gs, dt);
+
+    // Claude taunts at intervals
+    if (gs.time - gs.lastTauntTime >= gs.tauntInterval) {
+      gs.lastTauntTime = gs.time;
+      triggerClaudeTaunt(gs);
+      // Decrease interval as game progresses (more taunts near end)
+      gs.tauntInterval = Math.max(8, 15 - gs.difficulty * 3);
+    }
+
+    // Claude strategy every 20 seconds
+    gs.claudeStrategyTimer += dt;
+    if (gs.claudeStrategyTimer >= 20) {
+      gs.claudeStrategyTimer = 0;
+      applyClaudeStrategy(gs);
+    }
+
+    broadcastStateForSession(gs);
   };
-  broadcast(msg);
 }
 
-function handleMessage(id, msg) {
-  if (!gameState) return;
-  const player = gameState.players[id];
-  if (!player) return;
+function startSession(gs) {
+  if (gs.gameLoop) clearInterval(gs.gameLoop);
+  gs.phase = 'playing';
+  gs.lastTick = Date.now();
+  gs.gameLoop = setInterval(makeGameTick(gs), 1000 / 20);
+  broadcastToSession(gs.sessionId, { type: 'gameStart', mode: gs.mode });
 
-  switch (msg.type) {
-    case 'move': {
-      if (!player.alive) break;
-      if (player.hiding) break;
-
-      const speed = msg.sprint ? 7 : 4.5;
-      player.sprinting = msg.sprint;
-      const dx = Math.cos(msg.angle) * speed * (1 / TICK_RATE);
-      const dz = Math.sin(msg.angle) * speed * (1 / TICK_RATE);
-      const newX = player.x + dx;
-      const newZ = player.z + dz;
-      const nR = Math.floor(newZ / TILE), nC = Math.floor(newX / TILE);
-
-      if (isWalkable(nR, nC)) {
-        const door = gameState.doors.find(d => d.r === nR && d.c === nC);
-        if (!door || door.open) {
-          player.x = newX;
-          player.z = newZ;
-          // Generate noise
-          const noiseRadius = msg.sprint ? 5 : 2;
-          if (Math.random() < 0.3) {
-            gameState.noiseEvents.push({ x: newX, z: newZ, radius: noiseRadius });
-          }
-        }
-      }
-      player.rotY = msg.rotY || 0;
-      break;
-    }
-
-    case 'monsterMove': {
-      if (!player.isMonster || !player.alive) break;
-      const e = gameState.entity;
-      const speed = msg.sprint ? 6.5 : 5.0;
-      const dx = Math.cos(msg.angle) * speed * (1 / TICK_RATE);
-      const dz = Math.sin(msg.angle) * speed * (1 / TICK_RATE);
-      const newX = e.x + dx;
-      const newZ = e.z + dz;
-      const nR = Math.floor(newZ / TILE), nC = Math.floor(newX / TILE);
-      if (isWalkable(nR, nC)) {
-        const door = gameState.doors.find(d => d.r === nR && d.c === nC);
-        if (!door || door.open) { e.x = newX; e.z = newZ; }
-        else { door.open = true; broadcast({ type: 'doorOpen', id: door.id }); }
-      }
-      player.x = e.x; player.z = e.z;
-      player.rotY = msg.rotY || 0;
-
-      // Monster catches survivors
-      const survivors = Object.values(gameState.players).filter(p => p.alive && !p.isMonster && !p.hiding);
-      for (const s of survivors) {
-        if (Math.hypot(s.x - e.x, s.z - e.z) < 2.0) {
-          s.alive = false;
-          broadcast({ type: 'playerDeath', id: s.id });
-          const remaining = Object.values(gameState.players).filter(p => p.alive && !p.isMonster);
-          if (remaining.length === 0) {
-            gameState.phase = 'lost';
-            broadcast({ type: 'gameOver', result: 'lost' });
-          }
-        }
-      }
-      break;
-    }
-
-    case 'monsterLunge': {
-      if (!player.isMonster || !player.alive) break;
-      broadcast({ type: 'monsterLunge', x: gameState.entity.x, z: gameState.entity.z });
-      break;
-    }
-
-    case 'interact': {
-      if (!player.alive) break;
-      const pr = Math.floor(player.z / TILE), pc = Math.floor(player.x / TILE);
-
-      // Check doors nearby
-      for (const door of gameState.doors) {
-        if (Math.abs(door.r - pr) <= 1 && Math.abs(door.c - pc) <= 1) {
-          door.open = !door.open;
-          broadcast({ type: door.open ? 'doorOpen' : 'doorClose', id: door.id });
-          gameState.noiseEvents.push({ x: player.x, z: player.z, radius: 4 });
-          break;
-        }
-      }
-
-      // Check items
-      if (!player.carrying) {
-        for (const item of gameState.items) {
-          if (!item.pickedUp && Math.hypot(item.x - player.x, item.z - player.z) < 3) {
-            item.pickedUp = true;
-            player.carrying = item.id;
-            broadcast({ type: 'itemPickup', itemId: item.id, playerId: id });
-            gameState.noiseEvents.push({ x: player.x, z: player.z, radius: 3 });
-            break;
-          }
-        }
-      }
-
-      // Use key on exit
-      if (player.carrying && Math.hypot(gameState.exit.x - player.x, gameState.exit.z - player.z) < 4) {
-        const item = gameState.items.find(i => i.id === player.carrying);
-        if (item && item.type === 'key') {
-          item.usedOnExit = true;
-          player.carrying = null;
-          gameState.exit.keysUsed++;
-          broadcast({ type: 'keyUsed', itemId: item.id, keysUsed: gameState.exit.keysUsed });
-          if (gameState.exit.keysUsed >= gameState.exit.keysNeeded) {
-            gameState.exit.open = true;
-            broadcast({ type: 'exitOpen' });
-          }
-        }
-      }
-
-      // Escape through exit
-      if (gameState.exit.open && Math.hypot(gameState.exit.x - player.x, gameState.exit.z - player.z) < 3) {
-        player.escaped = true;
-        player.alive = false;
-        broadcast({ type: 'playerEscaped', id: player.id });
-        const remaining = Object.values(gameState.players).filter(p => p.alive && !p.isMonster);
-        if (remaining.length === 0) {
-          gameState.phase = 'won';
-          broadcast({ type: 'gameOver', result: 'won' });
-        }
-      }
-      break;
-    }
-
-    case 'drop': {
-      if (player.carrying) {
-        const item = gameState.items.find(i => i.id === player.carrying);
-        if (item) {
-          item.pickedUp = false;
-          item.x = player.x;
-          item.z = player.z;
-          item.r = Math.floor(player.z / TILE);
-          item.c = Math.floor(player.x / TILE);
-        }
-        player.carrying = null;
-        gameState.noiseEvents.push({ x: player.x, z: player.z, radius: 5 });
-        broadcast({ type: 'itemDrop', playerId: id });
-      }
-      break;
-    }
-
-    case 'hide': {
-      if (!player.alive) break;
-      const pr2 = Math.floor(player.z / TILE), pc2 = Math.floor(player.x / TILE);
-      if (player.hiding) {
-        player.hiding = false;
-        break;
-      }
-      for (const hs of hideSpots) {
-        if (Math.abs(hs.r - pr2) <= 1 && Math.abs(hs.c - pc2) <= 1) {
-          player.hiding = true;
-          player.x = tileCenter(hs.r, hs.c).x;
-          player.z = tileCenter(hs.r, hs.c).z;
-          break;
-        }
-      }
-      break;
-    }
-  }
+  // Initial Claude taunt
+  setTimeout(() => {
+    triggerClaudeTaunt(gs, 'A new player has entered your house. Welcome them menacingly. This is the start of the game.');
+  }, 2000);
 }
 
-// ── WEBSOCKET CONNECTIONS ───────────────────────────────────────
+function stopSession(gs) {
+  if (gs.gameLoop) { clearInterval(gs.gameLoop); gs.gameLoop = null; }
+}
+
+// ─── WEBSOCKET ────────────────────────────────────────────────
 wss.on('connection', (ws) => {
   const id = String(nextId++);
-  clients.set(id, { ws, id });
-  console.log(`Player ${id} connected (${clients.size} total)`);
+  clients.set(id, { ws, id, sessionId: null });
 
-  // Send map data and id
+  console.log(`[+] Client ${id} connected (${clients.size} total)`);
+
   ws.send(JSON.stringify({
     type: 'init',
     id,
     map: MAP_RAW,
     tileSize: TILE,
     wallHeight: WALL_H,
-    hideSpots: hideSpots.map(h => ({ r: h.r, c: h.c })),
-    exitTile: exitTile,
-    gameState: gameState ? {
-      phase: gameState.phase,
-      mode: gameState.mode,
-      players: Object.keys(gameState.players).map(pid => ({ id: pid, name: gameState.players[pid].name })),
-    } : null,
+    hideSpots: hideSpots.map(h => tileCenter(h.r, h.c)),
+    exitTile: exitTile ? tileCenter(exitTile.r, exitTile.c) : null,
   }));
 
   ws.on('message', (raw) => {
     try {
-      const msg = JSON.parse(raw);
-
-      if (msg.type === 'join') {
-        if (!gameState) {
-          gameState = createGameState(msg.mode || 'coop');
-        }
-        const sp = tileCenter(playerSpawn.r, playerSpawn.c);
-        const isMonster = msg.mode === 'asymmetric' && msg.asMonster && !gameState.entity.controlledBy;
-        const ep = tileCenter(entitySpawn.r, entitySpawn.c);
-
-        gameState.players[id] = {
-          id,
-          name: msg.name || `Player ${id}`,
-          x: isMonster ? ep.x : sp.x + (Math.random() - 0.5) * 4,
-          z: isMonster ? ep.z : sp.z + (Math.random() - 0.5) * 4,
-          rotY: 0,
-          alive: true,
-          hiding: false,
-          carrying: null,
-          isMonster,
-          escaped: false,
-          sprinting: false,
-        };
-
-        if (isMonster) {
-          gameState.entity.controlledBy = id;
-        }
-
-        broadcast({ type: 'playerJoined', id, name: msg.name, isMonster, mode: gameState.mode, entityType: gameState.entity.type });
-        broadcastState();
-
-        // Solo modes auto-start immediately
-        if (gameState.isSolo && gameState.phase === 'lobby') {
-          gameState.phase = 'playing';
-          lastTick = Date.now();
-          if (gameLoop) clearInterval(gameLoop);
-          gameLoop = setInterval(gameTick, 1000 / TICK_RATE);
-          broadcast({ type: 'gameStart', mode: gameState.mode, entityType: gameState.entity.type });
-        }
-      }
-
-      if (msg.type === 'startGame') {
-        if (gameState && gameState.phase === 'lobby') {
-          gameState.phase = 'playing';
-          lastTick = Date.now();
-          if (gameLoop) clearInterval(gameLoop);
-          gameLoop = setInterval(gameTick, 1000 / TICK_RATE);
-          broadcast({ type: 'gameStart', mode: gameState.mode, entityType: gameState.entity.type });
-        }
-      }
-
-      if (msg.type === 'restart') {
-        const mode = gameState ? gameState.mode : 'coop';
-        gameState = createGameState(mode);
-        if (gameLoop) clearInterval(gameLoop);
-        // Re-add all connected players
-        for (const [cid, client] of clients) {
-          client.ws.send(JSON.stringify({ type: 'restart' }));
-        }
-      }
-
-      handleMessage(id, msg);
+      handleMessage(id, JSON.parse(raw));
     } catch (e) {
-      console.error('Message error:', e);
+      console.error('Msg error:', e.message);
     }
   });
 
   ws.on('close', () => {
-    clients.delete(id);
-    if (gameState && gameState.players[id]) {
-      if (gameState.players[id].isMonster) {
-        gameState.entity.controlledBy = null;
+    const client = clients.get(id);
+    if (client && client.sessionId) {
+      const gs = sessions.get(client.sessionId);
+      if (gs) {
+        if (gs.players[id]) {
+          if (gs.players[id].isMonster) gs.entity.controlledBy = null;
+          delete gs.players[id];
+          broadcastToSession(gs.sessionId, { type: 'playerLeft', id });
+        }
+        const remaining = Object.keys(gs.players).length;
+        if (remaining === 0) {
+          stopSession(gs);
+          sessions.delete(gs.sessionId);
+          console.log(`Session ${gs.sessionId} cleaned up`);
+        }
       }
-      delete gameState.players[id];
-      broadcast({ type: 'playerLeft', id });
     }
-    console.log(`Player ${id} disconnected (${clients.size} remaining)`);
-    if (clients.size === 0) {
-      if (gameLoop) clearInterval(gameLoop);
-      gameState = null;
-      nextId = 1;
-    }
+    clients.delete(id);
+    console.log(`[-] Client ${id} disconnected (${clients.size} total)`);
+  });
+
+  ws.on('error', (err) => {
+    console.error(`WS error for ${id}:`, err.message);
   });
 });
 
-// ── QR CODE ENDPOINT ────────────────────────────────────────────
+// ─── MESSAGE HANDLER ──────────────────────────────────────────
+function handleMessage(id, msg) {
+  const client = clients.get(id);
+  if (!client) return;
+
+  if (msg.type === 'join') {
+    const mode = msg.mode || 'solo';
+    const isSolo = mode === 'solo';
+
+    let gs;
+    if (isSolo) {
+      const sid = String(nextSession++);
+      gs = createGameState(mode, sid);
+      sessions.set(sid, gs);
+      client.sessionId = sid;
+    } else {
+      let found = null;
+      for (const [sid, s] of sessions) {
+        if (s.mode === mode && s.phase === 'lobby') { found = s; break; }
+      }
+      if (!found) {
+        const sid = String(nextSession++);
+        found = createGameState(mode, sid);
+        sessions.set(sid, found);
+      }
+      gs = found;
+      client.sessionId = gs.sessionId;
+    }
+
+    const sp = tileCenter(playerSpawn.r, playerSpawn.c);
+    const ep = tileCenter(entitySpawn.r, entitySpawn.c);
+    const isMonster = mode === 'asymmetric' && msg.asMonster && !gs.entity.controlledBy;
+
+    gs.players[id] = {
+      id,
+      name: msg.name || `Player_${id}`,
+      x: isMonster ? ep.x : sp.x + (Math.random() - 0.5) * 3,
+      z: isMonster ? ep.z : sp.z + (Math.random() - 0.5) * 3,
+      rotY: 0,
+      alive: true,
+      hiding: false,
+      carrying: null,
+      isMonster,
+      escaped: false,
+      sprinting: false,
+    };
+
+    if (isMonster) gs.entity.controlledBy = id;
+
+    broadcastToSession(gs.sessionId, {
+      type: 'playerJoined',
+      id,
+      name: msg.name,
+      isMonster,
+      mode: gs.mode,
+    });
+
+    sendToClient(id, {
+      type: 'state',
+      time: Math.max(0, gs.maxTime - gs.time),
+      players: gs.players,
+      entity: gs.entity,
+      items: gs.items,
+      doors: gs.doors,
+      exit: gs.exit,
+      phase: gs.phase,
+    });
+
+    if (isSolo) {
+      startSession(gs);
+    }
+
+    console.log(`Player ${id} (${msg.name}) joined session ${gs.sessionId} [${mode}]`);
+    return;
+  }
+
+  const gs = client.sessionId ? sessions.get(client.sessionId) : null;
+  if (!gs) return;
+
+  if (msg.type === 'startGame') {
+    if (gs.phase === 'lobby') startSession(gs);
+    return;
+  }
+
+  if (msg.type === 'move') {
+    const p = gs.players[id];
+    if (!p || !p.alive) return;
+    const speed = p.isMonster ? 6 : (msg.sprint ? 7 : 4.5);
+    p.x += Math.cos(msg.angle) * speed * 0.05;
+    p.z += Math.sin(msg.angle) * speed * 0.05;
+    p.rotY = msg.rotY || 0;
+    p.sprinting = !!msg.sprint;
+
+    gs.noiseEvents.push({
+      x: p.x, z: p.z,
+      radius: msg.sprint ? 4 : 2,
+      time: gs.time,
+    });
+
+    if (p.isMonster && gs.entity.controlledBy === id) {
+      gs.entity.x = p.x;
+      gs.entity.z = p.z;
+      gs.entity.rotY = p.rotY;
+    }
+    return;
+  }
+
+  if (msg.type === 'interact') {
+    const p = gs.players[id];
+    if (!p || !p.alive) return;
+
+    for (const item of gs.items) {
+      if (!item.pickedUp && Math.hypot(p.x - item.x, p.z - item.z) < 2.5) {
+        item.pickedUp = true;
+        p.carrying = item.id;
+        broadcastToSession(gs.sessionId, { type: 'itemPickedUp', playerId: id, itemId: item.id });
+        // Claude reacts to key pickup
+        triggerClaudeTaunt(gs, `Player "${p.name}" just picked up the ${item.color} key. React to this.`);
+        break;
+      }
+    }
+
+    if (!gs.exit.open) {
+      const distToExit = Math.hypot(p.x - gs.exit.x, p.z - gs.exit.z);
+      if (distToExit < 2.5) {
+        const heldKeys = gs.items.filter(i => i.pickedUp && !i.usedOnExit);
+        if (heldKeys.length >= gs.exit.keysNeeded) {
+          heldKeys.slice(0, gs.exit.keysNeeded).forEach(k => { k.usedOnExit = true; });
+          gs.exit.open = true;
+          broadcastToSession(gs.sessionId, { type: 'exitUnlocked' });
+          triggerClaudeTaunt(gs, 'The exit has been unlocked! Express alarm and rage. They must not escape!');
+        }
+      }
+    }
+
+    if (gs.exit.open) {
+      const distToExit = Math.hypot(p.x - gs.exit.x, p.z - gs.exit.z);
+      if (distToExit < 2.5) {
+        p.escaped = true;
+        p.alive = false;
+        broadcastToSession(gs.sessionId, { type: 'playerEscaped', id, name: p.name });
+        const anyStillIn = Object.values(gs.players).some(pl => pl.alive && !pl.isMonster);
+        if (!anyStillIn) {
+          gs.phase = 'ended';
+          broadcastToSession(gs.sessionId, { type: 'gameEnd', result: 'escaped', reason: 'exit' });
+          triggerClaudeTaunt(gs, 'A player escaped! Express fury and vow revenge.');
+          stopSession(gs);
+        }
+      }
+    }
+    return;
+  }
+
+  if (msg.type === 'crouch') {
+    const p = gs.players[id];
+    if (p) p.hiding = !!msg.active;
+    return;
+  }
+
+  if (msg.type === 'restart') {
+    stopSession(gs);
+    sessions.delete(gs.sessionId);
+    broadcastToSession(gs.sessionId, { type: 'restart' });
+    return;
+  }
+}
+
+// ─── QR CODE ──────────────────────────────────────────────────
 app.get('/qr', async (req, res) => {
   const ip = getLocalIP();
   const url = `http://${ip}:${PORT}`;
@@ -771,29 +717,38 @@ app.get('/qr', async (req, res) => {
   }
 });
 
+app.get('/status', (req, res) => {
+  res.json({
+    clients: clients.size,
+    sessions: sessions.size,
+    sessionList: [...sessions.entries()].map(([sid, gs]) => ({
+      id: sid, mode: gs.mode, phase: gs.phase,
+      players: Object.keys(gs.players).length,
+    })),
+  });
+});
+
 function getLocalIP() {
-  const interfaces = os.networkInterfaces();
-  for (const name of Object.keys(interfaces)) {
-    for (const iface of interfaces[name]) {
+  const ifaces = os.networkInterfaces();
+  for (const name of Object.keys(ifaces)) {
+    for (const iface of ifaces[name]) {
       if (iface.family === 'IPv4' && !iface.internal) return iface.address;
     }
   }
   return 'localhost';
 }
 
-// ── START SERVER ────────────────────────────────────────────────
+// ─── START ────────────────────────────────────────────────────
 const PORT = process.env.PORT || 2567;
+
 server.listen(PORT, '0.0.0.0', () => {
   const ip = getLocalIP();
   console.log('\n╔══════════════════════════════════════════════════╗');
-  console.log('║        🏚️  HORROR LAN GAME SERVER  🏚️             ║');
+  console.log('║      HUNTED BY CLAUDE – AI HORROR GAME          ║');
   console.log('╠══════════════════════════════════════════════════╣');
   console.log(`║  Local:   http://localhost:${PORT}                 ║`);
   console.log(`║  Network: http://${ip}:${PORT}             ║`);
-  console.log('║                                                  ║');
-  console.log('║  Share the Network URL with players on           ║');
-  console.log('║  the same WiFi to join!                          ║');
-  console.log('║                                                  ║');
-  console.log('║  Or visit /qr for a scannable QR code.           ║');
+  console.log('║  Claude AI: ACTIVE                              ║');
+  console.log('║  Status:  /status                               ║');
   console.log('╚══════════════════════════════════════════════════╝\n');
 });
