@@ -402,8 +402,8 @@ function startPlaying() {
 // ═══════════════════════════════════════════════════════════════
 function initScene() {
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x080808);
-  scene.fog = new THREE.FogExp2(0x080808, 0.045);
+  scene.background = new THREE.Color(0x0a0a0a);
+  scene.fog = new THREE.FogExp2(0x0a0a0a, 0.015); // Lighter fog for better visibility
 
   camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.05, 200);
   camera.position.set(0, -50, 0); // hidden underground until game starts
@@ -420,16 +420,21 @@ function initScene() {
 
   clock = new THREE.Clock();
 
-  // Ambient – very dim
-  scene.add(new THREE.AmbientLight(0x221111, 0.6));
+  // Ambient – enhanced for visibility
+  scene.add(new THREE.AmbientLight(0x332211, 1.2)); // Warmer, brighter ambient
+  // Add a subtle blue rim light for atmosphere
+  const rimLight = new THREE.DirectionalLight(0x1a3a5a, 0.4);
+  rimLight.position.set(-20, 15, -20);
+  scene.add(rimLight);
 
-  // Player flashlight attached to camera
-  const fl = new THREE.SpotLight(0xfff5e0, 2.5, 30, Math.PI / 8, 0.6, 1.5);
+  // Player flashlight attached to camera – enhanced range and intensity
+  const fl = new THREE.SpotLight(0xfff5e0, 3.5, 50, Math.PI / 7, 0.5, 1.2);
   fl.position.set(0, 0, 0);
   fl.castShadow = !isMobile;
   if (!isMobile) {
-    fl.shadow.mapSize.width = 512;
-    fl.shadow.mapSize.height = 512;
+    fl.shadow.mapSize.width = 1024;
+    fl.shadow.mapSize.height = 1024;
+    fl.shadow.bias = -0.0001;
   }
   camera.add(fl);
   camera.add(fl.target);
@@ -522,32 +527,45 @@ function buildMap() {
 function getOrCreateEntity(state) {
   if (!entityMesh) {
     const group = new THREE.Group();
-    const bodyGeo = new THREE.BoxGeometry(0.7, 1.6, 0.4);
-    const bodyMat = new THREE.MeshLambertMaterial({ color: 0x1a0a0a });
-    group.add(new THREE.Mesh(bodyGeo, bodyMat));
-    const headGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
-    const headMat = new THREE.MeshLambertMaterial({ color: 0x2a1515 });
+    // CLAUDE VILLAIN - AI Antagonist
+    const bodyGeo = new THREE.BoxGeometry(0.75, 1.8, 0.45);
+    const bodyMat = new THREE.MeshPhongMaterial({color: 0x1a1a2e, shininess: 100, emissive: 0x0a0a1a});
+    const body = new THREE.Mesh(bodyGeo, bodyMat);
+    group.add(body);
+    
+    const headGeo = new THREE.BoxGeometry(0.55, 0.6, 0.5);
+    const headMat = new THREE.MeshPhongMaterial({color: 0x0f0f1f, shininess: 120, emissive: 0x050510});
     const head = new THREE.Mesh(headGeo, headMat);
-    head.position.y = 1.1;
+    head.position.y = 1.25;
     group.add(head);
-    // Red glowing eyes
-    const eyeGeo = new THREE.SphereGeometry(0.07, 6, 6);
-    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+    
+    // Cyan AI eyes
+    const eyeGeo = new THREE.SphereGeometry(0.09, 8, 8);
+    const eyeMat = new THREE.MeshBasicMaterial({color: 0x00ffff});
     const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
-    eyeL.position.set(-0.12, 1.12, 0.26);
+    eyeL.position.set(-0.15, 1.28, 0.3);
     const eyeR = new THREE.Mesh(eyeGeo, eyeMat);
-    eyeR.position.set(0.12, 1.12, 0.26);
+    eyeR.position.set(0.15, 1.28, 0.3);
     group.add(eyeL, eyeR);
-    // Red point light on entity
-    const el = new THREE.PointLight(0xff0000, 0.8, 8);
-    el.position.set(0, 1.2, 0);
+    
+    // Cyan menacing light
+    const el = new THREE.PointLight(0x00ffff, 1.2, 12);
+    el.position.set(0, 1.3, 0);
     group.add(el);
+    
+    // Red danger aura
+    const dangerLight = new THREE.PointLight(0xff0000, 0.3, 10);
+    dangerLight.position.set(0, 0.8, 0);
+    dangerLight.name = 'dangerLight';
+    group.add(dangerLight);
     entityMesh = group;
     scene.add(entityMesh);
   }
   if (state) {
     entityMesh.position.set(state.x, 0.8, state.z);
     entityMesh.rotation.y = state.rotY || 0;
+    const dangerLight = entityMesh.getObjectByName('dangerLight');
+    if (dangerLight) dangerLight.intensity = state.state === 'chase' ? 0.8 : 0.3;
   }
   return entityMesh;
 }
