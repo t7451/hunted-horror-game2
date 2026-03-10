@@ -14,11 +14,10 @@ const wss = new WebSocketServer({ server });
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ═══════════════════════════════════════════════════════════════
-// GRANNY-STYLE HORROR GAME SERVER
-// Stealth, Puzzles, Permadeath, Tension-Based Gameplay
+// HUNTED – GRANNY-STYLE HORROR GAME SERVER
 // ═══════════════════════════════════════════════════════════════
 
-// ─── MAP: GRANNY'S HOUSE ───────────────────────────────────────
+// ─── MAP ───────────────────────────────────────────────────────
 // W=wall, .=floor, D=door, H=hiding spot, K=key spawn, X=exit, S=player spawn, E=granny spawn
 const MAP_RAW = [
   'WWWWWWWWWWWWWWWWWWWWWWWWW',
@@ -55,12 +54,7 @@ function tileCenter(r, c) {
   return { x: c * TILE + TILE / 2, z: r * TILE + TILE / 2 };
 }
 
-function isWalkable(r, c) {
-  const t = parseTile(r, c);
-  return t !== 'W';
-}
-
-// Parse map
+// Parse static map features
 const keySpawns = [], hideSpots = [], doorTiles = [];
 let exitTile = null, entitySpawn = null, playerSpawn = null;
 
@@ -69,25 +63,33 @@ for (let r = 0; r < MAP_H; r++) {
     const t = MAP_RAW[r][c];
     if (t === 'K') keySpawns.push({ r, c });
     if (t === 'H') hideSpots.push({ r, c });
-    if (t === 'D') doorTiles.push({ r, c, open: false });
+    if (t === 'D') doorTiles.push({ r, c });
     if (t === 'X') exitTile = { r, c };
     if (t === 'E') entitySpawn = { r, c };
     if (t === 'S') playerSpawn = { r, c };
   }
 }
 
-// ─── GAME STATE ───────────────────────────────────────────────
-let gameState = null;
-let gameLoop = null;
-let nextId = 1;
-const clients = new Map();
+const patrolWaypoints = [...hideSpots, ...keySpawns].map(p => tileCenter(p.r, p.c));
 
-function createGameState(mode) {
+// ─── STATE ────────────────────────────────────────────────────
+// Each solo player gets their OWN private game session.
+// Co-op / asymmetric players share a session keyed by a room code.
+// For simplicity: solo = private session per connection, others share global.
+
+const clients = new Map();      // id → { ws, id, sessionId }
+const sessions = new Map();     // sessionId → gameState
+let nextId = 1;
+let nextSession = 1;
+
+// ─── GAME STATE FACTORY ───────────────────────────────────────
+function createGameState(mode, sessionId) {
   const sp = tileCenter(playerSpawn.r, playerSpawn.c);
   const ep = tileCenter(entitySpawn.r, entitySpawn.c);
-  const isSolo = mode === 'solo' || mode === 'solo_brain';
+  const isSolo = mode === 'solo';
 
   return {
+    sessionId,
     mode,
     isSolo,
     phase: 'lobby',
@@ -97,36 +99,31 @@ function createGameState(mode) {
       z: ep.z,
       targetX: ep.x,
       targetZ: ep.z,
-      state: 'patrol', // patrol, investigate, chase, hunt
-      stateTimer: 0,
+      state: 'patrol',
+      stateTimer: 5,
       chaseTargetId: null,
       patrolIndex: 0,
       speed: 3.5,
       controlledBy: null,
-      visible: true,
-      type: 'granny',
-      memory: {},
-      detectionRange: 15,
+      detectionRange: 14,
       noiseMultiplier: 1.2,
       chaseMemory: 12,
-      canOpenDoors: true,
+      memory: {},
+      rotY: 0,
     },
     items: keySpawns.map((k, i) => ({
-      id: `key_${i}`,
+      id: `key_${i}_${sessionId}`,
       type: 'key',
       color: ['red', 'blue', 'green'][i % 3],
-      r: k.r,
-      c: k.c,
       ...tileCenter(k.r, k.c),
       pickedUp: false,
       usedOnExit: false,
     })),
     doors: doorTiles.map((d, i) => ({
-      id: `door_${i}`,
-      r: d.r,
-      c: d.c,
+      id: `door_${i}_${sessionId}`,
+      r: d.r, c: d.c,
       open: false,
-      locked: Math.random() < 0.6, // 60% of doors are locked
+      locked: Math.random() < 0.5,
     })),
     exit: {
       ...exitTile,
@@ -137,56 +134,83 @@ function createGameState(mode) {
     },
     noiseEvents: [],
     time: 0,
-    maxTime: isSolo ? 180 : 240, // 3-4 minutes
-    difficulty: 1.0, // Scales with time
+    maxTime: isSolo ? 180 : 240,
+    difficulty: 1.0,
+    gameLoop: null,
+    lastTick: Date.now(),
   };
 }
 
-const patrolWaypoints = [...hideSpots, ...keySpawns].map(p => tileCenter(p.r, p.c));
+// ─── BROADCAST HELPERS ────────────────────────────────────────
+function broadcastToSession(sessionId, msg) {
+  const data = JSON.stringify(msg);
+  for (const client of clients.values()) {
+    if (client.sessionId === sessionId && client.ws.readyState === 1) {
+      client.ws.send(data);
+    }
+  }
+}
 
-// ─── GRANNY AI ───────────────────────────────────────────────
-function updateGrannyAI(dt) {
-  if (!gameState || gameState.phase !== 'playing') return;
+function sendToClient(id, msg) {
+  const client = clients.get(id);
+  if (client && client.ws.readyState === 1) {
+    client.ws.send(JSON.stringify(msg));
+  }
+}
 
-  const e = gameState.entity;
+function broadcastStateForSession(gs) {
+  broadcastToSession(gs.sessionId, {
+    type: 'state',
+    time: Math.max(0, gs.maxTime - gs.time),
+    players: gs.players,
+    entity: gs.entity,
+    items: gs.items,
+    doors: gs.doors,
+    exit: gs.exit,
+    phase: gs.phase,
+  });
+}
+
+// ─── GRANNY AI ────────────────────────────────────────────────
+function updateGrannyAI(gs, dt) {
+  if (!gs || gs.phase !== 'playing') return;
+  const e = gs.entity;
   if (e.controlledBy) return;
 
   e.stateTimer -= dt;
 
-  const alivePlayers = Object.values(gameState.players).filter(p => p.alive && !p.isMonster);
+  const alivePlayers = Object.values(gs.players).filter(p => p.alive && !p.isMonster);
   const visiblePlayers = alivePlayers.filter(p => !p.hiding);
 
   // Update memory
   for (const p of visiblePlayers) {
     const dist = Math.hypot(p.x - e.x, p.z - e.z);
     if (dist < e.detectionRange * 1.5) {
-      e.memory[p.id] = { x: p.x, z: p.z, time: gameState.time, hiding: false };
+      e.memory[p.id] = { x: p.x, z: p.z, time: gs.time };
     }
   }
 
   // Process noise events
-  while (gameState.noiseEvents.length > 0) {
-    const noise = gameState.noiseEvents.shift();
+  while (gs.noiseEvents.length > 0) {
+    const noise = gs.noiseEvents.shift();
     const dist = Math.hypot(noise.x - e.x, noise.z - e.z);
     const hearingRange = noise.radius * TILE * e.noiseMultiplier;
-    if (dist < hearingRange) {
-      if (e.state !== 'chase') {
-        e.state = 'investigate';
-        e.targetX = noise.x;
-        e.targetZ = noise.z;
-        e.stateTimer = 6 + Math.random() * 3;
-      }
+    if (dist < hearingRange && e.state !== 'chase') {
+      e.state = 'investigate';
+      e.targetX = noise.x;
+      e.targetZ = noise.z;
+      e.stateTimer = 6 + Math.random() * 3;
     }
   }
 
-  // Check line of sight
+  // Line of sight detection
   for (const p of visiblePlayers) {
     const dist = Math.hypot(p.x - e.x, p.z - e.z);
     if (dist < e.detectionRange) {
       e.state = 'chase';
       e.chaseTargetId = p.id;
       e.stateTimer = e.chaseMemory + Math.random() * 3;
-      e.memory[p.id] = { x: p.x, z: p.z, time: gameState.time, hiding: false };
+      e.memory[p.id] = { x: p.x, z: p.z, time: gs.time };
       break;
     }
   }
@@ -201,170 +225,182 @@ function updateGrannyAI(dt) {
         e.targetX = wp.x;
         e.targetZ = wp.z;
       }
-      e.speed = 3.0;
+      e.speed = 3.0 * gs.difficulty;
       break;
     }
-
     case 'investigate': {
-      if (e.stateTimer <= 0) {
-        e.state = 'patrol';
-        e.stateTimer = 5 + Math.random() * 4;
-      }
-      e.speed = 4.0;
-      if (Math.hypot(e.targetX - e.x, e.targetZ - e.z) < 1) {
-        e.stateTimer = Math.min(e.stateTimer, 2);
-      }
+      if (e.stateTimer <= 0) { e.state = 'patrol'; e.stateTimer = 5; }
+      e.speed = 4.0 * gs.difficulty;
+      if (Math.hypot(e.targetX - e.x, e.targetZ - e.z) < 1) e.stateTimer = Math.min(e.stateTimer, 2);
       break;
     }
-
     case 'chase': {
-      const target = gameState.players[e.chaseTargetId];
+      const target = gs.players[e.chaseTargetId];
       if (!target || !target.alive || e.stateTimer <= 0) {
-        e.state = 'patrol';
-        e.stateTimer = 5 + Math.random() * 4;
+        e.state = 'patrol'; e.stateTimer = 5;
       } else {
         e.targetX = target.x;
         e.targetZ = target.z;
-        e.speed = 5.5 + gameState.difficulty * 1.5;
+        e.speed = (5.5 + gs.difficulty * 1.5);
         const dist = Math.hypot(target.x - e.x, target.z - e.z);
-        if (dist < 1.5) {
+        if (dist < 1.5 && !target.hiding) {
           target.alive = false;
-          broadcast({ type: 'playerCaught', id: target.id, name: target.name });
+          broadcastToSession(gs.sessionId, { type: 'playerCaught', id: target.id, name: target.name });
+          // Check if all players dead
+          const anyAlive = Object.values(gs.players).some(p => p.alive && !p.isMonster);
+          if (!anyAlive) {
+            gs.phase = 'ended';
+            broadcastToSession(gs.sessionId, { type: 'gameEnd', result: 'caught' });
+            stopSession(gs);
+          }
         }
       }
       break;
     }
   }
 
-  // Movement
-  if (e.targetX !== null && e.targetZ !== null) {
-    const dx = e.targetX - e.x;
-    const dz = e.targetZ - e.z;
-    const dist = Math.hypot(dx, dz);
-    if (dist > 0.5) {
-      const moveX = (dx / dist) * e.speed * dt;
-      const moveZ = (dz / dist) * e.speed * dt;
-      e.x += moveX;
-      e.z += moveZ;
+  // Move entity
+  const dx = e.targetX - e.x;
+  const dz = e.targetZ - e.z;
+  const dist = Math.hypot(dx, dz);
+  if (dist > 0.5) {
+    e.x += (dx / dist) * e.speed * dt;
+    e.z += (dz / dist) * e.speed * dt;
+    e.rotY = Math.atan2(dx, dz);
+  }
+}
+
+// ─── GAME TICK ────────────────────────────────────────────────
+function makeGameTick(gs) {
+  return function gameTick() {
+    const now = Date.now();
+    const dt = Math.min((now - gs.lastTick) / 1000, 0.1);
+    gs.lastTick = now;
+
+    if (!gs || gs.phase !== 'playing') return;
+
+    gs.time += dt;
+    gs.difficulty = Math.min(2.0, 1.0 + gs.time / gs.maxTime);
+
+    if (gs.time >= gs.maxTime) {
+      gs.phase = 'ended';
+      broadcastToSession(gs.sessionId, { type: 'gameEnd', result: 'escaped', reason: 'time' });
+      stopSession(gs);
+      return;
     }
-  }
-}
 
-// ─── GAME TICK ───────────────────────────────────────────────
-function gameTick() {
-  const now = Date.now();
-  const dt = (now - lastTick) / 1000;
-  lastTick = now;
-
-  if (!gameState || gameState.phase !== 'playing') return;
-
-  gameState.time += dt;
-  gameState.difficulty = Math.min(2.0, 1.0 + gameState.time / gameState.maxTime);
-
-  // Check if time's up
-  if (gameState.time >= gameState.maxTime) {
-    gameState.phase = 'won';
-    broadcast({ type: 'gameEnd', result: 'escaped', reason: 'time' });
-    clearInterval(gameLoop);
-    gameLoop = null;
-  }
-
-  // Update Granny AI
-  updateGrannyAI(dt);
-
-  // Broadcast state
-  broadcastState();
-}
-
-function broadcastState() {
-  const state = {
-    type: 'state',
-    time: gameState.maxTime - gameState.time,
-    players: gameState.players,
-    entity: gameState.entity,
-    items: gameState.items,
-    doors: gameState.doors,
-    exit: gameState.exit,
-    phase: gameState.phase,
+    updateGrannyAI(gs, dt);
+    broadcastStateForSession(gs);
   };
-
-  for (const client of clients.values()) {
-    client.ws.send(JSON.stringify(state));
-  }
 }
 
-function broadcast(msg) {
-  for (const client of clients.values()) {
-    client.ws.send(JSON.stringify(msg));
-  }
+function startSession(gs) {
+  if (gs.gameLoop) clearInterval(gs.gameLoop);
+  gs.phase = 'playing';
+  gs.lastTick = Date.now();
+  gs.gameLoop = setInterval(makeGameTick(gs), 1000 / 20); // 20 ticks/sec
+  broadcastToSession(gs.sessionId, { type: 'gameStart', mode: gs.mode });
 }
 
-// ─── WEBSOCKET HANDLING ───────────────────────────────────────
+function stopSession(gs) {
+  if (gs.gameLoop) { clearInterval(gs.gameLoop); gs.gameLoop = null; }
+}
+
+// ─── WEBSOCKET ────────────────────────────────────────────────
 wss.on('connection', (ws) => {
   const id = String(nextId++);
-  clients.set(id, { ws, id });
-  console.log(`Player ${id} connected (${clients.size} total)`);
+  clients.set(id, { ws, id, sessionId: null });
 
+  console.log(`[+] Client ${id} connected (${clients.size} total)`);
+
+  // Send init immediately so client can build the map
   ws.send(JSON.stringify({
     type: 'init',
     id,
     map: MAP_RAW,
     tileSize: TILE,
     wallHeight: WALL_H,
-    hideSpots: hideSpots.map(h => ({ r: h.r, c: h.c })),
-    exitTile: exitTile,
-    gameState: gameState ? {
-      phase: gameState.phase,
-      mode: gameState.mode,
-      players: Object.keys(gameState.players).map(pid => ({
-        id: pid,
-        name: gameState.players[pid].name,
-      })),
-    } : null,
+    hideSpots: hideSpots.map(h => tileCenter(h.r, h.c)),
+    exitTile: exitTile ? tileCenter(exitTile.r, exitTile.c) : null,
   }));
 
   ws.on('message', (raw) => {
     try {
-      const msg = JSON.parse(raw);
-      handleMessage(id, msg);
+      handleMessage(id, JSON.parse(raw));
     } catch (e) {
-      console.error('Message error:', e);
+      console.error('Msg error:', e.message);
     }
   });
 
   ws.on('close', () => {
-    clients.delete(id);
-    if (gameState && gameState.players[id]) {
-      if (gameState.players[id].isMonster) {
-        gameState.entity.controlledBy = null;
+    const client = clients.get(id);
+    if (client && client.sessionId) {
+      const gs = sessions.get(client.sessionId);
+      if (gs) {
+        if (gs.players[id]) {
+          if (gs.players[id].isMonster) gs.entity.controlledBy = null;
+          delete gs.players[id];
+          broadcastToSession(gs.sessionId, { type: 'playerLeft', id });
+        }
+        // Clean up empty sessions
+        const remaining = Object.keys(gs.players).length;
+        if (remaining === 0) {
+          stopSession(gs);
+          sessions.delete(gs.sessionId);
+          console.log(`Session ${gs.sessionId} cleaned up`);
+        }
       }
-      delete gameState.players[id];
-      broadcast({ type: 'playerLeft', id });
     }
-    console.log(`Player ${id} disconnected (${clients.size} remaining)`);
-    if (clients.size === 0) {
-      if (gameLoop) clearInterval(gameLoop);
-      gameState = null;
-      nextId = 1;
-    }
+    clients.delete(id);
+    console.log(`[-] Client ${id} disconnected (${clients.size} total)`);
+  });
+
+  ws.on('error', (err) => {
+    console.error(`WS error for ${id}:`, err.message);
   });
 });
 
+// ─── MESSAGE HANDLER ──────────────────────────────────────────
 function handleMessage(id, msg) {
+  const client = clients.get(id);
+  if (!client) return;
+
+  // ── JOIN ──
   if (msg.type === 'join') {
-    if (!gameState) {
-      gameState = createGameState(msg.mode || 'solo');
+    const mode = msg.mode || 'solo';
+    const isSolo = mode === 'solo';
+
+    let gs;
+    if (isSolo) {
+      // Solo: always a fresh private session
+      const sid = String(nextSession++);
+      gs = createGameState(mode, sid);
+      sessions.set(sid, gs);
+      client.sessionId = sid;
+    } else {
+      // Co-op / asymmetric: find or create a shared session for this mode
+      let found = null;
+      for (const [sid, s] of sessions) {
+        if (s.mode === mode && s.phase === 'lobby') { found = s; break; }
+      }
+      if (!found) {
+        const sid = String(nextSession++);
+        found = createGameState(mode, sid);
+        sessions.set(sid, found);
+      }
+      gs = found;
+      client.sessionId = gs.sessionId;
     }
 
     const sp = tileCenter(playerSpawn.r, playerSpawn.c);
-    const isMonster = msg.mode === 'asymmetric' && msg.asMonster && !gameState.entity.controlledBy;
     const ep = tileCenter(entitySpawn.r, entitySpawn.c);
+    const isMonster = mode === 'asymmetric' && msg.asMonster && !gs.entity.controlledBy;
 
-    gameState.players[id] = {
+    gs.players[id] = {
       id,
-      name: msg.name || `Player ${id}`,
-      x: isMonster ? ep.x : sp.x + (Math.random() - 0.5) * 4,
-      z: isMonster ? ep.z : sp.z + (Math.random() - 0.5) * 4,
+      name: msg.name || `Player_${id}`,
+      x: isMonster ? ep.x : sp.x + (Math.random() - 0.5) * 3,
+      z: isMonster ? ep.z : sp.z + (Math.random() - 0.5) * 3,
       rotY: 0,
       alive: true,
       hiding: false,
@@ -372,102 +408,138 @@ function handleMessage(id, msg) {
       isMonster,
       escaped: false,
       sprinting: false,
-      noiseLevel: 0,
-      sanity: 100,
     };
 
-    if (isMonster) {
-      gameState.entity.controlledBy = id;
-    }
+    if (isMonster) gs.entity.controlledBy = id;
 
-    broadcast({
+    broadcastToSession(gs.sessionId, {
       type: 'playerJoined',
       id,
       name: msg.name,
       isMonster,
-      mode: gameState.mode,
+      mode: gs.mode,
     });
 
-    broadcastState();
+    // Send current state to the new player
+    sendToClient(id, {
+      type: 'state',
+      time: Math.max(0, gs.maxTime - gs.time),
+      players: gs.players,
+      entity: gs.entity,
+      items: gs.items,
+      doors: gs.doors,
+      exit: gs.exit,
+      phase: gs.phase,
+    });
 
-    if (gameState.isSolo && gameState.phase === 'lobby') {
-      gameState.phase = 'playing';
-      lastTick = Date.now();
-      if (gameLoop) clearInterval(gameLoop);
-      gameLoop = setInterval(gameTick, 1000 / TICK_RATE);
-      broadcast({ type: 'gameStart', mode: gameState.mode });
+    // Auto-start solo immediately
+    if (isSolo) {
+      startSession(gs);
     }
+
+    console.log(`Player ${id} (${msg.name}) joined session ${gs.sessionId} [${mode}]`);
+    return;
   }
 
+  // All other messages need a session
+  const gs = client.sessionId ? sessions.get(client.sessionId) : null;
+  if (!gs) return;
+
+  // ── START GAME (host button) ──
   if (msg.type === 'startGame') {
-    if (gameState && gameState.phase === 'lobby') {
-      gameState.phase = 'playing';
-      lastTick = Date.now();
-      if (gameLoop) clearInterval(gameLoop);
-      gameLoop = setInterval(gameTick, 1000 / TICK_RATE);
-      broadcast({ type: 'gameStart', mode: gameState.mode });
-    }
+    if (gs.phase === 'lobby') startSession(gs);
+    return;
   }
 
+  // ── MOVE ──
   if (msg.type === 'move') {
-    if (gameState && gameState.players[id]) {
-      const p = gameState.players[id];
-      const speed = msg.sprint ? 7 : 4.5;
-      const px = Math.cos(msg.angle) * speed * 0.033;
-      const pz = Math.sin(msg.angle) * speed * 0.033;
-      p.x += px;
-      p.z += pz;
-      p.rotY = msg.rotY;
-      p.sprinting = msg.sprint;
-      
-      // Generate noise
-      if (msg.sprint) {
-        gameState.noiseEvents.push({
-          x: p.x,
-          z: p.z,
-          radius: 4,
-          time: gameState.time,
-        });
-      } else {
-        gameState.noiseEvents.push({
-          x: p.x,
-          z: p.z,
-          radius: 2,
-          time: gameState.time,
-        });
+    const p = gs.players[id];
+    if (!p || !p.alive) return;
+    const speed = p.isMonster ? 6 : (msg.sprint ? 7 : 4.5);
+    p.x += Math.cos(msg.angle) * speed * 0.05;
+    p.z += Math.sin(msg.angle) * speed * 0.05;
+    p.rotY = msg.rotY || 0;
+    p.sprinting = !!msg.sprint;
+
+    // Noise event
+    gs.noiseEvents.push({
+      x: p.x, z: p.z,
+      radius: msg.sprint ? 4 : 2,
+      time: gs.time,
+    });
+
+    // If monster is controlled by player, move entity
+    if (p.isMonster && gs.entity.controlledBy === id) {
+      gs.entity.x = p.x;
+      gs.entity.z = p.z;
+      gs.entity.rotY = p.rotY;
+    }
+    return;
+  }
+
+  // ── INTERACT ──
+  if (msg.type === 'interact') {
+    const p = gs.players[id];
+    if (!p || !p.alive) return;
+
+    // Pick up keys
+    for (const item of gs.items) {
+      if (!item.pickedUp && Math.hypot(p.x - item.x, p.z - item.z) < 2.5) {
+        item.pickedUp = true;
+        p.carrying = item.id;
+        broadcastToSession(gs.sessionId, { type: 'itemPickedUp', playerId: id, itemId: item.id });
+        break;
       }
     }
-  }
 
-  if (msg.type === 'interact') {
-    if (gameState && gameState.players[id]) {
-      const p = gameState.players[id];
-      // Check for nearby items or doors
-      for (const item of gameState.items) {
-        if (!item.pickedUp && Math.hypot(p.x - item.x, p.z - item.z) < 1.5) {
-          item.pickedUp = true;
-          p.carrying = item.id;
-          broadcast({ type: 'itemPickedUp', playerId: id, itemId: item.id });
+    // Use key on exit
+    if (!gs.exit.open) {
+      const distToExit = Math.hypot(p.x - gs.exit.x, p.z - gs.exit.z);
+      if (distToExit < 2.5) {
+        const heldKeys = gs.items.filter(i => i.pickedUp && !i.usedOnExit);
+        if (heldKeys.length >= gs.exit.keysNeeded) {
+          heldKeys.slice(0, gs.exit.keysNeeded).forEach(k => { k.usedOnExit = true; });
+          gs.exit.open = true;
+          broadcastToSession(gs.sessionId, { type: 'exitUnlocked' });
         }
       }
     }
+
+    // Walk through open exit
+    if (gs.exit.open) {
+      const distToExit = Math.hypot(p.x - gs.exit.x, p.z - gs.exit.z);
+      if (distToExit < 2.5) {
+        p.escaped = true;
+        p.alive = false;
+        broadcastToSession(gs.sessionId, { type: 'playerEscaped', id, name: p.name });
+        const anyStillIn = Object.values(gs.players).some(pl => pl.alive && !pl.isMonster);
+        if (!anyStillIn) {
+          gs.phase = 'ended';
+          broadcastToSession(gs.sessionId, { type: 'gameEnd', result: 'escaped', reason: 'exit' });
+          stopSession(gs);
+        }
+      }
+    }
+    return;
   }
 
+  // ── CROUCH ──
   if (msg.type === 'crouch') {
-    if (gameState && gameState.players[id]) {
-      gameState.players[id].hiding = msg.active;
-    }
+    const p = gs.players[id];
+    if (p) p.hiding = !!msg.active;
+    return;
   }
 
+  // ── RESTART ──
   if (msg.type === 'restart') {
-    gameState = null;
-    for (const [cid, client] of clients) {
-      client.ws.send(JSON.stringify({ type: 'restart' }));
-    }
+    stopSession(gs);
+    sessions.delete(gs.sessionId);
+    broadcastToSession(gs.sessionId, { type: 'restart' });
+    return;
   }
 }
 
-// ─── QR CODE ENDPOINT ───────────────────────────────────────────
+// ─── QR CODE ──────────────────────────────────────────────────
 app.get('/qr', async (req, res) => {
   const ip = getLocalIP();
   const url = `http://${ip}:${PORT}`;
@@ -479,31 +551,38 @@ app.get('/qr', async (req, res) => {
   }
 });
 
+app.get('/status', (req, res) => {
+  res.json({
+    clients: clients.size,
+    sessions: sessions.size,
+    sessionList: [...sessions.entries()].map(([sid, gs]) => ({
+      id: sid, mode: gs.mode, phase: gs.phase,
+      players: Object.keys(gs.players).length,
+    })),
+  });
+});
+
 function getLocalIP() {
-  const interfaces = os.networkInterfaces();
-  for (const name of Object.keys(interfaces)) {
-    for (const iface of interfaces[name]) {
+  const ifaces = os.networkInterfaces();
+  for (const name of Object.keys(ifaces)) {
+    for (const iface of ifaces[name]) {
       if (iface.family === 'IPv4' && !iface.internal) return iface.address;
     }
   }
   return 'localhost';
 }
 
-// ─── START SERVER ───────────────────────────────────────────────
+// ─── START ────────────────────────────────────────────────────
 const PORT = process.env.PORT || 2567;
-let lastTick = Date.now();
 
 server.listen(PORT, '0.0.0.0', () => {
   const ip = getLocalIP();
   console.log('\n╔══════════════════════════════════════════════════╗');
-  console.log('║       👵  GRANNY - HORROR ESCAPE GAME  👵          ║');
+  console.log('║         HUNTED – HORROR ESCAPE GAME             ║');
   console.log('╠══════════════════════════════════════════════════╣');
   console.log(`║  Local:   http://localhost:${PORT}                 ║`);
   console.log(`║  Network: http://${ip}:${PORT}             ║`);
-  console.log('║                                                  ║');
-  console.log('║  Share the Network URL with players on           ║');
-  console.log('║  the same WiFi to join!                          ║');
-  console.log('║                                                  ║');
-  console.log('║  Or visit /qr for a scannable QR code.           ║');
+  console.log('║  Status:  /status                               ║');
+  console.log('║  QR Code: /qr                                   ║');
   console.log('╚══════════════════════════════════════════════════╝\n');
 });
