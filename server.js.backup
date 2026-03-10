@@ -1,0 +1,799 @@
+import express from 'express';
+import http from 'http';
+import { WebSocketServer } from 'ws';
+import path from 'path';
+import QRCode from 'qrcode';
+import os from 'os';
+
+const app = express();
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server });
+
+app.use(express.static(path.join(path.dirname(new URL(import.meta.url).pathname), 'public')));
+
+// ── MAP DEFINITION ──────────────────────────────────────────────
+// W=wall, .=floor, D=door, H=hiding spot, K=key spawn, X=exit, S=player spawn, E=entity spawn
+const MAP_RAW = [
+  'WWWWWWWWWWWWWWWWWWWWWWWWW',
+  'WS....W.....W.....W....W',
+  'W.....W.....W.....W....W',
+  'W.....D.....D.....D..K.W',
+  'W.....W.....W.....W....W',
+  'W..H..W..K..W..H..W....W',
+  'WWWDWWWWWDWWWWWDWWWWWWWWW',
+  'W.....W...........W....W',
+  'W.....W...........W....W',
+  'W..K..D...........D....W',
+  'W.....W...........W....W',
+  'W..H..W.....E.....W..H.W',
+  'WWWDWWWWWWWDWWWWWWWWDWWWW',
+  'W.....W.....W..........W',
+  'W.....W.....W..........W',
+  'W.....D.....D..........W',
+  'W.....W.....W..........W',
+  'W..H..W.....W.........XW',
+  'WWWWWWWWWWWWWWWWWWWWWWWWW',
+];
+
+const TILE = 4; // units per tile
+const WALL_H = 4;
+const MAP_H = MAP_RAW.length;
+const MAP_W = MAP_RAW[0].length;
+
+function parseTile(r, c) { return (r >= 0 && r < MAP_H && c >= 0 && c < MAP_W) ? MAP_RAW[r][c] : 'W'; }
+function tileCenter(r, c) { return { x: c * TILE + TILE / 2, z: r * TILE + TILE / 2 }; }
+function isWalkable(r, c) { const t = parseTile(r, c); return t !== 'W'; }
+
+// Parse special tiles
+const keySpawns = [], hideSpots = [], doorTiles = [];
+let exitTile = null, entitySpawn = null, playerSpawn = null;
+for (let r = 0; r < MAP_H; r++) {
+  for (let c = 0; c < MAP_W; c++) {
+    const t = MAP_RAW[r][c];
+    if (t === 'K') keySpawns.push({ r, c });
+    if (t === 'H') hideSpots.push({ r, c });
+    if (t === 'D') doorTiles.push({ r, c, open: false });
+    if (t === 'X') exitTile = { r, c };
+    if (t === 'E') entitySpawn = { r, c };
+    if (t === 'S') playerSpawn = { r, c };
+  }
+}
+
+// ── PATHFINDING (simple BFS on grid) ────────────────────────────
+function bfs(startR, startC, endR, endC, gameState) {
+  if (startR === endR && startC === endC) return [];
+  const visited = new Set();
+  const queue = [[startR, startC, []]];
+  visited.add(`${startR},${startC}`);
+  const dirs = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+  while (queue.length > 0) {
+    const [r, c, p] = queue.shift();
+    for (const [dr, dc] of dirs) {
+      const nr = r + dr, nc = c + dc;
+      const key = `${nr},${nc}`;
+      if (visited.has(key)) continue;
+      if (!isWalkable(nr, nc)) continue;
+      // Check if door is closed
+      const door = gameState.doors.find(d => d.r === nr && d.c === nc);
+      if (door && !door.open) continue;
+      visited.add(key);
+      const newPath = [...p, { r: nr, c: nc }];
+      if (nr === endR && nc === endC) return newPath;
+      queue.push([nr, nc, newPath]);
+    }
+  }
+  return []; // no path
+}
+
+// ── GAME STATE ──────────────────────────────────────────────────
+let gameState = null;
+let gameLoop = null;
+
+function createGameState(mode) {
+  const sp = tileCenter(playerSpawn.r, playerSpawn.c);
+  const ep = tileCenter(entitySpawn.r, entitySpawn.c);
+  const isBrain = mode === 'solo_brain' || mode === 'coop_brain';
+  const isSolo = mode === 'solo' || mode === 'solo_brain';
+
+  return {
+    mode,
+    isSolo,
+    phase: 'lobby', // lobby, playing, won, lost
+    players: {},
+    entity: {
+      x: ep.x, z: ep.z,
+      targetX: ep.x, targetZ: ep.z,
+      state: 'patrol', // patrol, investigate, chase, ambush, predict
+      stateTimer: 0,
+      chaseTargetId: null,
+      patrolIndex: 0,
+      speed: 3.5,
+      controlledBy: null,
+      lastNoiseX: null, lastNoiseZ: null,
+      visible: true,
+      // Brain-specific properties
+      type: isBrain ? 'brain' : 'normal',
+      memory: {},           // remembers last-seen positions per player: { playerId: {x,z,time} }
+      ambushTarget: null,   // key/exit position to camp
+      predictX: null, predictZ: null,  // predicted intercept point
+      aggroMultiplier: isBrain ? 1.5 : 1.0,
+      detectionRange: isBrain ? 18 : 12,
+      noiseMultiplier: isBrain ? 1.4 : 1.0, // hears further
+      chaseMemory: isBrain ? 15 : 10,  // seconds to chase before giving up
+      canOpenDoors: true,
+      checkHidingSpots: isBrain, // brain checks closets it saw players near
+    },
+    items: keySpawns.map((k, i) => ({
+      id: `key_${i}`,
+      type: 'key',
+      color: ['red', 'blue', 'green'][i % 3],
+      r: k.r, c: k.c,
+      ...tileCenter(k.r, k.c),
+      pickedUp: false,
+      usedOnExit: false,
+    })),
+    doors: doorTiles.map((d, i) => ({ id: `door_${i}`, r: d.r, c: d.c, open: false })),
+    exit: { ...exitTile, ...tileCenter(exitTile.r, exitTile.c), keysNeeded: 3, keysUsed: 0, open: false },
+    noiseEvents: [],
+    time: 0,
+    maxTime: isSolo ? 240 : 300, // solo gets 4 min, co-op gets 5
+  };
+}
+
+// Patrol waypoints - cycle through hide spots and key spawns
+const patrolWaypoints = [...hideSpots, ...keySpawns].map(p => tileCenter(p.r, p.c));
+
+// ── ENTITY AI ───────────────────────────────────────────────────
+function updateEntityAI(dt) {
+  if (!gameState || gameState.phase !== 'playing') return;
+  const e = gameState.entity;
+  if (e.controlledBy) return; // human-controlled monster
+
+  e.stateTimer -= dt;
+
+  const alivePlayers = Object.values(gameState.players).filter(p => p.alive && !p.isMonster);
+  const visiblePlayers = alivePlayers.filter(p => !p.hiding);
+
+  // ── BRAIN: Update memory of player positions ──────────────
+  if (e.type === 'brain') {
+    for (const p of visiblePlayers) {
+      const dist = Math.hypot(p.x - e.x, p.z - e.z);
+      if (dist < e.detectionRange * 1.5) {
+        e.memory[p.id] = { x: p.x, z: p.z, time: gameState.time, hiding: false };
+      }
+    }
+    // Remember if a player was near a hiding spot before vanishing
+    for (const p of alivePlayers.filter(pl => pl.hiding)) {
+      if (e.memory[p.id] && gameState.time - e.memory[p.id].time < 5) {
+        e.memory[p.id].hiding = true; // brain knows they're probably still nearby
+      }
+    }
+  }
+
+  // ── Process noise events ──────────────────────────────────
+  while (gameState.noiseEvents.length > 0) {
+    const noise = gameState.noiseEvents.shift();
+    const dist = Math.hypot(noise.x - e.x, noise.z - e.z);
+    const hearingRange = noise.radius * TILE * e.noiseMultiplier;
+    if (dist < hearingRange) {
+      if (e.state !== 'chase') {
+        e.state = 'investigate';
+        e.lastNoiseX = noise.x;
+        e.lastNoiseZ = noise.z;
+        e.stateTimer = (e.type === 'brain' ? 8 : 6) + Math.random() * 3;
+      }
+    }
+  }
+
+  // ── Check line of sight to players ────────────────────────
+  for (const p of visiblePlayers) {
+    const dist = Math.hypot(p.x - e.x, p.z - e.z);
+    if (dist < e.detectionRange) {
+      e.state = 'chase';
+      e.chaseTargetId = p.id;
+      e.stateTimer = e.chaseMemory + Math.random() * 3;
+      if (e.type === 'brain') {
+        e.memory[p.id] = { x: p.x, z: p.z, time: gameState.time, hiding: false };
+      }
+      break;
+    }
+  }
+
+  // ── State machine ─────────────────────────────────────────
+  switch (e.state) {
+    case 'patrol': {
+      if (e.stateTimer <= 0) {
+        // Brain: patrol smarter - go toward uncollected keys or exit if keys are being used
+        if (e.type === 'brain' && Math.random() < 0.4) {
+          // Patrol toward remaining keys or exit
+          const uncollected = gameState.items.filter(i => !i.pickedUp && !i.usedOnExit);
+          const target = uncollected.length > 0
+            ? uncollected[Math.floor(Math.random() * uncollected.length)]
+            : gameState.exit;
+          e.targetX = target.x;
+          e.targetZ = target.z;
+          e.ambushTarget = { x: target.x, z: target.z };
+          e.stateTimer = 6 + Math.random() * 4;
+        } else if (e.type === 'brain' && Math.random() < 0.3 && Object.keys(e.memory).length > 0) {
+          // Patrol toward last known player position
+          const memEntries = Object.values(e.memory).sort((a, b) => b.time - a.time);
+          const recent = memEntries[0];
+          e.targetX = recent.x;
+          e.targetZ = recent.z;
+          e.stateTimer = 5 + Math.random() * 3;
+        } else {
+          e.patrolIndex = (e.patrolIndex + 1) % patrolWaypoints.length;
+          e.stateTimer = (e.type === 'brain' ? 5 : 8) + Math.random() * (e.type === 'brain' ? 3 : 6);
+          const wp = patrolWaypoints[e.patrolIndex];
+          e.targetX = wp.x;
+          e.targetZ = wp.z;
+        }
+      }
+      e.speed = e.type === 'brain' ? 3.8 : 3.0;
+      break;
+    }
+
+    case 'investigate': {
+      if (e.stateTimer <= 0) {
+        // Brain: after investigating, check nearby hiding spots
+        if (e.type === 'brain' && e.checkHidingSpots) {
+          const nearbyHide = hideSpots.find(hs => {
+            const hPos = tileCenter(hs.r, hs.c);
+            return Math.hypot(hPos.x - e.x, hPos.z - e.z) < 12;
+          });
+          if (nearbyHide && Math.random() < 0.5) {
+            const hPos = tileCenter(nearbyHide.r, nearbyHide.c);
+            e.targetX = hPos.x;
+            e.targetZ = hPos.z;
+            e.state = 'investigate';
+            e.stateTimer = 3;
+            // Check if a player is actually hiding here
+            const hiddenPlayer = alivePlayers.find(p => p.hiding && Math.hypot(p.x - hPos.x, p.z - hPos.z) < 2);
+            if (hiddenPlayer) {
+              // Brain found you!
+              hiddenPlayer.hiding = false;
+              e.state = 'chase';
+              e.chaseTargetId = hiddenPlayer.id;
+              e.stateTimer = 8;
+              broadcast({ type: 'brainFound', playerId: hiddenPlayer.id });
+            }
+            break;
+          }
+        }
+        e.state = 'patrol';
+        e.stateTimer = (e.type === 'brain' ? 3 : 5) + Math.random() * 4;
+        break;
+      }
+      e.targetX = e.lastNoiseX;
+      e.targetZ = e.lastNoiseZ;
+      e.speed = e.type === 'brain' ? 4.8 : 4.0;
+      if (Math.hypot(e.targetX - e.x, e.targetZ - e.z) < 1) {
+        e.stateTimer = Math.min(e.stateTimer, 2);
+      }
+      break;
+    }
+
+    case 'chase': {
+      const target = gameState.players[e.chaseTargetId];
+      if (!target || !target.alive || e.stateTimer <= 0) {
+        e.state = 'patrol';
+        e.stateTimer = (e.type === 'brain' ? 2 : 4) + Math.random() * 3;
+        break;
+      }
+      if (target.hiding) {
+        // Normal AI: give up chase when target hides
+        // Brain AI: go to last known position, then check nearby hiding spots
+        if (e.type === 'brain') {
+          const mem = e.memory[target.id];
+          if (mem) {
+            e.targetX = mem.x;
+            e.targetZ = mem.z;
+            e.speed = 5.0;
+            // If we've reached their last position, search hiding spots
+            if (Math.hypot(e.targetX - e.x, e.targetZ - e.z) < 2) {
+              e.state = 'investigate';
+              e.stateTimer = 5;
+              e.lastNoiseX = mem.x;
+              e.lastNoiseZ = mem.z;
+            }
+          } else {
+            e.state = 'patrol';
+            e.stateTimer = 3;
+          }
+        } else {
+          e.state = 'patrol';
+          e.stateTimer = 4 + Math.random() * 3;
+        }
+        break;
+      }
+
+      // Brain: predict intercept point instead of chasing directly
+      if (e.type === 'brain') {
+        const mem = e.memory[target.id];
+        if (mem && gameState.time - mem.time < 2) {
+          // Predict where they're heading based on velocity
+          const vx = target.x - mem.x;
+          const vz = target.z - mem.z;
+          const predictTime = 1.5;
+          e.predictX = target.x + vx * predictTime;
+          e.predictZ = target.z + vz * predictTime;
+          // Chase toward predicted position if it's walkable
+          const pR = Math.floor(e.predictZ / TILE), pC = Math.floor(e.predictX / TILE);
+          if (isWalkable(pR, pC)) {
+            e.targetX = e.predictX;
+            e.targetZ = e.predictZ;
+          } else {
+            e.targetX = target.x;
+            e.targetZ = target.z;
+          }
+        } else {
+          e.targetX = target.x;
+          e.targetZ = target.z;
+        }
+        e.speed = 6.0; // brain is faster in chase
+        e.memory[target.id] = { x: target.x, z: target.z, time: gameState.time, hiding: false };
+      } else {
+        e.targetX = target.x;
+        e.targetZ = target.z;
+        e.speed = 5.5;
+      }
+      break;
+    }
+  }
+
+  // Brain: periodically close doors behind it to trap players
+  if (e.type === 'brain' && Math.random() < dt * 0.3) {
+    const eR2 = Math.floor(e.z / TILE), eC2 = Math.floor(e.x / TILE);
+    for (const door of gameState.doors) {
+      if (door.open && Math.abs(door.r - eR2) <= 2 && Math.abs(door.c - eC2) <= 2) {
+        // Only close doors that are behind the entity (not in front)
+        const doorPos = tileCenter(door.r, door.c);
+        const toTarget = Math.atan2(e.targetZ - e.z, e.targetX - e.x);
+        const toDoor = Math.atan2(doorPos.z - e.z, doorPos.x - e.x);
+        const angleDiff = Math.abs(toTarget - toDoor);
+        if (angleDiff > Math.PI * 0.5) { // door is behind us
+          door.open = false;
+          broadcast({ type: 'doorClose', id: door.id });
+          break;
+        }
+      }
+    }
+  }
+
+  // Move entity toward target using grid pathfinding
+  const eR = Math.floor(e.z / TILE), eC = Math.floor(e.x / TILE);
+  const tR = Math.floor(e.targetZ / TILE), tC = Math.floor(e.targetX / TILE);
+
+  let moveX = 0, moveZ = 0;
+  if (eR !== tR || eC !== tC) {
+    const path = bfs(eR, eC, tR, tC, gameState);
+    if (path.length > 0) {
+      const next = tileCenter(path[0].r, path[0].c);
+      const dx = next.x - e.x, dz = next.z - e.z;
+      const d = Math.hypot(dx, dz);
+      if (d > 0.1) { moveX = (dx / d) * e.speed * dt; moveZ = (dz / d) * e.speed * dt; }
+    }
+  } else {
+    const dx = e.targetX - e.x, dz = e.targetZ - e.z;
+    const d = Math.hypot(dx, dz);
+    if (d > 0.3) { moveX = (dx / d) * e.speed * dt; moveZ = (dz / d) * e.speed * dt; }
+  }
+
+  // Collision check before moving
+  const newX = e.x + moveX, newZ = e.z + moveZ;
+  const nR = Math.floor(newZ / TILE), nC = Math.floor(newX / TILE);
+  if (isWalkable(nR, nC)) {
+    const door = gameState.doors.find(d => d.r === nR && d.c === nC);
+    if (!door || door.open) {
+      e.x = newX; e.z = newZ;
+    } else {
+      // Entity opens doors!
+      door.open = true;
+      broadcast({ type: 'doorOpen', id: door.id });
+    }
+  }
+
+  // Check if entity catches a player
+  const catchable = e.type === 'brain' ? alivePlayers : visiblePlayers;
+  for (const p of catchable) {
+    const dist = Math.hypot(p.x - e.x, p.z - e.z);
+    const catchDist = e.type === 'brain' ? 1.8 : 1.5;
+    if (dist < catchDist) {
+      p.alive = false;
+      p.hiding = false;
+      broadcast({ type: 'playerDeath', id: p.id });
+      e.state = 'patrol';
+      e.stateTimer = e.type === 'brain' ? 3 : 5; // brain recovers faster
+
+      // Check if all survivors dead
+      const survivors = Object.values(gameState.players).filter(pl => pl.alive && !pl.isMonster);
+      if (survivors.length === 0) {
+        gameState.phase = 'lost';
+        broadcast({ type: 'gameOver', result: 'lost' });
+      }
+    }
+  }
+}
+
+// ── GAME TICK ───────────────────────────────────────────────────
+const TICK_RATE = 20; // 20 Hz
+let lastTick = Date.now();
+
+function gameTick() {
+  if (!gameState || gameState.phase !== 'playing') return;
+  const now = Date.now();
+  const dt = (now - lastTick) / 1000;
+  lastTick = now;
+
+  gameState.time += dt;
+  if (gameState.time >= gameState.maxTime) {
+    gameState.phase = 'lost';
+    broadcast({ type: 'gameOver', result: 'lost', reason: 'time' });
+    return;
+  }
+
+  updateEntityAI(dt);
+
+  // Random ambient events every 20-40 seconds
+  if (Math.random() < dt / 30) {
+    const randomDoor = gameState.doors[Math.floor(Math.random() * gameState.doors.length)];
+    if (randomDoor) {
+      broadcast({ type: 'ambientScare', kind: 'doorSlam', x: randomDoor.c * TILE + 2, z: randomDoor.r * TILE + 2 });
+    }
+  }
+
+  // Broadcast state
+  broadcastState();
+}
+
+// ── NETWORKING ──────────────────────────────────────────────────
+const clients = new Map();
+let nextId = 1;
+
+function broadcast(msg) {
+  const data = JSON.stringify(msg);
+  for (const [, client] of clients) {
+    if (client.ws.readyState === 1) client.ws.send(data);
+  }
+}
+
+function broadcastState() {
+  if (!gameState) return;
+  const players = {};
+  for (const [id, p] of Object.entries(gameState.players)) {
+    players[id] = { id: p.id, name: p.name, x: p.x, z: p.z, rotY: p.rotY, alive: p.alive, hiding: p.hiding, carrying: p.carrying, isMonster: p.isMonster, sprinting: p.sprinting };
+  }
+  const msg = {
+    type: 'state',
+    players,
+    entity: {
+      x: gameState.entity.x,
+      z: gameState.entity.z,
+      state: gameState.entity.state,
+      controlledBy: gameState.entity.controlledBy,
+      type: gameState.entity.type,
+    },
+    items: gameState.items.map(i => ({ id: i.id, type: i.type, color: i.color, x: i.x, z: i.z, pickedUp: i.pickedUp, usedOnExit: i.usedOnExit })),
+    doors: gameState.doors.map(d => ({ id: d.id, r: d.r, c: d.c, open: d.open })),
+    exit: gameState.exit,
+    time: Math.floor(gameState.time),
+    maxTime: gameState.maxTime,
+    phase: gameState.phase,
+    mode: gameState.mode,
+  };
+  broadcast(msg);
+}
+
+function handleMessage(id, msg) {
+  if (!gameState) return;
+  const player = gameState.players[id];
+  if (!player) return;
+
+  switch (msg.type) {
+    case 'move': {
+      if (!player.alive) break;
+      if (player.hiding) break;
+
+      const speed = msg.sprint ? 7 : 4.5;
+      player.sprinting = msg.sprint;
+      const dx = Math.cos(msg.angle) * speed * (1 / TICK_RATE);
+      const dz = Math.sin(msg.angle) * speed * (1 / TICK_RATE);
+      const newX = player.x + dx;
+      const newZ = player.z + dz;
+      const nR = Math.floor(newZ / TILE), nC = Math.floor(newX / TILE);
+
+      if (isWalkable(nR, nC)) {
+        const door = gameState.doors.find(d => d.r === nR && d.c === nC);
+        if (!door || door.open) {
+          player.x = newX;
+          player.z = newZ;
+          // Generate noise
+          const noiseRadius = msg.sprint ? 5 : 2;
+          if (Math.random() < 0.3) {
+            gameState.noiseEvents.push({ x: newX, z: newZ, radius: noiseRadius });
+          }
+        }
+      }
+      player.rotY = msg.rotY || 0;
+      break;
+    }
+
+    case 'monsterMove': {
+      if (!player.isMonster || !player.alive) break;
+      const e = gameState.entity;
+      const speed = msg.sprint ? 6.5 : 5.0;
+      const dx = Math.cos(msg.angle) * speed * (1 / TICK_RATE);
+      const dz = Math.sin(msg.angle) * speed * (1 / TICK_RATE);
+      const newX = e.x + dx;
+      const newZ = e.z + dz;
+      const nR = Math.floor(newZ / TILE), nC = Math.floor(newX / TILE);
+      if (isWalkable(nR, nC)) {
+        const door = gameState.doors.find(d => d.r === nR && d.c === nC);
+        if (!door || door.open) { e.x = newX; e.z = newZ; }
+        else { door.open = true; broadcast({ type: 'doorOpen', id: door.id }); }
+      }
+      player.x = e.x; player.z = e.z;
+      player.rotY = msg.rotY || 0;
+
+      // Monster catches survivors
+      const survivors = Object.values(gameState.players).filter(p => p.alive && !p.isMonster && !p.hiding);
+      for (const s of survivors) {
+        if (Math.hypot(s.x - e.x, s.z - e.z) < 2.0) {
+          s.alive = false;
+          broadcast({ type: 'playerDeath', id: s.id });
+          const remaining = Object.values(gameState.players).filter(p => p.alive && !p.isMonster);
+          if (remaining.length === 0) {
+            gameState.phase = 'lost';
+            broadcast({ type: 'gameOver', result: 'lost' });
+          }
+        }
+      }
+      break;
+    }
+
+    case 'monsterLunge': {
+      if (!player.isMonster || !player.alive) break;
+      broadcast({ type: 'monsterLunge', x: gameState.entity.x, z: gameState.entity.z });
+      break;
+    }
+
+    case 'interact': {
+      if (!player.alive) break;
+      const pr = Math.floor(player.z / TILE), pc = Math.floor(player.x / TILE);
+
+      // Check doors nearby
+      for (const door of gameState.doors) {
+        if (Math.abs(door.r - pr) <= 1 && Math.abs(door.c - pc) <= 1) {
+          door.open = !door.open;
+          broadcast({ type: door.open ? 'doorOpen' : 'doorClose', id: door.id });
+          gameState.noiseEvents.push({ x: player.x, z: player.z, radius: 4 });
+          break;
+        }
+      }
+
+      // Check items
+      if (!player.carrying) {
+        for (const item of gameState.items) {
+          if (!item.pickedUp && Math.hypot(item.x - player.x, item.z - player.z) < 3) {
+            item.pickedUp = true;
+            player.carrying = item.id;
+            broadcast({ type: 'itemPickup', itemId: item.id, playerId: id });
+            gameState.noiseEvents.push({ x: player.x, z: player.z, radius: 3 });
+            break;
+          }
+        }
+      }
+
+      // Use key on exit
+      if (player.carrying && Math.hypot(gameState.exit.x - player.x, gameState.exit.z - player.z) < 4) {
+        const item = gameState.items.find(i => i.id === player.carrying);
+        if (item && item.type === 'key') {
+          item.usedOnExit = true;
+          player.carrying = null;
+          gameState.exit.keysUsed++;
+          broadcast({ type: 'keyUsed', itemId: item.id, keysUsed: gameState.exit.keysUsed });
+          if (gameState.exit.keysUsed >= gameState.exit.keysNeeded) {
+            gameState.exit.open = true;
+            broadcast({ type: 'exitOpen' });
+          }
+        }
+      }
+
+      // Escape through exit
+      if (gameState.exit.open && Math.hypot(gameState.exit.x - player.x, gameState.exit.z - player.z) < 3) {
+        player.escaped = true;
+        player.alive = false;
+        broadcast({ type: 'playerEscaped', id: player.id });
+        const remaining = Object.values(gameState.players).filter(p => p.alive && !p.isMonster);
+        if (remaining.length === 0) {
+          gameState.phase = 'won';
+          broadcast({ type: 'gameOver', result: 'won' });
+        }
+      }
+      break;
+    }
+
+    case 'drop': {
+      if (player.carrying) {
+        const item = gameState.items.find(i => i.id === player.carrying);
+        if (item) {
+          item.pickedUp = false;
+          item.x = player.x;
+          item.z = player.z;
+          item.r = Math.floor(player.z / TILE);
+          item.c = Math.floor(player.x / TILE);
+        }
+        player.carrying = null;
+        gameState.noiseEvents.push({ x: player.x, z: player.z, radius: 5 });
+        broadcast({ type: 'itemDrop', playerId: id });
+      }
+      break;
+    }
+
+    case 'hide': {
+      if (!player.alive) break;
+      const pr2 = Math.floor(player.z / TILE), pc2 = Math.floor(player.x / TILE);
+      if (player.hiding) {
+        player.hiding = false;
+        break;
+      }
+      for (const hs of hideSpots) {
+        if (Math.abs(hs.r - pr2) <= 1 && Math.abs(hs.c - pc2) <= 1) {
+          player.hiding = true;
+          player.x = tileCenter(hs.r, hs.c).x;
+          player.z = tileCenter(hs.r, hs.c).z;
+          break;
+        }
+      }
+      break;
+    }
+  }
+}
+
+// ── WEBSOCKET CONNECTIONS ───────────────────────────────────────
+wss.on('connection', (ws) => {
+  const id = String(nextId++);
+  clients.set(id, { ws, id });
+  console.log(`Player ${id} connected (${clients.size} total)`);
+
+  // Send map data and id
+  ws.send(JSON.stringify({
+    type: 'init',
+    id,
+    map: MAP_RAW,
+    tileSize: TILE,
+    wallHeight: WALL_H,
+    hideSpots: hideSpots.map(h => ({ r: h.r, c: h.c })),
+    exitTile: exitTile,
+    gameState: gameState ? {
+      phase: gameState.phase,
+      mode: gameState.mode,
+      players: Object.keys(gameState.players).map(pid => ({ id: pid, name: gameState.players[pid].name })),
+    } : null,
+  }));
+
+  ws.on('message', (raw) => {
+    try {
+      const msg = JSON.parse(raw);
+
+      if (msg.type === 'join') {
+        if (!gameState) {
+          gameState = createGameState(msg.mode || 'coop');
+        }
+        const sp = tileCenter(playerSpawn.r, playerSpawn.c);
+        const isMonster = msg.mode === 'asymmetric' && msg.asMonster && !gameState.entity.controlledBy;
+        const ep = tileCenter(entitySpawn.r, entitySpawn.c);
+
+        gameState.players[id] = {
+          id,
+          name: msg.name || `Player ${id}`,
+          x: isMonster ? ep.x : sp.x + (Math.random() - 0.5) * 4,
+          z: isMonster ? ep.z : sp.z + (Math.random() - 0.5) * 4,
+          rotY: 0,
+          alive: true,
+          hiding: false,
+          carrying: null,
+          isMonster,
+          escaped: false,
+          sprinting: false,
+        };
+
+        if (isMonster) {
+          gameState.entity.controlledBy = id;
+        }
+
+        broadcast({ type: 'playerJoined', id, name: msg.name, isMonster, mode: gameState.mode, entityType: gameState.entity.type });
+        broadcastState();
+
+        // Solo modes auto-start immediately
+        if (gameState.isSolo && gameState.phase === 'lobby') {
+          gameState.phase = 'playing';
+          lastTick = Date.now();
+          if (gameLoop) clearInterval(gameLoop);
+          gameLoop = setInterval(gameTick, 1000 / TICK_RATE);
+          broadcast({ type: 'gameStart', mode: gameState.mode, entityType: gameState.entity.type });
+        }
+      }
+
+      if (msg.type === 'startGame') {
+        if (gameState && gameState.phase === 'lobby') {
+          gameState.phase = 'playing';
+          lastTick = Date.now();
+          if (gameLoop) clearInterval(gameLoop);
+          gameLoop = setInterval(gameTick, 1000 / TICK_RATE);
+          broadcast({ type: 'gameStart', mode: gameState.mode, entityType: gameState.entity.type });
+        }
+      }
+
+      if (msg.type === 'restart') {
+        const mode = gameState ? gameState.mode : 'coop';
+        gameState = createGameState(mode);
+        if (gameLoop) clearInterval(gameLoop);
+        // Re-add all connected players
+        for (const [cid, client] of clients) {
+          client.ws.send(JSON.stringify({ type: 'restart' }));
+        }
+      }
+
+      handleMessage(id, msg);
+    } catch (e) {
+      console.error('Message error:', e);
+    }
+  });
+
+  ws.on('close', () => {
+    clients.delete(id);
+    if (gameState && gameState.players[id]) {
+      if (gameState.players[id].isMonster) {
+        gameState.entity.controlledBy = null;
+      }
+      delete gameState.players[id];
+      broadcast({ type: 'playerLeft', id });
+    }
+    console.log(`Player ${id} disconnected (${clients.size} remaining)`);
+    if (clients.size === 0) {
+      if (gameLoop) clearInterval(gameLoop);
+      gameState = null;
+      nextId = 1;
+    }
+  });
+});
+
+// ── QR CODE ENDPOINT ────────────────────────────────────────────
+app.get('/qr', async (req, res) => {
+  const ip = getLocalIP();
+  const url = `http://${ip}:${PORT}`;
+  try {
+    const qr = await QRCode.toDataURL(url, { width: 400, margin: 2 });
+    res.json({ url, qr });
+  } catch (e) {
+    res.json({ url, qr: null });
+  }
+});
+
+function getLocalIP() {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) return iface.address;
+    }
+  }
+  return 'localhost';
+}
+
+// ── START SERVER ────────────────────────────────────────────────
+const PORT = process.env.PORT || 2567;
+server.listen(PORT, '0.0.0.0', () => {
+  const ip = getLocalIP();
+  console.log('\n╔══════════════════════════════════════════════════╗');
+  console.log('║        🏚️  HORROR LAN GAME SERVER  🏚️             ║');
+  console.log('╠══════════════════════════════════════════════════╣');
+  console.log(`║  Local:   http://localhost:${PORT}                 ║`);
+  console.log(`║  Network: http://${ip}:${PORT}             ║`);
+  console.log('║                                                  ║');
+  console.log('║  Share the Network URL with players on           ║');
+  console.log('║  the same WiFi to join!                          ║');
+  console.log('║                                                  ║');
+  console.log('║  Or visit /qr for a scannable QR code.           ║');
+  console.log('╚══════════════════════════════════════════════════╝\n');
+});

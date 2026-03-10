@@ -2,1141 +2,744 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="HUNTED">
 <meta name="theme-color" content="#0a0a0a">
-<meta name="description" content="LAN Multiplayer Horror Escape Game">
+<title>HUNTED – Escape or Die</title>
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<title>HUNTED - LAN Horror Game</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
-*{margin:0;padding:0;box-sizing:border-box;touch-action:none;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
-body{background:#000;color:#e0e0e0;font-family:'Courier New',monospace;overflow:hidden;width:100vw;height:100dvh}
-canvas{display:block;width:100%;height:100%}
+/* ── RESET ── */
+*{margin:0;padding:0;box-sizing:border-box;touch-action:none;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace;color:#e0e0e0}
+canvas{position:fixed;inset:0;display:block;width:100%!important;height:100%!important;z-index:1}
 
-/* Lobby */
-#lobby{position:fixed;inset:0;background:#0a0a0a;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:100;padding:20px;overflow-y:auto}
-#lobby.hidden{display:none}
-#lobby h1{font-size:clamp(2rem,8vw,4rem);color:#c41e1e;text-shadow:0 0 30px rgba(196,30,30,0.5);letter-spacing:0.3em;margin-bottom:10px;font-weight:900}
-#lobby p.sub{color:#666;font-size:0.8rem;margin-bottom:20px;letter-spacing:0.15em}
-#lobby input{background:#1a1a1a;border:1px solid #333;color:#e0e0e0;padding:12px 20px;font-size:1rem;width:min(300px,80vw);margin:6px;text-align:center;font-family:inherit;border-radius:4px}
-#lobby input:focus{outline:none;border-color:#c41e1e}
-.lobby-btn{background:transparent;border:2px solid #c41e1e;color:#c41e1e;padding:12px 24px;font-size:0.9rem;cursor:pointer;font-family:inherit;letter-spacing:0.15em;margin:5px;min-width:min(250px,70vw);transition:all 0.3s;border-radius:4px}
-.lobby-btn:hover,.lobby-btn:active{background:#c41e1e;color:#fff}
-.lobby-btn.secondary{border-color:#555;color:#888}
-.lobby-btn.secondary:hover{background:#555;color:#fff}
-#playerList{color:#888;font-size:0.8rem;margin-top:15px;text-align:center;line-height:1.8}
-#qrContainer{margin:15px 0}
-#qrContainer img{width:140px;height:140px;border:2px solid #333;border-radius:8px}
-#qrUrl{color:#666;font-size:0.7rem;margin-top:6px;word-break:break-all}
+/* ── LOBBY ── */
+#lobby{position:fixed;inset:0;z-index:500;background:radial-gradient(ellipse at 50% 30%,#1a0505 0%,#0a0000 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;overflow-y:auto;gap:6px}
+#lobby.hidden{display:none!important}
+#lobby-title{font-size:clamp(3rem,14vw,6rem);font-weight:900;color:#cc1a1a;letter-spacing:.25em;text-shadow:0 0 40px #cc1a1a88,0 0 80px #cc1a1a44;animation:flicker 3s infinite}
+@keyframes flicker{0%,100%{opacity:1}92%{opacity:1}93%{opacity:.7}94%{opacity:1}96%{opacity:.85}97%{opacity:1}}
+#lobby-sub{color:#666;font-size:.8rem;letter-spacing:.2em;margin-bottom:16px}
+#nameInput{background:#111;border:1px solid #333;color:#e0e0e0;padding:13px 18px;font-size:1rem;width:min(300px,88vw);text-align:center;font-family:inherit;border-radius:4px;transition:border-color .2s}
+#nameInput:focus{outline:none;border-color:#cc1a1a;box-shadow:0 0 12px #cc1a1a44}
+.lbtn{background:transparent;border:1.5px solid #cc1a1a;color:#cc1a1a;padding:13px 20px;font-size:.85rem;cursor:pointer;font-family:inherit;letter-spacing:.12em;width:min(300px,88vw);transition:all .2s;border-radius:4px;font-weight:700}
+.lbtn:hover,.lbtn:active{background:#cc1a1a;color:#fff;box-shadow:0 0 20px #cc1a1a66}
+.lbtn.sec{border-color:#444;color:#777}
+.lbtn.sec:hover,.lbtn.sec:active{background:#444;color:#fff;box-shadow:none}
+#lobby-status{color:#555;font-size:.75rem;text-align:center;min-height:18px;margin-top:4px}
+#playerList{color:#666;font-size:.75rem;text-align:center;line-height:1.9;margin-top:8px}
+#startBtn{display:none;background:#1a4a1a;border-color:#2a8a2a;color:#4aff4a}
+#startBtn:hover{background:#2a8a2a;color:#fff}
 
-/* HUD */
-#hud{position:fixed;top:0;left:0;right:0;pointer-events:none;z-index:50;padding:10px}
+/* ── HUD ── */
+#hud{position:fixed;top:0;left:0;right:0;z-index:100;pointer-events:none;padding:10px 14px;background:linear-gradient(180deg,rgba(0,0,0,.55) 0%,transparent 100%)}
 #hud.hidden{display:none}
-#timer{text-align:center;font-size:1.3rem;color:#c41e1e;text-shadow:0 0 10px rgba(196,30,30,0.4);font-weight:bold}
-#survivors{text-align:center;font-size:0.7rem;color:#888;margin-top:2px}
-#carrying{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);font-size:0.85rem;color:#ffd700;text-shadow:0 0 8px rgba(255,215,0,0.5);pointer-events:none;z-index:50;background:rgba(0,0,0,0.5);padding:5px 14px;border-radius:12px}
-#keyStatus{position:fixed;top:50px;right:12px;font-size:0.75rem;color:#aaa;text-align:right;pointer-events:none;z-index:50;line-height:1.5;background:rgba(0,0,0,0.4);padding:6px 10px;border-radius:6px}
+#timer{text-align:center;font-size:clamp(1.1rem,4vw,1.6rem);color:#cc1a1a;text-shadow:0 0 12px #cc1a1a88;font-weight:bold;letter-spacing:.1em}
+#timer.urgent{animation:pulse-red .4s infinite}
+@keyframes pulse-red{0%,100%{color:#cc1a1a}50%{color:#ff4444;text-shadow:0 0 20px #ff444488}}
+#hud-bottom{position:fixed;bottom:0;left:0;right:0;z-index:100;pointer-events:none;padding:0 12px 8px;display:flex;flex-direction:column;gap:4px}
+.bar-row{display:flex;align-items:center;gap:8px;font-size:.65rem;color:#888;letter-spacing:.08em}
+.bar{flex:1;height:5px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden}
+.bar-fill{height:100%;border-radius:3px;transition:width .2s}
+#sanity-fill{background:linear-gradient(90deg,#00cc44,#ffcc00,#cc1a1a);width:100%}
+#noise-fill{background:linear-gradient(90deg,#1a88ff,#cc1a1a);width:0%}
+#carrying-label{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);z-index:100;font-size:.8rem;color:#ffd700;text-shadow:0 0 8px #ffd70088;background:rgba(0,0,0,.7);padding:6px 14px;border-radius:10px;border:1px solid #ffd70033;pointer-events:none;white-space:nowrap}
+#carrying-label.hidden{display:none}
+#interact-hint{position:fixed;bottom:130px;left:50%;transform:translateX(-50%);z-index:100;font-size:.8rem;color:#fff;background:rgba(0,0,0,.8);padding:8px 16px;border-radius:14px;border:1px solid rgba(255,255,255,.15);pointer-events:none;opacity:0;transition:opacity .25s;white-space:nowrap}
+#interact-hint.show{opacity:1}
+#key-status{position:fixed;top:48px;right:12px;z-index:100;font-size:.7rem;color:#aaa;text-align:right;pointer-events:none;line-height:1.6;background:rgba(0,0,0,.45);padding:5px 9px;border-radius:5px}
 
-/* Crosshair */
-#crosshair{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;z-index:35;width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,0.4);box-shadow:0 0 4px rgba(255,255,255,0.2)}
+/* ── CROSSHAIR ── */
+#crosshair{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:50;pointer-events:none;width:14px;height:14px}
+#crosshair::before,#crosshair::after{content:'';position:absolute;background:rgba(255,255,255,.5);border-radius:1px}
+#crosshair::before{width:2px;height:14px;left:6px;top:0}
+#crosshair::after{width:14px;height:2px;top:6px;left:0}
 #crosshair.hidden{display:none}
 
-/* Interact hint - contextual */
-#interact-hint{position:fixed;bottom:140px;left:50%;transform:translateX(-50%);font-size:0.85rem;color:#fff;background:rgba(0,0,0,0.75);padding:8px 18px;border-radius:16px;border:1px solid rgba(255,255,255,0.15);pointer-events:none;z-index:50;opacity:0;transition:opacity 0.3s;white-space:nowrap}
-#interact-hint.show{opacity:1}
-
-/* Proximity bar */
-#proximity-bar{position:fixed;top:42px;left:50%;transform:translateX(-50%);width:120px;height:4px;background:rgba(255,255,255,0.05);border-radius:2px;pointer-events:none;z-index:50;overflow:hidden}
-#proximity-bar.hidden{display:none}
-#proximity-fill{width:0%;height:100%;background:linear-gradient(90deg,#c41e1e,#ff0000);border-radius:2px;transition:width 0.3s}
-
-/* Minimap */
-#minimap{position:fixed;top:55px;left:10px;pointer-events:none;z-index:50;border:1px solid rgba(255,255,255,0.15);border-radius:4px;background:rgba(0,0,0,0.5)}
+/* ── MINIMAP ── */
+#minimap{position:fixed;top:52px;left:10px;z-index:100;border:1px solid rgba(255,255,255,.12);border-radius:4px;background:rgba(0,0,0,.55);pointer-events:none}
 #minimap.hidden{display:none}
 
-#message{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-size:clamp(1.5rem,5vw,3rem);color:#c41e1e;text-shadow:0 0 40px rgba(196,30,30,0.8);pointer-events:none;z-index:60;opacity:0;transition:opacity 0.5s;text-align:center}
-#message.show{opacity:1}
+/* ── MOBILE CONTROLS ── */
+#joystick-zone{position:fixed;bottom:0;left:0;width:44%;height:58%;z-index:40}
+#look-zone{position:fixed;bottom:0;right:0;width:56%;height:75%;z-index:40}
+#jstick-bg{position:fixed;bottom:16px;left:16px;width:90px;height:90px;border-radius:50%;background:rgba(255,255,255,.04);border:1.5px solid rgba(255,255,255,.1);pointer-events:none;z-index:41}
+#jstick-knob{position:fixed;bottom:31px;left:31px;width:60px;height:60px;border-radius:50%;background:rgba(255,255,255,.15);border:1.5px solid rgba(255,255,255,.25);pointer-events:none;z-index:42;transition:transform .05s}
+#action-btns{position:fixed;bottom:14px;right:10px;display:flex;flex-direction:column;gap:8px;z-index:45}
+#action-btns.hidden{display:none}
+.abtn{width:54px;height:54px;border-radius:50%;border:1.5px solid rgba(255,255,255,.28);background:rgba(255,255,255,.07);color:rgba(255,255,255,.8);font-size:.6rem;font-weight:700;display:flex;align-items:center;justify-content:center;cursor:pointer;letter-spacing:.05em;backdrop-filter:blur(4px);transition:all .1s;-webkit-backdrop-filter:blur(4px)}
+.abtn:active{background:rgba(255,255,255,.22);border-color:rgba(255,255,255,.6);transform:scale(.9)}
+.abtn.lit{border-color:rgba(255,215,0,.6);color:#ffd700;animation:glow-btn 1.5s infinite}
+@keyframes glow-btn{0%,100%{box-shadow:0 0 0 0 transparent}50%{box-shadow:0 0 14px 3px rgba(255,215,0,.3)}}
+#sprint-btn{position:fixed;bottom:14px;left:calc(44% - 32px);z-index:45;width:52px;height:52px;border-radius:50%;border:1.5px solid rgba(255,200,0,.28);background:rgba(255,200,0,.06);color:rgba(255,200,0,.8);font-size:.55rem;font-weight:700;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+#sprint-btn.active{background:rgba(255,200,0,.28);border-color:rgba(255,200,0,.7);transform:scale(.92)}
 
-/* Tutorial overlay */
-#tutorial{position:fixed;inset:0;pointer-events:none;z-index:58;opacity:1;transition:opacity 1s}
-#tutorial.hidden{opacity:0;pointer-events:none}
-#tutorial-inner{position:absolute;bottom:160px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.85);border:1px solid rgba(255,255,255,0.2);border-radius:12px;padding:16px 24px;text-align:center;max-width:min(320px,85vw)}
-#tutorial-inner p{color:#ccc;font-size:0.75rem;line-height:1.7;margin:4px 0}
-#tutorial-inner .key{color:#ffd700;font-weight:bold}
+/* ── SCREEN FX ── */
+#vignette{position:fixed;inset:0;z-index:20;pointer-events:none;background:radial-gradient(ellipse at 50% 50%,transparent 38%,rgba(0,0,0,.75) 100%)}
+#damage-flash{position:fixed;inset:0;z-index:60;pointer-events:none;background:rgba(180,0,0,.6);opacity:0;transition:opacity .08s}
+#scanlines{position:fixed;inset:0;z-index:21;pointer-events:none;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.06) 2px,rgba(0,0,0,.06) 4px);opacity:.25}
+#fear-overlay{position:fixed;inset:0;z-index:22;pointer-events:none;background:rgba(80,0,0,0);transition:background .5s}
 
-/* Controls */
-#joystick-zone{position:fixed;bottom:0;left:0;width:42%;height:55%;z-index:40}
-#look-zone{position:fixed;bottom:0;right:0;width:58%;height:75%;z-index:40}
-#btns{position:fixed;bottom:12px;right:10px;display:flex;gap:8px;z-index:45}
-#btns.hidden{display:none}
-.ctrl-btn{width:58px;height:58px;border-radius:50%;border:2px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.1);color:rgba(255,255,255,0.8);font-size:0.6rem;font-weight:bold;display:flex;align-items:center;justify-content:center;cursor:pointer;letter-spacing:0.05em;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);transition:transform 0.1s,background 0.1s}
-.ctrl-btn:active{background:rgba(255,255,255,0.3);border-color:rgba(255,255,255,0.7);transform:scale(0.9)}
-.ctrl-btn.highlight{border-color:rgba(255,215,0,0.6);color:#ffd700;animation:pulse-btn 1.5s infinite}
-@keyframes pulse-btn{0%,100%{box-shadow:0 0 0 0 rgba(255,215,0,0)}50%{box-shadow:0 0 12px 2px rgba(255,215,0,0.3)}}
-#sprint-btn{position:fixed;bottom:12px;left:calc(42% + 10px);z-index:45;width:52px;height:52px;border-radius:50%;border:2px solid rgba(255,200,0,0.3);background:rgba(255,200,0,0.08);color:rgba(255,200,0,0.8);font-size:0.55rem;font-weight:bold;display:flex;align-items:center;justify-content:center;transition:transform 0.1s}
-#sprint-btn.active{background:rgba(255,200,0,0.3);border-color:rgba(255,200,0,0.7);transform:scale(0.92)}
+/* ── MESSAGE POPUP ── */
+#msg-popup{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:150;font-size:clamp(1.4rem,5vw,2.8rem);color:#cc1a1a;text-shadow:0 0 40px #cc1a1a88;pointer-events:none;opacity:0;transition:opacity .4s;text-align:center;letter-spacing:.1em}
+#msg-popup.show{opacity:1}
 
-/* Vignette + screen effects */
-#vignette{position:fixed;inset:0;pointer-events:none;z-index:30;background:radial-gradient(ellipse at center,transparent 40%,rgba(0,0,0,0.8) 100%)}
-#vignette.hidden{display:none}
-#damage-flash{position:fixed;inset:0;background:rgba(180,0,0,0.6);pointer-events:none;z-index:55;opacity:0;transition:opacity 0.1s}
-#scanlines{position:fixed;inset:0;pointer-events:none;z-index:31;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.08) 2px,rgba(0,0,0,0.08) 4px);opacity:0.3}
-#scanlines.hidden{display:none}
-
-/* Death screen */
-#death-screen{position:fixed;inset:0;background:rgba(30,0,0,0.92);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:70;opacity:0;pointer-events:none;transition:opacity 1s}
+/* ── DEATH SCREEN ── */
+#death-screen{position:fixed;inset:0;z-index:300;background:rgba(20,0,0,.95);display:flex;flex-direction:column;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity 1s}
 #death-screen.show{opacity:1;pointer-events:auto}
-#death-screen h2{font-size:clamp(2rem,8vw,3.5rem);color:#c41e1e;letter-spacing:0.5em;margin-bottom:15px;text-shadow:0 0 30px rgba(196,30,30,0.6)}
-#death-screen p{color:#888;font-size:0.85rem}
+#death-screen h2{font-size:clamp(2rem,10vw,4rem);color:#cc1a1a;letter-spacing:.5em;margin-bottom:16px;text-shadow:0 0 40px #cc1a1a88}
+#death-screen p{color:#777;font-size:.85rem;margin-bottom:28px;text-align:center;max-width:85vw;line-height:1.6}
+#death-screen button{background:#cc1a1a;color:#fff;border:none;padding:13px 32px;font-size:.95rem;cursor:pointer;border-radius:5px;font-family:inherit;font-weight:700;letter-spacing:.1em;transition:all .2s}
+#death-screen button:active{transform:scale(.95);background:#ff2222}
+
+/* ── WIN SCREEN ── */
+#win-screen{position:fixed;inset:0;z-index:300;background:rgba(0,20,0,.95);display:flex;flex-direction:column;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity 1s}
+#win-screen.show{opacity:1;pointer-events:auto}
+#win-screen h2{font-size:clamp(2rem,10vw,4rem);color:#00cc44;letter-spacing:.3em;margin-bottom:16px;text-shadow:0 0 40px #00cc4488}
+#win-screen p{color:#777;font-size:.85rem;margin-bottom:28px;text-align:center;max-width:85vw;line-height:1.6}
+#win-screen button{background:#00cc44;color:#000;border:none;padding:13px 32px;font-size:.95rem;cursor:pointer;border-radius:5px;font-family:inherit;font-weight:700;letter-spacing:.1em}
+
+/* ── RESPONSIVE ── */
+@media(max-width:500px){
+  #jstick-bg{width:80px;height:80px}
+  #jstick-knob{width:52px;height:52px}
+  .abtn{width:50px;height:50px}
+}
+@media(orientation:landscape) and (max-height:500px){
+  #lobby{justify-content:flex-start;padding-top:10px}
+  #lobby-title{font-size:2.2rem}
+  .lbtn{padding:9px 16px}
+}
 </style>
 </head>
 <body>
 
-<!-- LOBBY -->
+<!-- ═══ LOBBY ═══ -->
 <div id="lobby">
-  <h1>HUNTED</h1>
-  <p class="sub">LAN MULTIPLAYER HORROR</p>
-  <div id="qrContainer"></div>
-  <input type="text" id="nameInput" placeholder="Your name..." maxlength="16" autocomplete="off">
-  <button class="lobby-btn" onclick="joinGame('solo')">SOLO PLAY</button>
-  <button class="lobby-btn" onclick="joinGame('solo_brain')" style="border-color:#9b30ff;color:#9b30ff">SOLO vs BRAIN</button>
-  <button class="lobby-btn" onclick="joinGame('coop')">CO-OP ESCAPE</button>
-  <button class="lobby-btn" onclick="joinGame('coop_brain')" style="border-color:#9b30ff;color:#9b30ff">CO-OP vs BRAIN</button>
-  <button class="lobby-btn" onclick="joinGame('asymmetric')">JOIN AS SURVIVOR</button>
-  <button class="lobby-btn secondary" onclick="joinGame('asymmetric',true)">JOIN AS MONSTER</button>
+  <div id="lobby-title">HUNTED</div>
+  <div id="lobby-sub">ESCAPE OR DIE</div>
+
+  <input id="nameInput" type="text" placeholder="Enter your name…" maxlength="20" autocomplete="off">
+
+  <button class="lbtn" onclick="joinGame('solo')">▶ SOLO ESCAPE</button>
+  <button class="lbtn" onclick="joinGame('coop')">👥 CO-OP ESCAPE</button>
+  <button class="lbtn sec" onclick="joinGame('asymmetric',false)">JOIN AS SURVIVOR</button>
+  <button class="lbtn sec" onclick="joinGame('asymmetric',true)">CONTROL THE MONSTER</button>
+  <button class="lbtn" id="startBtn" onclick="startGame()">▶ START GAME</button>
+
+  <div id="lobby-status">Connecting…</div>
   <div id="playerList"></div>
-  <button class="lobby-btn" id="startBtn" onclick="startGame()" style="display:none;margin-top:20px;border-color:#4a4">START GAME</button>
-  <div id="installHint" style="display:none;color:#555;font-size:0.65rem;margin-top:20px;text-align:center;line-height:1.6;max-width:280px;padding:10px;border:1px solid #222;border-radius:6px">
-    For fullscreen: tap <span style="font-size:1rem">⬆</span> Share → <strong>Add to Home Screen</strong>
-  </div>
 </div>
 
-<!-- GAME HUD -->
+<!-- ═══ HUD ═══ -->
 <div id="hud" class="hidden">
-  <div id="timer">5:00</div>
-  <div id="survivors"></div>
+  <div id="timer">3:00</div>
 </div>
-<div id="proximity-bar" class="hidden"><div id="proximity-fill"></div></div>
-<div id="crosshair" class="hidden"></div>
-<canvas id="minimap" class="hidden" width="100" height="76"></canvas>
-<div id="keyStatus" class="hidden"></div>
-<div id="carrying" class="hidden"></div>
+<div id="key-status"></div>
+<div id="hud-bottom" class="hidden">
+  <div class="bar-row"><span>SANITY</span><div class="bar"><div class="bar-fill" id="sanity-fill"></div></div></div>
+  <div class="bar-row"><span>NOISE</span><div class="bar"><div class="bar-fill" id="noise-fill"></div></div></div>
+</div>
+<div id="carrying-label" class="hidden"></div>
 <div id="interact-hint"></div>
-<div id="message"></div>
 
-<!-- Tutorial overlay -->
-<div id="tutorial" class="hidden">
-  <div id="tutorial-inner">
-    <p><span class="key">LEFT THUMB</span> — Move</p>
-    <p><span class="key">RIGHT SWIPE</span> — Look around</p>
-    <p><span class="key">USE</span> — Open doors, pick up keys</p>
-    <p><span class="key">HIDE</span> — Enter closets</p>
-    <p>Find <span class="key">3 KEYS</span> → unlock the <span class="key">EXIT</span></p>
-    <p style="color:#c41e1e;margin-top:8px">Don't let it catch you.</p>
-  </div>
-</div>
+<!-- ═══ CROSSHAIR ═══ -->
+<div id="crosshair" class="hidden"></div>
 
-<!-- CONTROLS -->
+<!-- ═══ MINIMAP ═══ -->
+<canvas id="minimap" class="hidden" width="100" height="76"></canvas>
+
+<!-- ═══ MOBILE CONTROLS ═══ -->
 <div id="joystick-zone"></div>
 <div id="look-zone"></div>
-<div id="btns" class="hidden">
-  <div class="ctrl-btn" id="interact-btn" ontouchstart="sendInteract()" onclick="sendInteract()">USE</div>
-  <div class="ctrl-btn" id="hide-btn" ontouchstart="sendHide()" onclick="sendHide()">HIDE</div>
-  <div class="ctrl-btn" id="drop-btn" ontouchstart="sendDrop()" onclick="sendDrop()">DROP</div>
+<div id="jstick-bg"></div>
+<div id="jstick-knob"></div>
+<div id="action-btns" class="hidden">
+  <button class="abtn" id="interact-btn">USE<br>E</button>
+  <button class="abtn" id="crouch-btn">HIDE<br>C</button>
 </div>
-<div id="sprint-btn" class="hidden" ontouchstart="sprintStart()" ontouchend="sprintEnd()" onmousedown="sprintStart()" onmouseup="sprintEnd()">RUN</div>
+<div id="sprint-btn" class="hidden">RUN</div>
 
-<!-- EFFECTS -->
-<div id="vignette" class="hidden"></div>
+<!-- ═══ SCREEN FX ═══ -->
+<div id="vignette"></div>
 <div id="damage-flash"></div>
-<div id="scanlines" class="hidden"></div>
+<div id="scanlines"></div>
+<div id="fear-overlay"></div>
 
-<!-- DEATH -->
-<div id="death-screen"><h2>DEAD</h2><p id="death-info">Watching as spectator...</p><p style="color:#555;font-size:0.7rem;margin-top:10px">Spectating remaining survivors</p></div>
+<!-- ═══ POPUPS ═══ -->
+<div id="msg-popup"></div>
+<div id="death-screen">
+  <h2>CAUGHT</h2>
+  <p id="death-msg">The monster got you…</p>
+  <button onclick="location.reload()">TRY AGAIN</button>
+</div>
+<div id="win-screen">
+  <h2>ESCAPED!</h2>
+  <p id="win-msg">You made it out alive!</p>
+  <button onclick="location.reload()">PLAY AGAIN</button>
+</div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://unpkg.com/nipplejs@0.10.2/dist/nipplejs.min.js"></script>
 <script>
+'use strict';
 // ═══════════════════════════════════════════════════════════════
-// GAME CLIENT
+// HUNTED – GRANNY-STYLE HORROR ESCAPE GAME
+// Mobile-first · Stealth · Puzzles · Permadeath
 // ═══════════════════════════════════════════════════════════════
 
-let ws, myId, mapData, tileSize, wallHeight, hideSpots, exitTile;
-let scene, camera, renderer, clock;
-let players = {}, entityMesh, itemMeshes = {}, doorMeshes = {};
-let moveAngle = null, moveActive = false, sprinting = false;
-let lookYaw = 0, lookPitch = 0;
-let myState = { alive: true, hiding: false, carrying: null, isMonster: false };
-let gamePhase = 'lobby';
-let joystick = null;
+// ── CONSTANTS ──────────────────────────────────────────────────
+const TILE = 4;
+const WALL_H = 4;
+const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+// ── STATE ──────────────────────────────────────────────────────
+let ws = null;
+let myId = null;
+let mapData = null;
+let tileSize = TILE;
+let hideSpots = [];
+let exitTileInfo = null;
+
+let gamePhase = 'lobby';   // lobby | playing | dead | won
 let lastState = null;
-let audioCtx, audioUnlocked = false;
-let heartbeatOsc = null, heartbeatGain = null, ambienceNode = null;
-let interactHintVisible = false;
-let currentEntityType = 'normal';
+let myState = null;
+let isHost = false;
+let playerCount = 0;
 
-// ── AUDIO ENGINE (Web Audio API - procedural) ─────────────────
-function unlockAudio() {
-  if (audioUnlocked) return;
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  audioUnlocked = true;
+// ── THREE.JS ───────────────────────────────────────────────────
+let scene, camera, renderer, clock;
+let mapBuilt = false;
+let entityMesh = null;
+let playerMeshes = {};
+let itemMeshes = {};
 
-  // Ambient drone
-  const droneOsc = audioCtx.createOscillator();
-  const droneGain = audioCtx.createGain();
-  const droneFilter = audioCtx.createBiquadFilter();
-  droneOsc.type = 'sawtooth';
-  droneOsc.frequency.value = 42;
-  droneFilter.type = 'lowpass';
-  droneFilter.frequency.value = 120;
-  droneGain.gain.value = 0.06;
-  droneOsc.connect(droneFilter).connect(droneGain).connect(audioCtx.destination);
-  droneOsc.start();
-  ambienceNode = droneGain;
+// ── CAMERA / MOVEMENT ──────────────────────────────────────────
+let cameraSnapped = false;
+let lookYaw = 0;
+let lookPitch = 0;
+let bobTimer = 0;
+let isMoving = false;
+let sprinting = false;
+let crouching = false;
 
-  // Sub-bass rumble
-  const subOsc = audioCtx.createOscillator();
-  const subGain = audioCtx.createGain();
-  subOsc.type = 'sine';
-  subOsc.frequency.value = 28;
-  subGain.gain.value = 0.04;
-  subOsc.connect(subGain).connect(audioCtx.destination);
-  subOsc.start();
+// ── INPUT ──────────────────────────────────────────────────────
+const keys = {};
+let joyX = 0, joyY = 0, joyActive = false;
+let lookDX = 0, lookDY = 0, lookActive = false;
+let lookTouchId = null;
+let joyTouchId = null;
+// joystick center in screen coords
+let joyCX = 0, joyCY = 0;
 
-  // Heartbeat setup
-  heartbeatGain = audioCtx.createGain();
-  heartbeatGain.gain.value = 0;
-  heartbeatGain.connect(audioCtx.destination);
-}
+// ── AUDIO ──────────────────────────────────────────────────────
+let audioCtx = null;
+let masterGain = null;
+let noiseLevel = 0;
+let sanityLevel = 100;
+let footstepTimer = 0;
 
-// Brain entity psychic hum (activated when game starts in brain mode)
-function startBrainAudio() {
-  if (!audioCtx) return;
-  // Dissonant tritone interval - deeply unsettling
-  const osc1 = audioCtx.createOscillator();
-  const osc2 = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
-  const filter = audioCtx.createBiquadFilter();
-  osc1.type = 'sine'; osc1.frequency.value = 62;  // B1
-  osc2.type = 'sine'; osc2.frequency.value = 87.3; // F2 (tritone)
-  filter.type = 'lowpass'; filter.frequency.value = 200;
-  gain.gain.value = 0.04;
-  // LFO for pulsing
-  const lfo = audioCtx.createOscillator();
-  const lfoGain = audioCtx.createGain();
-  lfo.frequency.value = 0.3; lfoGain.gain.value = 0.02;
-  lfo.connect(lfoGain).connect(gain.gain);
-  lfo.start();
-  osc1.connect(filter).connect(gain).connect(audioCtx.destination);
-  osc2.connect(filter);
-  osc1.start(); osc2.start();
-}
+// ── INTERACTION ────────────────────────────────────────────────
+let nearbyInteractable = null;
 
-function playHeartbeat(intensity) {
-  if (!audioCtx || !heartbeatGain) return;
-  heartbeatGain.gain.setTargetAtTime(Math.min(intensity * 0.3, 0.35), audioCtx.currentTime, 0.1);
-  if (intensity > 0.05) {
-    const rate = 0.3 + (1 - intensity) * 0.7; // faster when closer
-    const now = audioCtx.currentTime;
-    // Double-beat
-    for (let i = 0; i < 2; i++) {
-      const osc = audioCtx.createOscillator();
-      const env = audioCtx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = 55 + i * 15;
-      env.gain.value = 0;
-      env.gain.setValueAtTime(0, now + i * 0.12);
-      env.gain.linearRampToValueAtTime(intensity * 0.4, now + i * 0.12 + 0.03);
-      env.gain.exponentialRampToValueAtTime(0.001, now + i * 0.12 + 0.2);
-      osc.connect(env).connect(heartbeatGain);
-      osc.start(now + i * 0.12);
-      osc.stop(now + i * 0.12 + 0.3);
-    }
-  }
-}
-
-function playFootstep(x, z, heavy) {
-  if (!audioCtx) return;
-  const osc = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
-  const filter = audioCtx.createBiquadFilter();
-  osc.type = 'square';
-  osc.frequency.value = heavy ? 80 + Math.random() * 30 : 200 + Math.random() * 100;
-  filter.type = 'lowpass';
-  filter.frequency.value = heavy ? 300 : 800;
-  gain.gain.value = heavy ? 0.12 : 0.06;
-  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
-  osc.connect(filter).connect(gain).connect(audioCtx.destination);
-  osc.start();
-  osc.stop(audioCtx.currentTime + 0.15);
-}
-
-function playJumpscare() {
-  if (!audioCtx) return;
-  for (let i = 0; i < 5; i++) {
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = ['sawtooth', 'square', 'triangle'][Math.floor(Math.random() * 3)];
-    osc.frequency.value = 100 + Math.random() * 2000;
-    gain.gain.value = 0.3;
-    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.8);
-    osc.connect(gain).connect(audioCtx.destination);
-    osc.start();
-    osc.stop(audioCtx.currentTime + 0.8);
-  }
-}
-
-function playDoorSound() {
-  if (!audioCtx) return;
-  const noise = audioCtx.createBufferSource();
-  const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.3, audioCtx.sampleRate);
-  const data = buf.getChannelData(0);
-  for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (audioCtx.sampleRate * 0.1));
-  noise.buffer = buf;
-  const filter = audioCtx.createBiquadFilter();
-  filter.type = 'bandpass';
-  filter.frequency.value = 400;
-  const gain = audioCtx.createGain();
-  gain.gain.value = 0.15;
-  noise.connect(filter).connect(gain).connect(audioCtx.destination);
-  noise.start();
-}
-
-function playPickup() {
-  if (!audioCtx) return;
-  const osc = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
-  osc.type = 'sine';
-  osc.frequency.setValueAtTime(400, audioCtx.currentTime);
-  osc.frequency.linearRampToValueAtTime(800, audioCtx.currentTime + 0.15);
-  gain.gain.value = 0.1;
-  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.2);
-  osc.connect(gain).connect(audioCtx.destination);
-  osc.start();
-  osc.stop(audioCtx.currentTime + 0.2);
-}
-
-function playAmbientScare() {
-  if (!audioCtx) return;
-  const noise = audioCtx.createBufferSource();
-  const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.5, audioCtx.sampleRate);
-  const data = buf.getChannelData(0);
-  for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (audioCtx.sampleRate * 0.15));
-  noise.buffer = buf;
-  const gain = audioCtx.createGain();
-  gain.gain.value = 0.2;
-  noise.connect(gain).connect(audioCtx.destination);
-  noise.start();
-}
-
-// ── WEBSOCKET ─────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// WEBSOCKET
+// ═══════════════════════════════════════════════════════════════
 function connect() {
-  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  ws = new WebSocket(`${protocol}//${location.host}`);
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}`);
 
   ws.onopen = () => {
-    console.log('Connected to server');
-    // Fetch QR code
-    fetch('/qr').then(r => r.json()).then(data => {
-      const qr = document.getElementById('qrContainer');
-      if (data.qr) {
-        qr.innerHTML = `<img src="${data.qr}" alt="QR Code"><div id="qrUrl">${data.url}</div>`;
-      } else {
-        qr.innerHTML = `<div id="qrUrl">${data.url}</div>`;
-      }
-    }).catch(() => {});
+    setStatus('Connected – enter your name and choose a mode');
   };
 
   ws.onmessage = (e) => {
-    const msg = JSON.parse(e.data);
-    handleServerMessage(msg);
+    try { onMsg(JSON.parse(e.data)); } catch (_) {}
   };
 
   ws.onclose = () => {
-    console.log('Disconnected');
-    setTimeout(connect, 2000);
+    setStatus('Disconnected – reload to reconnect');
+    showLobby();
+  };
+
+  ws.onerror = () => {
+    setStatus('Connection error – check server');
   };
 }
 
 function send(msg) {
-  if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg));
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
 }
 
-function handleServerMessage(msg) {
+// ═══════════════════════════════════════════════════════════════
+// MESSAGE HANDLER
+// ═══════════════════════════════════════════════════════════════
+function onMsg(msg) {
   switch (msg.type) {
+
     case 'init':
       myId = msg.id;
       mapData = msg.map;
-      tileSize = msg.tileSize;
-      wallHeight = msg.wallHeight;
-      hideSpots = msg.hideSpots;
-      exitTile = msg.exitTile;
-      cameraState = 'lobby';
-      cameraSnapped = false;
+      tileSize = msg.tileSize || TILE;
+      hideSpots = msg.hideSpots || [];
+      exitTileInfo = msg.exitTile || null;
+      setStatus('Ready – choose a game mode');
+      // Build 3-D map now that we have data
+      if (!mapBuilt) { buildMap(); mapBuilt = true; }
       break;
 
     case 'playerJoined':
-      updatePlayerList();
+      playerCount++;
+      updatePlayerList(msg);
+      // Show start button only for host in coop/asymmetric
+      if (msg.id === myId) {
+        isHost = true;
+        if (msg.mode !== 'solo') {
+          document.getElementById('startBtn').style.display = 'block';
+        }
+      }
+      setStatus(`${playerCount} player(s) in lobby`);
       break;
 
     case 'playerLeft':
-      if (players[msg.id]) {
-        scene.remove(players[msg.id].mesh);
-        delete players[msg.id];
+      playerCount = Math.max(0, playerCount - 1);
+      setStatus(`${playerCount} player(s) in lobby`);
+      if (playerMeshes[msg.id]) {
+        scene.remove(playerMeshes[msg.id]);
+        delete playerMeshes[msg.id];
       }
       break;
 
     case 'gameStart':
-      gamePhase = 'playing';
-      cameraState = 'firstPerson';
-      currentEntityType = msg.entityType || 'normal';
-      document.getElementById('lobby').classList.add('hidden');
-      document.getElementById('hud').classList.remove('hidden');
-      document.getElementById('keyStatus').classList.remove('hidden');
-      document.getElementById('btns').classList.remove('hidden');
-      document.getElementById('sprint-btn').classList.remove('hidden');
-      document.getElementById('vignette').classList.remove('hidden');
-      document.getElementById('scanlines').classList.remove('hidden');
-      document.getElementById('crosshair').classList.remove('hidden');
-      document.getElementById('minimap').classList.remove('hidden');
-      document.getElementById('proximity-bar').classList.remove('hidden');
-      initJoystick();
-      unlockAudio();
-      // Snap camera to player spawn position from map data
-      if (mapData && tileSize) {
-        for (let r = 0; r < mapData.length; r++) {
-          for (let c = 0; c < mapData[0].length; c++) {
-            if (mapData[r][c] === 'S') {
-              camera.position.set(c * tileSize + tileSize / 2, 1.6, r * tileSize + tileSize / 2);
-              break;
-            }
-          }
-        }
-      }
-      // Face camera toward center of map (away from spawn wall)
-      if (mapData && tileSize) {
-        const mapCenterX = (mapData[0].length * tileSize) / 2;
-        const mapCenterZ = (mapData.length * tileSize) / 2;
-        lookYaw = Math.atan2(mapCenterX - camera.position.x, mapCenterZ - camera.position.z);
-      } else {
-        lookYaw = Math.PI;
-      }
-      lookPitch = 0;
-      // Recreate entity mesh if Brain type
-      if (currentEntityType === 'brain' && entityMesh) {
-        scene.remove(entityMesh);
-        entityMesh = createEntityMesh(currentEntityType);
-      }
-      // Show tutorial for 6 seconds
-      const tut = document.getElementById('tutorial');
-      tut.classList.remove('hidden');
-      setTimeout(() => tut.classList.add('hidden'), 7000);
-      // Mode-specific opening message
-      if (msg.mode === 'solo') {
-        showMessage('YOU ARE ALONE. ESCAPE.', 3000);
-      } else if (msg.mode === 'solo_brain' || msg.mode === 'coop_brain') {
-        showMessage('IT LEARNS. IT REMEMBERS. RUN.', 4000);
-        startBrainAudio();
-      } else {
-        showMessage('ESCAPE THE HOUSE', 3000);
-      }
-      break;
-
-    case 'brainFound':
-      if (msg.playerId === myId) {
-        showMessage('IT FOUND YOU', 2000);
-        playJumpscare();
-      }
+      startPlaying();
       break;
 
     case 'state':
       lastState = msg;
-      updateGameState(msg);
+      myState = msg.players ? msg.players[myId] : null;
+      if (gamePhase === 'playing') {
+        updateScene(msg);
+        updateHUD(msg);
+      }
       break;
 
-    case 'doorOpen':
-    case 'doorClose':
-      playDoorSound();
-      break;
-
-    case 'itemPickup':
-      playPickup();
-      break;
-
-    case 'keyUsed':
-      playPickup();
-      showMessage(`KEY USED (${msg.keysUsed}/3)`, 2000);
-      break;
-
-    case 'exitOpen':
-      showMessage('EXIT IS OPEN! RUN!', 3000);
-      break;
-
-    case 'playerDeath':
+    case 'playerCaught':
       if (msg.id === myId) {
-        myState.alive = false;
-        cameraState = 'spectator';
-        playJumpscare();
-        document.getElementById('damage-flash').style.opacity = '1';
-        setTimeout(() => document.getElementById('damage-flash').style.opacity = '0', 300);
-        document.getElementById('crosshair').classList.add('hidden');
-        // Show time survived
-        const timeInfo = document.getElementById('death-info');
-        if (timeInfo && lastState) {
-          const survived = lastState.time || 0;
-          const m = Math.floor(survived / 60);
-          const s = Math.floor(survived % 60);
-          timeInfo.textContent = `Survived ${m}:${s.toString().padStart(2,'0')}`;
-        }
+        gamePhase = 'dead';
+        document.getElementById('death-msg').textContent =
+          'The monster got you… Try to be quieter next time.';
         document.getElementById('death-screen').classList.add('show');
-        setTimeout(() => { document.getElementById('death-screen').classList.remove('show'); }, 4000);
+        flashDamage();
       }
+      showMsg(msg.id === myId ? 'CAUGHT!' : `${msg.name} was caught!`, 3000);
       break;
 
-    case 'playerEscaped':
-      if (msg.id === myId) {
-        showMessage('YOU ESCAPED!', 5000);
-      }
-      break;
-
-    case 'gameOver':
-      gamePhase = 'over';
-      if (msg.result === 'won') {
-        showMessage('ALL SURVIVORS ESCAPED!', 5000);
+    case 'gameEnd':
+      if (msg.result === 'escaped') {
+        gamePhase = 'won';
+        document.getElementById('win-msg').textContent =
+          msg.reason === 'time' ? 'You survived the night!' : 'You escaped the house!';
+        document.getElementById('win-screen').classList.add('show');
       } else {
-        showMessage(msg.reason === 'time' ? 'TIME RAN OUT...' : 'ALL SURVIVORS ARE DEAD', 5000);
+        gamePhase = 'dead';
+        document.getElementById('death-msg').textContent = 'Nobody escaped…';
+        document.getElementById('death-screen').classList.add('show');
       }
-      break;
-
-    case 'ambientScare':
-      playAmbientScare();
-      break;
-
-    case 'monsterLunge':
-      playFootstep(msg.x, msg.z, true);
       break;
 
     case 'restart':
-      cameraState = 'lobby';
-      cameraSnapped = false;
       location.reload();
       break;
   }
 }
 
-function updatePlayerList() {
-  // Updated via state messages
+// ═══════════════════════════════════════════════════════════════
+// LOBBY HELPERS
+// ═══════════════════════════════════════════════════════════════
+function setStatus(txt) {
+  document.getElementById('lobby-status').textContent = txt;
 }
 
-// ── LOBBY ─────────────────────────────────────────────────────
+function showLobby() {
+  document.getElementById('lobby').classList.remove('hidden');
+  gamePhase = 'lobby';
+}
+
+function updatePlayerList(msg) {
+  // Just show a simple count; full list would need server to send it
+  const pl = document.getElementById('playerList');
+  pl.textContent = `Player joined: ${msg.name}`;
+}
+
 function joinGame(mode, asMonster = false) {
-  unlockAudio();
-  const name = document.getElementById('nameInput').value.trim() || `Player`;
+  const name = (document.getElementById('nameInput').value || '').trim()
+    || `Ghost_${Math.random().toString(36).slice(2,6).toUpperCase()}`;
   send({ type: 'join', name, mode, asMonster });
-  myState.isMonster = asMonster;
-  // Solo modes auto-start, no need for start button
-  const isSolo = mode === 'solo' || mode === 'solo_brain';
-  if (!isSolo) {
-    document.getElementById('startBtn').style.display = 'block';
-  }
+  setStatus('Joining…');
 }
 
 function startGame() {
   send({ type: 'startGame' });
 }
 
-// ── THREE.JS SCENE ────────────────────────────────────────────
-let cameraState = 'lobby'; // lobby, firstPerson, spectator
+function startPlaying() {
+  gamePhase = 'playing';
+  cameraSnapped = false;
+  document.getElementById('lobby').classList.add('hidden');
+  document.getElementById('hud').classList.remove('hidden');
+  document.getElementById('hud-bottom').classList.remove('hidden');
+  document.getElementById('crosshair').classList.remove('hidden');
+  document.getElementById('minimap').classList.remove('hidden');
+  document.getElementById('action-btns').classList.remove('hidden');
+  document.getElementById('sprint-btn').classList.remove('hidden');
+  // Unlock audio
+  unlockAudio();
+}
 
+// ═══════════════════════════════════════════════════════════════
+// THREE.JS SCENE
+// ═══════════════════════════════════════════════════════════════
 function initScene() {
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x050505);
-  scene.fog = new THREE.FogExp2(0x080808, 0.03);
+  scene.background = new THREE.Color(0x080808);
+  scene.fog = new THREE.FogExp2(0x080808, 0.045);
 
-  const isMobile = 'ontouchstart' in window;
+  camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.05, 200);
+  camera.position.set(0, -50, 0); // hidden underground until game starts
 
-  // Renderer
-  renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+  renderer = new THREE.WebGLRenderer({ antialias: !isMobile, powerPreference: 'high-performance' });
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.setPixelRatio(Math.min(devicePixelRatio, isMobile ? 1.5 : 2));
   renderer.shadowMap.enabled = !isMobile;
-  renderer.shadowMap.type = THREE.BasicShadowMap;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputEncoding = THREE.sRGBEncoding;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = isMobile ? 1.2 : 0.8;
+  renderer.toneMappingExposure = 0.9;
   document.body.prepend(renderer.domElement);
-
-  // Camera
-  camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
-  // Start camera underground until we have a real position — prevents seeing the map from a bad angle
-  camera.position.set(0, -10, 0);
 
   clock = new THREE.Clock();
 
-  const ambient = new THREE.AmbientLight(0x222233, isMobile ? 0.5 : 0.25);
-  scene.add(ambient);
+  // Ambient – very dim
+  scene.add(new THREE.AmbientLight(0x221111, 0.6));
 
-  const hemi = new THREE.HemisphereLight(0x222244, 0x111100, 0.2);
-  scene.add(hemi);
+  // Player flashlight attached to camera
+  const fl = new THREE.SpotLight(0xfff5e0, 2.5, 30, Math.PI / 8, 0.6, 1.5);
+  fl.position.set(0, 0, 0);
+  fl.castShadow = !isMobile;
+  if (!isMobile) {
+    fl.shadow.mapSize.width = 512;
+    fl.shadow.mapSize.height = 512;
+  }
+  camera.add(fl);
+  camera.add(fl.target);
+  fl.target.position.set(0, -0.15, -1);
+  scene.add(camera);
 
   window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.aspect = innerWidth / innerHeight;
     camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setSize(innerWidth, innerHeight);
   });
 }
 
+// ── MAP GEOMETRY ───────────────────────────────────────────────
 function buildMap() {
-  if (!mapData) return;
+  if (!mapData || !scene) return;
+
   const H = mapData.length;
   const W = mapData[0].length;
   const T = tileSize;
-  const WH = wallHeight;
+  const WH = WALL_H;
 
-  // Materials - slightly emissive so they're visible even in low light on mobile
-  const floorMat = new THREE.MeshLambertMaterial({ color: 0x2a2018, emissive: 0x080604 });
-  const ceilMat = new THREE.MeshLambertMaterial({ color: 0x151515, emissive: 0x050505 });
-  const wallMat = new THREE.MeshLambertMaterial({ color: 0x3a2a1e, emissive: 0x0a0806 });
-  const wallMat2 = new THREE.MeshLambertMaterial({ color: 0x2e2218, emissive: 0x080604 });
-  const doorMat = new THREE.MeshLambertMaterial({ color: 0x5a4530, emissive: 0x100c08, transparent: true, opacity: 0.9 });
-  const exitMat = new THREE.MeshLambertMaterial({ color: 0x2a5a2a, emissive: 0x0a2a0a });
-  const hideMat = new THREE.MeshLambertMaterial({ color: 0x2a2a3a, emissive: 0x060610 });
+  // Shared geometries
+  const floorGeo = new THREE.PlaneGeometry(T, T);
+  const ceilGeo  = new THREE.PlaneGeometry(T, T);
+  const wallGeo  = new THREE.BoxGeometry(T, WH, T);
+  const doorGeo  = new THREE.BoxGeometry(T * 0.85, WH * 0.9, 0.25);
+  const exitGeo  = new THREE.BoxGeometry(T * 0.85, WH * 0.9, 0.25);
+  const hideGeo  = new THREE.BoxGeometry(T * 0.55, WH * 0.75, T * 0.55);
 
-  // Floor
-  const floorGeo = new THREE.PlaneGeometry(W * T, H * T);
-  const floor = new THREE.Mesh(floorGeo, floorMat);
-  floor.rotation.x = -Math.PI / 2;
-  floor.position.set(W * T / 2, 0, H * T / 2);
-  floor.receiveShadow = true;
-  scene.add(floor);
-
-  // Ceiling
-  const ceil = new THREE.Mesh(floorGeo, ceilMat);
-  ceil.rotation.x = Math.PI / 2;
-  ceil.position.set(W * T / 2, WH, H * T / 2);
-  scene.add(ceil);
-
-  // Merge walls for performance
-  const wallGeo = new THREE.BoxGeometry(T, WH, T);
+  // Materials
+  const floorMat = new THREE.MeshLambertMaterial({ color: 0x1e1510 });
+  const ceilMat  = new THREE.MeshLambertMaterial({ color: 0x0f0c0a });
+  const wallMat  = new THREE.MeshLambertMaterial({ color: 0x2e2016 });
+  const wallMat2 = new THREE.MeshLambertMaterial({ color: 0x241a10 });
+  const doorMat  = new THREE.MeshLambertMaterial({ color: 0x4a3520 });
+  const exitMat  = new THREE.MeshLambertMaterial({ color: 0x1a4a1a, emissive: 0x051505 });
+  const hideMat  = new THREE.MeshLambertMaterial({ color: 0x1a1a28 });
 
   for (let r = 0; r < H; r++) {
     for (let c = 0; c < W; c++) {
-      const tile = mapData[r][c];
+      const t = mapData[r][c];
       const x = c * T + T / 2;
       const z = r * T + T / 2;
 
-      if (tile === 'W') {
-        const mat = (r + c) % 2 === 0 ? wallMat : wallMat2;
-        const wall = new THREE.Mesh(wallGeo, mat);
-        wall.position.set(x, WH / 2, z);
-        wall.castShadow = true;
-        wall.receiveShadow = true;
-        scene.add(wall);
+      // Floor everywhere except walls
+      if (t !== 'W') {
+        const f = new THREE.Mesh(floorGeo, floorMat);
+        f.rotation.x = -Math.PI / 2;
+        f.position.set(x, 0, z);
+        f.receiveShadow = !isMobile;
+        scene.add(f);
+        const ce = new THREE.Mesh(ceilGeo, ceilMat);
+        ce.rotation.x = Math.PI / 2;
+        ce.position.set(x, WH, z);
+        scene.add(ce);
       }
 
-      if (tile === 'D') {
-        const door = new THREE.Mesh(new THREE.BoxGeometry(T * 0.9, WH * 0.95, 0.3), doorMat);
-        door.position.set(x, WH / 2, z);
-        door.castShadow = true;
-        scene.add(door);
-        doorMeshes[`${r},${c}`] = door;
-      }
-
-      if (tile === 'X') {
-        const exit = new THREE.Mesh(new THREE.BoxGeometry(T * 0.9, WH * 0.95, 0.3), exitMat);
-        exit.position.set(x, WH / 2, z);
-        scene.add(exit);
-
-        // Exit glow
-        const exitLight = new THREE.PointLight(0x00ff44, 0.5, 8);
-        exitLight.position.set(x, 2, z);
-        scene.add(exitLight);
-      }
-
-      if (tile === 'H') {
-        // Hiding spot visual - a wardrobe/closet
-        const hideBox = new THREE.Mesh(new THREE.BoxGeometry(T * 0.6, WH * 0.8, T * 0.6), hideMat);
-        hideBox.position.set(x, WH * 0.4, z);
-        scene.add(hideBox);
-      }
-    }
-  }
-
-  // Flickering ceiling lights
-  const isMobileDevice = 'ontouchstart' in window;
-  const lightPositions = [];
-  for (let r = 2; r < H - 2; r += 3) {
-    for (let c = 2; c < W - 2; c += 4) {
-      if (mapData[r][c] !== 'W') {
-        lightPositions.push({ x: c * T + T / 2, z: r * T + T / 2 });
+      if (t === 'W') {
+        const w = new THREE.Mesh(wallGeo, r % 2 === 0 ? wallMat : wallMat2);
+        w.position.set(x, WH / 2, z);
+        w.castShadow = !isMobile;
+        w.receiveShadow = !isMobile;
+        scene.add(w);
+      } else if (t === 'D') {
+        const d = new THREE.Mesh(doorGeo, doorMat);
+        d.position.set(x, WH / 2, z);
+        scene.add(d);
+      } else if (t === 'X') {
+        const ex = new THREE.Mesh(exitGeo, exitMat);
+        ex.position.set(x, WH / 2, z);
+        scene.add(ex);
+        // Glowing exit light
+        const pl = new THREE.PointLight(0x00ff44, 1.5, 12);
+        pl.position.set(x, 2, z);
+        scene.add(pl);
+      } else if (t === 'H') {
+        const hb = new THREE.Mesh(hideGeo, hideMat);
+        hb.position.set(x, WH * 0.375, z);
+        scene.add(hb);
       }
     }
   }
-  lightPositions.forEach((pos, i) => {
-    const light = new THREE.PointLight(0xffaa44, 0.6, 14);
-    light.position.set(pos.x, WH - 0.3, pos.z);
-    if (!isMobileDevice && i < 3) {
-      light.castShadow = true;
-      light.shadow.mapSize.width = 256;
-      light.shadow.mapSize.height = 256;
-    }
-    scene.add(light);
-    // Flicker
-    setInterval(() => {
-      light.intensity = 0.3 + Math.random() * 0.6;
-    }, 100 + Math.random() * 200);
-  });
 
-  // Player flashlight - PointLight on mobile (SpotLight shadows break on many phones)
-  if (isMobileDevice) {
-    const flashlight = new THREE.PointLight(0xffeedd, 1.5, 16);
-    flashlight.position.set(0, 0, -0.5);
-    camera.add(flashlight);
-  } else {
-    const flashlight = new THREE.SpotLight(0xffeedd, 1.2, 20, Math.PI / 5, 0.4, 1.5);
-    flashlight.castShadow = true;
-    flashlight.shadow.mapSize.width = 512;
-    flashlight.shadow.mapSize.height = 512;
-    camera.add(flashlight);
-    flashlight.position.set(0, 0, 0);
-    flashlight.target.position.set(0, 0, -1);
-    camera.add(flashlight.target);
-  }
-  scene.add(camera);
+  // Spawn item meshes for keys
+  // (will be updated in updateScene)
 }
 
-// ── ENTITY MESH ───────────────────────────────────────────────
-function createEntityMesh(type) {
-  type = type || 'normal';
-  const group = new THREE.Group();
-  const isBrain = type === 'brain';
-
-  // Body - tall dark figure (Brain is slightly taller and thinner)
-  const bodyGeo = new THREE.CylinderGeometry(isBrain ? 0.25 : 0.3, isBrain ? 0.35 : 0.4, isBrain ? 2.6 : 2.2, 8);
-  const bodyColor = isBrain ? 0x0a0a1a : 0x1a0a0a;
-  const bodyEmissive = isBrain ? 0x05001a : 0x0a0000;
-  const bodyMat = new THREE.MeshLambertMaterial({ color: bodyColor, emissive: bodyEmissive });
-  const body = new THREE.Mesh(bodyGeo, bodyMat);
-  body.position.y = isBrain ? 1.3 : 1.1;
-  group.add(body);
-
-  // Head (Brain has a larger, pulsing head)
-  const headGeo = new THREE.SphereGeometry(isBrain ? 0.35 : 0.25, 8, 6);
-  const headMat = new THREE.MeshLambertMaterial({ color: isBrain ? 0x1a0a2a : 0x2a1515 });
-  const head = new THREE.Mesh(headGeo, headMat);
-  head.position.y = isBrain ? 2.75 : 2.35;
-  group.add(head);
-
-  // Eyes
-  const eyeGeo = new THREE.SphereGeometry(isBrain ? 0.08 : 0.06, 6, 4);
-  const eyeColor = isBrain ? 0xaa00ff : 0xff0000;
-  const eyeMat = new THREE.MeshBasicMaterial({ color: eyeColor });
-  const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
-  eyeL.position.set(-0.12, isBrain ? 2.8 : 2.4, -0.2);
-  group.add(eyeL);
-  const eyeR = new THREE.Mesh(eyeGeo, eyeMat);
-  eyeR.position.set(0.12, isBrain ? 2.8 : 2.4, -0.2);
-  group.add(eyeR);
-
-  // Point light from eyes
-  const eyeLight = new THREE.PointLight(eyeColor, isBrain ? 0.8 : 0.5, isBrain ? 8 : 6);
-  eyeLight.position.set(0, isBrain ? 2.8 : 2.4, -0.2);
-  group.add(eyeLight);
-
-  // Brain: third eye on forehead (pulsing)
-  if (isBrain) {
-    const thirdEyeGeo = new THREE.SphereGeometry(0.06, 6, 4);
-    const thirdEyeMat = new THREE.MeshBasicMaterial({ color: 0xff00ff });
-    const thirdEye = new THREE.Mesh(thirdEyeGeo, thirdEyeMat);
-    thirdEye.position.set(0, 3.0, -0.25);
-    group.add(thirdEye);
-
-    // Brain: floating particle ring around head
-    const ringGeo = new THREE.TorusGeometry(0.5, 0.02, 4, 16);
-    const ringMat = new THREE.MeshBasicMaterial({ color: 0x6600cc, transparent: true, opacity: 0.4 });
-    const ring = new THREE.Mesh(ringGeo, ringMat);
-    ring.position.y = 2.8;
-    ring.rotation.x = Math.PI / 2;
-    group.add(ring);
-    group.userData.ring = ring;
-    group.userData.thirdEye = thirdEye;
-  }
-
-  group.userData.type = type;
-  scene.add(group);
-  return group;
-}
-
-// ── PLAYER MESHES ─────────────────────────────────────────────
-function getOrCreatePlayerMesh(id, data) {
-  if (!players[id]) {
+// ── ENTITY / PLAYER MESHES ─────────────────────────────────────
+function getOrCreateEntity(state) {
+  if (!entityMesh) {
     const group = new THREE.Group();
-    const bodyGeo = new THREE.CylinderGeometry(0.2, 0.25, 1.5, 8);
-    const color = data.isMonster ? 0x4a0000 : (0x2244aa + parseInt(id) * 0x112233) & 0xffffff;
-    const bodyMat = new THREE.MeshLambertMaterial({ color });
-    const body = new THREE.Mesh(bodyGeo, bodyMat);
-    body.position.y = 0.75;
-    group.add(body);
-
-    // Head
-    const headGeo = new THREE.SphereGeometry(0.18, 8, 6);
-    const head = new THREE.Mesh(headGeo, bodyMat);
-    head.position.y = 1.65;
+    const bodyGeo = new THREE.BoxGeometry(0.7, 1.6, 0.4);
+    const bodyMat = new THREE.MeshLambertMaterial({ color: 0x1a0a0a });
+    group.add(new THREE.Mesh(bodyGeo, bodyMat));
+    const headGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+    const headMat = new THREE.MeshLambertMaterial({ color: 0x2a1515 });
+    const head = new THREE.Mesh(headGeo, headMat);
+    head.position.y = 1.1;
     group.add(head);
+    // Red glowing eyes
+    const eyeGeo = new THREE.SphereGeometry(0.07, 6, 6);
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+    const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
+    eyeL.position.set(-0.12, 1.12, 0.26);
+    const eyeR = new THREE.Mesh(eyeGeo, eyeMat);
+    eyeR.position.set(0.12, 1.12, 0.26);
+    group.add(eyeL, eyeR);
+    // Red point light on entity
+    const el = new THREE.PointLight(0xff0000, 0.8, 8);
+    el.position.set(0, 1.2, 0);
+    group.add(el);
+    entityMesh = group;
+    scene.add(entityMesh);
+  }
+  if (state) {
+    entityMesh.position.set(state.x, 0.8, state.z);
+    entityMesh.rotation.y = state.rotY || 0;
+  }
+  return entityMesh;
+}
 
-    // Name tag
-    const canvas = document.createElement('canvas');
-    canvas.width = 256; canvas.height = 64;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 28px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(data.name || `P${id}`, 128, 40);
-    const tex = new THREE.CanvasTexture(canvas);
-    const spriteMat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0.7 });
-    const sprite = new THREE.Sprite(spriteMat);
-    sprite.position.y = 2.2;
-    sprite.scale.set(2, 0.5, 1);
-    group.add(sprite);
-
+function getOrCreatePlayer(id, isMonster) {
+  if (!playerMeshes[id]) {
+    const group = new THREE.Group();
+    const bodyGeo = new THREE.BoxGeometry(0.6, 1.4, 0.35);
+    const col = isMonster ? 0x660000 : (id.charCodeAt(0) % 2 === 0 ? 0x1a3a6a : 0x1a5a2a);
+    const bodyMat = new THREE.MeshLambertMaterial({ color: col });
+    group.add(new THREE.Mesh(bodyGeo, bodyMat));
+    const headGeo = new THREE.BoxGeometry(0.45, 0.45, 0.45);
+    const head = new THREE.Mesh(headGeo, bodyMat);
+    head.position.y = 1.0;
+    group.add(head);
+    playerMeshes[id] = group;
     scene.add(group);
-    players[id] = { mesh: group, data };
   }
-  return players[id];
+  return playerMeshes[id];
 }
 
-// ── ITEM MESHES ───────────────────────────────────────────────
-function getOrCreateItemMesh(item) {
-  if (!itemMeshes[item.id]) {
-    const colors = { red: 0xff2222, blue: 0x2266ff, green: 0x22ff44 };
-    const geo = new THREE.OctahedronGeometry(0.3, 0);
-    const mat = new THREE.MeshBasicMaterial({ color: colors[item.color] || 0xffff00 });
-    const mesh = new THREE.Mesh(geo, mat);
+function updateScene(state) {
+  // Entity
+  if (state.entity) getOrCreateEntity(state.entity);
 
-    // Glow
-    const glow = new THREE.PointLight(colors[item.color] || 0xffff00, 0.6, 5);
-    glow.position.y = 0;
-    mesh.add(glow);
-
-    scene.add(mesh);
-    itemMeshes[item.id] = mesh;
-  }
-  return itemMeshes[item.id];
-}
-
-// ── GAME STATE UPDATE ─────────────────────────────────────────
-let heartbeatTimer = 0;
-
-function updateGameState(state) {
-  if (gamePhase !== 'playing' && state.phase === 'playing') return;
-
-  // Timer
-  const remaining = state.maxTime - state.time;
-  const m = Math.floor(remaining / 60);
-  const s = Math.floor(remaining % 60);
-  document.getElementById('timer').textContent = `${m}:${s.toString().padStart(2, '0')}`;
-  if (remaining < 60) document.getElementById('timer').style.color = '#ff0000';
-
-  // Players
-  for (const [id, pData] of Object.entries(state.players)) {
-    if (id === myId) {
-      myState.alive = pData.alive;
-      myState.hiding = pData.hiding;
-      myState.carrying = pData.carrying;
-      myState.isMonster = pData.isMonster;
-
-      // Safety: sync camera state if server says we're dead but camera hasn't switched
-      if (!pData.alive && cameraState === 'firstPerson') {
-        cameraState = 'spectator';
-        document.getElementById('crosshair').classList.add('hidden');
-      }
-
-      // Update carrying display
-      const carryEl = document.getElementById('carrying');
-      if (pData.carrying) {
-        const item = state.items.find(i => i.id === pData.carrying);
-        carryEl.classList.remove('hidden');
-        carryEl.textContent = item ? `Carrying: ${item.color.toUpperCase()} KEY` : 'Carrying item';
-      } else {
-        carryEl.classList.add('hidden');
-      }
-
-      // If alive, update camera for non-monster
-      if (!pData.isMonster && pData.alive && !pData.hiding) {
-        // Camera follows server position loosely
-      }
-      continue;
-    }
-    // Other players
-    if (!pData.alive && players[id]) {
-      players[id].mesh.visible = false;
-      continue;
-    }
-    if (pData.hiding) {
-      if (players[id]) players[id].mesh.visible = false;
-      continue;
-    }
-    const p = getOrCreatePlayerMesh(id, pData);
-    p.mesh.visible = true;
-    // Smooth interpolation
-    p.mesh.position.x += (pData.x - p.mesh.position.x) * 0.3;
-    p.mesh.position.z += (pData.z - p.mesh.position.z) * 0.3;
-    p.mesh.rotation.y = pData.rotY;
-  }
-
-  // Remove disconnected players
-  for (const id of Object.keys(players)) {
-    if (!state.players[id]) {
-      scene.remove(players[id].mesh);
-      delete players[id];
+  // Other players
+  if (state.players) {
+    for (const [id, p] of Object.entries(state.players)) {
+      if (id === myId) continue;
+      const mesh = getOrCreatePlayer(id, p.isMonster);
+      mesh.position.set(p.x, p.hiding ? 0.3 : 0.7, p.z);
+      mesh.visible = p.alive && !p.hiding;
     }
   }
 
-  // Entity (if not controlled by this player)
-  if (entityMesh && !(myState.isMonster)) {
-    entityMesh.position.x += (state.entity.x - entityMesh.position.x) * 0.25;
-    entityMesh.position.z += (state.entity.z - entityMesh.position.z) * 0.25;
-
-    // Brain entity animations
-    if (entityMesh.userData.type === 'brain') {
-      if (entityMesh.userData.ring) {
-        entityMesh.userData.ring.rotation.z += 0.03;
-        entityMesh.userData.ring.material.opacity = 0.3 + Math.sin(Date.now() * 0.005) * 0.2;
-      }
-      if (entityMesh.userData.thirdEye) {
-        entityMesh.userData.thirdEye.material.color.setHSL(0.8, 1, 0.4 + Math.sin(Date.now() * 0.008) * 0.2);
-      }
-    }
-
-    // Entity footstep sounds (Brain has heavier, slower steps)
-    const eDist = Math.hypot(state.entity.x - camera.position.x, state.entity.z - camera.position.z);
-    const isBrainEntity = state.entity.type === 'brain';
-    const stepChance = isBrainEntity ? 0.06 : 0.08;
-    if (eDist < (isBrainEntity ? 25 : 20) && Math.random() < stepChance) {
-      playFootstep(state.entity.x, state.entity.z, true);
-    }
-
-    // Heartbeat based on distance (Brain has wider detection = earlier heartbeat)
-    heartbeatTimer += 0.05;
-    const heartbeatRange = isBrainEntity ? 24 : 18;
-    if (heartbeatTimer > (isBrainEntity ? 0.7 : 1)) {
-      heartbeatTimer = 0;
-      const intensity = Math.max(0, 1 - eDist / heartbeatRange);
-      playHeartbeat(intensity);
-
-      // Vignette pulse (purple for Brain, red for normal)
-      const v = document.getElementById('vignette');
-      if (v) {
-        const spread = 30 + intensity * 20;
-        if (isBrainEntity) {
-          v.style.background = `radial-gradient(ellipse at center,transparent ${spread}%,rgba(${Math.floor(intensity * 40)},0,${Math.floor(intensity * 80)},${0.5 + intensity * 0.4}) 100%)`;
-        } else {
-          v.style.background = `radial-gradient(ellipse at center,transparent ${spread}%,rgba(${Math.floor(intensity * 80)},0,0,${0.5 + intensity * 0.4}) 100%)`;
-        }
-      }
-    }
-  }
-
-  // Items
-  for (const item of state.items) {
-    const mesh = getOrCreateItemMesh(item);
-    if (item.pickedUp || item.usedOnExit) {
-      mesh.visible = false;
-    } else {
-      mesh.visible = true;
-      mesh.position.set(item.x, 0.6 + Math.sin(Date.now() * 0.003 + parseInt(item.id.split('_')[1]) * 2) * 0.15, item.z);
-      mesh.rotation.y += 0.02;
-    }
-  }
-
-  // Key status HUD
-  const keyEl = document.getElementById('keyStatus');
-  const keysUsed = state.exit.keysUsed;
-  const keysNeeded = state.exit.keysNeeded;
-  let keyHTML = '';
-  state.items.forEach(item => {
-    const status = item.usedOnExit ? '✓' : item.pickedUp ? '◐' : '○';
-    const colors = { red: '#ff4444', blue: '#4488ff', green: '#44ff66' };
-    keyHTML += `<span style="color:${colors[item.color]}">${status} ${item.color}</span><br>`;
-  });
-  keyHTML += `<br>EXIT: ${state.exit.open ? '🚪 OPEN' : `🔒 ${keysUsed}/${keysNeeded}`}`;
-  keyEl.innerHTML = keyHTML;
-
-  // Doors - update visibility
-  for (const door of state.items) { /* nothing */ }
-
-  // Player list in lobby
-  const pList = document.getElementById('playerList');
-  const names = Object.values(state.players).map(p => `${p.name}${p.isMonster ? ' 👹' : ''}`);
-  pList.textContent = names.length > 0 ? `Players: ${names.join(', ')}` : '';
-
-  // Doors - update visibility
-  if (state.doors) {
-    for (const door of state.doors) {
-      const key = `${door.r},${door.c}`;
-      const mesh = doorMeshes[key];
-      if (mesh) {
-        if (door.open) {
-          mesh.scale.y = 0.05; // flatten when open
-          mesh.position.y = 0.1;
-        } else {
-          mesh.scale.y = 1;
-          mesh.position.y = wallHeight / 2;
-        }
-      }
-    }
-  }
-
-  // Contextual interact hints + button highlights
-  if (myState.alive && state.players[myId]) {
-    const me = state.players[myId];
-    let hintText = '';
-    const interactBtn = document.getElementById('interact-btn');
-    const hideBtn = document.getElementById('hide-btn');
-
-    // Near a door?
-    for (let r = 0; r < mapData.length; r++) {
-      for (let c = 0; c < mapData[0].length; c++) {
-        if (mapData[r][c] === 'D') {
-          const dx = c * tileSize + tileSize / 2 - me.x;
-          const dz = r * tileSize + tileSize / 2 - me.z;
-          if (Math.hypot(dx, dz) < 5) {
-            const door = state.doors ? state.doors.find(d => d.r === r && d.c === c) : null;
-            hintText = door && door.open ? '🚪 CLOSE DOOR' : '🚪 OPEN DOOR';
-          }
-        }
-      }
-    }
-    // Near an item?
+  // Items (keys)
+  if (state.items) {
+    const colors = { red: 0xff2222, blue: 0x2266ff, green: 0x22ff66 };
     for (const item of state.items) {
-      if (!item.pickedUp && Math.hypot(item.x - me.x, item.z - me.z) < 4) {
-        if (!me.carrying) {
-          hintText = `🔑 PICK UP ${item.color.toUpperCase()} KEY`;
-        } else {
-          hintText = '⚠️ DROP CURRENT ITEM FIRST';
-        }
+      if (!itemMeshes[item.id] && !item.pickedUp) {
+        const geo = new THREE.BoxGeometry(0.25, 0.35, 0.08);
+        const mat = new THREE.MeshLambertMaterial({
+          color: colors[item.color] || 0xffff00,
+          emissive: colors[item.color] || 0xffff00,
+          emissiveIntensity: 0.4,
+        });
+        const m = new THREE.Mesh(geo, mat);
+        m.position.set(item.x, 0.5, item.z);
+        scene.add(m);
+        itemMeshes[item.id] = m;
+        // Small point light on key
+        const kl = new THREE.PointLight(colors[item.color] || 0xffff00, 0.6, 4);
+        kl.position.set(item.x, 0.6, item.z);
+        scene.add(kl);
       }
-    }
-    // Near exit with key?
-    if (Math.hypot(state.exit.x - me.x, state.exit.z - me.z) < 5) {
-      if (state.exit.open) {
-        hintText = '🏃 ESCAPE THROUGH EXIT';
-      } else if (me.carrying) {
-        const carriedItem = state.items.find(i => i.id === me.carrying);
-        if (carriedItem && carriedItem.type === 'key') {
-          hintText = '🔓 USE KEY ON EXIT';
-        }
-      } else {
-        hintText = `🔒 NEED ${state.exit.keysNeeded - state.exit.keysUsed} MORE KEY${state.exit.keysNeeded - state.exit.keysUsed > 1 ? 'S' : ''}`;
+      if (itemMeshes[item.id]) {
+        itemMeshes[item.id].visible = !item.pickedUp && !item.usedOnExit;
+        // Rotate key
+        itemMeshes[item.id].rotation.y += 0.02;
       }
-    }
-    // Near hide spot?
-    let nearHide = false;
-    for (const hs of hideSpots) {
-      const hx = hs.c * tileSize + tileSize / 2;
-      const hz = hs.r * tileSize + tileSize / 2;
-      if (Math.hypot(hx - me.x, hz - me.z) < 4) {
-        nearHide = true;
-        if (!hintText) hintText = me.hiding ? '👁️ LEAVE HIDING SPOT' : '🫥 HIDE IN CLOSET';
-      }
-    }
-
-    // Update hint display
-    const hint = document.getElementById('interact-hint');
-    if (hintText) {
-      hint.textContent = hintText;
-      if (!interactHintVisible) { hint.classList.add('show'); interactHintVisible = true; }
-    } else if (interactHintVisible) {
-      hint.classList.remove('show'); interactHintVisible = false;
-    }
-
-    // Highlight USE button when near interactable
-    if (interactBtn) {
-      if (hintText && !hintText.includes('HIDING') && !hintText.includes('LEAVE')) {
-        interactBtn.classList.add('highlight');
-      } else {
-        interactBtn.classList.remove('highlight');
-      }
-    }
-    // Highlight HIDE button when near closet
-    if (hideBtn) {
-      if (nearHide) { hideBtn.classList.add('highlight'); } else { hideBtn.classList.remove('highlight'); }
     }
   }
 
-  // Survivors count
-  const aliveCount = Object.values(state.players).filter(p => p.alive && !p.isMonster).length;
-  const totalCount = Object.values(state.players).filter(p => !p.isMonster).length;
-  const survEl = document.getElementById('survivors');
-  if (survEl) {
-    survEl.textContent = totalCount > 1 ? `Survivors: ${aliveCount}/${totalCount}` : '';
-  }
-
-  // Proximity bar (entity distance)
-  if (state.entity && state.players[myId] && !state.players[myId].isMonster) {
-    const me = state.players[myId];
-    const eDist = Math.hypot(state.entity.x - me.x, state.entity.z - me.z);
-    const maxDist = state.entity.type === 'brain' ? 28 : 22;
-    const pct = Math.max(0, Math.min(100, (1 - eDist / maxDist) * 100));
-    const fill = document.getElementById('proximity-fill');
-    if (fill) fill.style.width = pct + '%';
-  }
-
-  // Minimap rendering
-  drawMinimap(state);
+  // Proximity check for interaction hints
+  checkInteractables(state);
 }
 
-// ── MINIMAP ──────────────────────────────────────────────────
+function checkInteractables(state) {
+  if (!myState || !myState.alive) return;
+  const px = myState.x || camera.position.x;
+  const pz = myState.z || camera.position.z;
+  let hint = '';
+  let lit = false;
+
+  if (state.items) {
+    for (const item of state.items) {
+      if (!item.pickedUp && Math.hypot(item.x - px, item.z - pz) < 2.2) {
+        hint = `[E] Pick up ${item.color.toUpperCase()} KEY`;
+        lit = true;
+        break;
+      }
+    }
+  }
+
+  if (!hint && state.exit && !state.exit.open) {
+    const ex = state.exit;
+    if (Math.hypot(ex.x - px, ex.z - pz) < 2.5) {
+      const keysHeld = state.items ? state.items.filter(i => i.pickedUp && !i.usedOnExit).length : 0;
+      hint = keysHeld >= 3 ? '[E] UNLOCK EXIT' : `Need ${3 - keysHeld} more key(s)`;
+      lit = keysHeld >= 3;
+    }
+  }
+
+  const el = document.getElementById('interact-hint');
+  if (hint) { el.textContent = hint; el.classList.add('show'); }
+  else el.classList.remove('show');
+
+  const ibtn = document.getElementById('interact-btn');
+  if (lit) ibtn.classList.add('lit'); else ibtn.classList.remove('lit');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// HUD
+// ═══════════════════════════════════════════════════════════════
+function updateHUD(state) {
+  // Timer
+  const t = Math.max(0, state.time || 0);
+  const m = Math.floor(t / 60);
+  const s = Math.floor(t % 60);
+  const timerEl = document.getElementById('timer');
+  timerEl.textContent = `${m}:${s.toString().padStart(2,'0')}`;
+  if (t < 30) timerEl.classList.add('urgent'); else timerEl.classList.remove('urgent');
+
+  // Sanity / noise
+  document.getElementById('sanity-fill').style.width = sanityLevel + '%';
+  document.getElementById('noise-fill').style.width = noiseLevel + '%';
+
+  // Fear overlay (sanity)
+  const fear = Math.max(0, (100 - sanityLevel) / 100);
+  document.getElementById('fear-overlay').style.background =
+    `rgba(80,0,0,${(fear * 0.35).toFixed(2)})`;
+
+  // Carrying label
+  if (myState && myState.carrying) {
+    const item = state.items ? state.items.find(i => i.id === myState.carrying) : null;
+    const cl = document.getElementById('carrying-label');
+    cl.textContent = item ? `Carrying: ${item.color.toUpperCase()} KEY` : '';
+    cl.classList.toggle('hidden', !item);
+  } else {
+    document.getElementById('carrying-label').classList.add('hidden');
+  }
+
+  // Key status
+  if (state.items) {
+    const keys = state.items;
+    const ks = document.getElementById('key-status');
+    ks.innerHTML = keys.map(k => {
+      const col = k.color === 'red' ? '#ff4444' : k.color === 'blue' ? '#4488ff' : '#44ff88';
+      const icon = k.usedOnExit ? '✓' : k.pickedUp ? '◆' : '◇';
+      return `<span style="color:${col}">${icon} ${k.color.toUpperCase()}</span>`;
+    }).join('<br>') + `<br><span style="color:#666">EXIT: ${state.exit && state.exit.open ? '🟢' : '🔒'}</span>`;
+  }
+
+  // Minimap
+  drawMinimap(state);
+
+  // Entity proximity → sanity drain
+  if (state.entity && myState) {
+    const dist = Math.hypot(state.entity.x - (myState.x || 0), state.entity.z - (myState.z || 0));
+    if (dist < 8) {
+      sanityLevel = Math.max(0, sanityLevel - (8 - dist) * 0.5);
+    } else {
+      sanityLevel = Math.min(100, sanityLevel + 3 * (1 / 30));
+    }
+  }
+}
+
+// ── MINIMAP ────────────────────────────────────────────────────
 function drawMinimap(state) {
+  if (!mapData || !state.players || !state.players[myId]) return;
   const canvas = document.getElementById('minimap');
-  if (!canvas || !mapData || !state.players[myId]) return;
   const ctx = canvas.getContext('2d');
-  const me = state.players[myId];
-  const H = mapData.length;
-  const W = mapData[0].length;
-  const scale = 4; // pixels per tile
+  const scale = 4;
+  const H = mapData.length, W = mapData[0].length;
   canvas.width = W * scale;
   canvas.height = H * scale;
-
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Draw walls and floors
   for (let r = 0; r < H; r++) {
     for (let c = 0; c < W; c++) {
-      const tile = mapData[r][c];
-      if (tile === 'W') {
-        ctx.fillStyle = '#333';
-      } else if (tile === 'D') {
-        const door = state.doors ? state.doors.find(d => d.r === r && d.c === c) : null;
-        ctx.fillStyle = door && door.open ? '#2a1a10' : '#6a4a20';
-      } else if (tile === 'H') {
-        ctx.fillStyle = '#1a1a2a';
-      } else if (tile === 'X') {
-        ctx.fillStyle = state.exit.open ? '#00ff44' : '#1a3a1a';
-      } else {
-        ctx.fillStyle = '#1a1610';
-      }
+      const t = mapData[r][c];
+      ctx.fillStyle = t === 'W' ? '#2a2a2a' : t === 'D' ? '#4a3520' : t === 'X' ? '#1a4a1a' : t === 'H' ? '#1a1a2a' : '#111';
       ctx.fillRect(c * scale, r * scale, scale, scale);
     }
   }
 
-  // Draw items (keys)
-  for (const item of state.items) {
-    if (!item.pickedUp && !item.usedOnExit) {
-      const colors = { red: '#ff3333', blue: '#3366ff', green: '#33ff55' };
-      ctx.fillStyle = colors[item.color] || '#ffff00';
-      const ix = (item.x / tileSize) * scale;
-      const iz = (item.z / tileSize) * scale;
-      ctx.fillRect(ix - 1.5, iz - 1.5, 3, 3);
+  // Items
+  if (state.items) {
+    const cols = { red: '#ff4444', blue: '#4488ff', green: '#44ff88' };
+    for (const item of state.items) {
+      if (!item.pickedUp && !item.usedOnExit) {
+        ctx.fillStyle = cols[item.color] || '#ffff00';
+        const ix = (item.x / tileSize) * scale;
+        const iz = (item.z / tileSize) * scale;
+        ctx.fillRect(ix - 1.5, iz - 1.5, 3, 3);
+      }
     }
   }
 
-  // Draw entity (if not player-controlled monster)
-  if (!me.isMonster && state.entity) {
-    ctx.fillStyle = state.entity.type === 'brain' ? '#aa00ff' : '#ff0000';
+  // Entity
+  if (state.entity && myState && !myState.isMonster) {
+    ctx.fillStyle = '#ff0000';
     const ex = (state.entity.x / tileSize) * scale;
     const ez = (state.entity.z / tileSize) * scale;
     ctx.beginPath();
@@ -1144,7 +747,7 @@ function drawMinimap(state) {
     ctx.fill();
   }
 
-  // Draw other players
+  // Other players
   for (const [id, p] of Object.entries(state.players)) {
     if (id === myId || !p.alive || p.isMonster) continue;
     ctx.fillStyle = '#4488ff';
@@ -1153,348 +756,322 @@ function drawMinimap(state) {
     ctx.fillRect(px - 1.5, pz - 1.5, 3, 3);
   }
 
-  // Draw player (with direction indicator)
-  ctx.fillStyle = '#00ff00';
-  const px = (me.x / tileSize) * scale;
-  const pz = (me.z / tileSize) * scale;
-  ctx.beginPath();
-  ctx.arc(px, pz, 2.5, 0, Math.PI * 2);
-  ctx.fill();
-  // Direction arrow
-  ctx.strokeStyle = '#00ff00';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(px, pz);
-  ctx.lineTo(px + Math.sin(lookYaw) * 6, pz - Math.cos(lookYaw) * 6);
-  ctx.stroke();
+  // Self
+  const me = state.players[myId];
+  if (me) {
+    ctx.fillStyle = '#ffffff';
+    const mx = (me.x / tileSize) * scale;
+    const mz = (me.z / tileSize) * scale;
+    ctx.beginPath();
+    ctx.arc(mx, mz, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
-// ── INPUT HANDLING ────────────────────────────────────────────
-function initJoystick() {
-  if (joystick) return;
-  joystick = nipplejs.create({
-    zone: document.getElementById('joystick-zone'),
-    mode: 'dynamic',
-    color: 'rgba(255,255,255,0.15)',
-    size: 100,
-  });
-
-  joystick.on('move', (e, data) => {
-    moveActive = true;
-    // nipplejs angle: 0=up, 90=right, 180=down, 270=left (in degrees)
-    // Convert to our coordinate system
-    const rad = data.angle.radian;
-    // nipplejs: up=pi/2, right=0, down=3pi/2, left=pi
-    // We need: angle relative to camera forward
-    moveAngle = -(rad - Math.PI / 2) + lookYaw;
-  });
-
-  joystick.on('end', () => {
-    moveActive = false;
-  });
-
-  // Look controls (right side swipe)
-  const lookZone = document.getElementById('look-zone');
-  let lastTouchX = 0, lastTouchY = 0, touchId = null;
-
-  lookZone.addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    const t = e.changedTouches[0];
-    lastTouchX = t.clientX;
-    lastTouchY = t.clientY;
-    touchId = t.identifier;
-  }, { passive: false });
-
-  lookZone.addEventListener('touchmove', (e) => {
-    e.preventDefault();
-    for (const t of e.changedTouches) {
-      if (t.identifier === touchId) {
-        const dx = t.clientX - lastTouchX;
-        const dy = t.clientY - lastTouchY;
-        lookYaw -= dx * 0.006;
-        lookPitch -= dy * 0.004;
-        lookPitch = Math.max(-1.0, Math.min(1.0, lookPitch));
-        lastTouchX = t.clientX;
-        lastTouchY = t.clientY;
-      }
-    }
-  }, { passive: false });
-
-  lookZone.addEventListener('touchend', (e) => {
-    for (const t of e.changedTouches) {
-      if (t.identifier === touchId) touchId = null;
-    }
-  });
-
-  // Desktop mouse controls
-  document.addEventListener('mousedown', (e) => {
-    if (e.target.closest('#lobby') || e.target.closest('.ctrl-btn') || e.target.closest('#sprint-btn')) return;
-    renderer.domElement.requestPointerLock?.();
-  });
-
-  document.addEventListener('mousemove', (e) => {
-    if (document.pointerLockElement === renderer.domElement) {
-      lookYaw -= e.movementX * 0.002;
-      lookPitch -= e.movementY * 0.002;
-      lookPitch = Math.max(-1.2, Math.min(1.2, lookPitch));
-    }
-  });
-
-  // Desktop keyboard
-  const keys = {};
-  document.addEventListener('keydown', (e) => {
-    keys[e.key.toLowerCase()] = true;
-    if (e.key === 'e') sendInteract();
-    if (e.key === 'q') sendDrop();
-    if (e.key === 'c') sendHide();
-    if (e.key === 'shift') sprinting = true;
-  });
-  document.addEventListener('keyup', (e) => {
-    keys[e.key.toLowerCase()] = false;
-    if (e.key === 'shift') sprinting = false;
-  });
-
-  // Desktop WASD movement (processed in game loop)
-  window._keys = keys;
-}
-
-function sendInteract() { send({ type: 'interact' }); }
-function sendDrop() { send({ type: 'drop' }); }
-function sendHide() { send({ type: 'hide' }); }
-function sprintStart() {
-  sprinting = true;
-  document.getElementById('sprint-btn').classList.add('active');
-}
-function sprintEnd() {
-  sprinting = false;
-  document.getElementById('sprint-btn').classList.remove('active');
-}
-
-// ── GAME LOOP ─────────────────────────────────────────────────
-let footstepTimer = 0;
-let bobTimer = 0;
-let spectatorAngle = 0;
-let cameraSnapped = false; // tracks if we've synced with server position
-
-function gameLoop() {
-  requestAnimationFrame(gameLoop);
+// ═══════════════════════════════════════════════════════════════
+// ANIMATION LOOP
+// ═══════════════════════════════════════════════════════════════
+function animate() {
+  requestAnimationFrame(animate);
   if (!renderer || !scene || !camera) return;
 
-  const dt = Math.min(clock.getDelta(), 0.1); // cap dt to prevent huge jumps
+  const dt = Math.min(clock.getDelta(), 0.05);
 
-  // ── CAMERA STATE: FIRST PERSON (alive & playing) ────────
-  if (cameraState === 'firstPerson' && gamePhase === 'playing' && myState.alive) {
-    // Apply rotation from touch/mouse input
-    camera.rotation.order = 'YXZ';
-    camera.rotation.y = lookYaw;
-    camera.rotation.x = lookPitch;
-
-    let isMoving = false;
-
-    // Desktop WASD
-    if (window._keys) {
-      const k = window._keys;
-      let dx = 0, dz = 0;
-      if (k['w'] || k['arrowup']) dz -= 1;
-      if (k['s'] || k['arrowdown']) dz += 1;
-      if (k['a'] || k['arrowleft']) dx -= 1;
-      if (k['d'] || k['arrowright']) dx += 1;
-      if (dx !== 0 || dz !== 0) {
-        moveAngle = Math.atan2(dz, dx) + lookYaw - Math.PI / 2;
-        moveActive = true;
-      } else if (!joystick || !moveActive) {
-        if (!joystick) moveActive = false;
-      }
-    }
-
-    if (moveActive && moveAngle !== null && !myState.hiding) {
-      isMoving = true;
-      const msgType = myState.isMonster ? 'monsterMove' : 'move';
-      send({ type: msgType, angle: moveAngle, sprint: sprinting, rotY: lookYaw });
-
-      // Local movement prediction
-      const speed = sprinting ? (myState.isMonster ? 6.5 : 7) : (myState.isMonster ? 5 : 4.5);
-      const px = Math.cos(moveAngle) * speed * dt;
-      const pz = Math.sin(moveAngle) * speed * dt;
-      const newX = camera.position.x + px;
-      const newZ = camera.position.z + pz;
-
-      // Client-side collision
-      const nr = Math.floor(newZ / tileSize);
-      const nc = Math.floor(newX / tileSize);
-      if (nr >= 0 && nr < mapData.length && nc >= 0 && nc < mapData[0].length) {
-        if (mapData[nr][nc] !== 'W') {
-          camera.position.x = newX;
-          camera.position.z = newZ;
-        }
-      }
-
-      // Footstep sounds
-      footstepTimer += dt;
-      const stepInterval = sprinting ? 0.3 : 0.5;
-      if (footstepTimer > stepInterval) {
-        footstepTimer = 0;
-        playFootstep(camera.position.x, camera.position.z, false);
-      }
-    }
-
-    // Walking camera bob
-    if (isMoving) {
-      const bobSpeed = sprinting ? 14 : 8;
-      const bobAmount = sprinting ? 0.06 : 0.03;
-      bobTimer += dt * bobSpeed;
-      camera.position.y = 1.6 + Math.sin(bobTimer) * bobAmount;
-    } else {
-      camera.position.y += (1.6 - camera.position.y) * 0.1;
-      bobTimer = 0;
-    }
-
-    // Sync with authoritative server position
-    if (lastState && lastState.players[myId]) {
-      const me = lastState.players[myId];
-      
-      // First sync: snap to server position immediately
-      if (!cameraSnapped) {
-        camera.position.x = me.x;
-        camera.position.y = 1.6;
-        camera.position.z = me.z;
-        cameraSnapped = true;
-      } else {
-        // Gentle correction to prevent drift
-        const dx = me.x - camera.position.x;
-        const dz = me.z - camera.position.z;
-        if (Math.hypot(dx, dz) > 3) {
-          // Teleport if too far (server moved us)
-          camera.position.x = me.x;
-          camera.position.z = me.z;
-        } else {
-          camera.position.x += dx * 0.05;
-          camera.position.z += dz * 0.05;
-        }
-      }
-    }
-
-    // Monster: hide own entity mesh
-    if (myState.isMonster && entityMesh) {
-      entityMesh.position.x = camera.position.x;
-      entityMesh.position.z = camera.position.z;
-      entityMesh.visible = false;
-    }
+  if (gamePhase === 'playing' && myState && myState.alive) {
+    updateMovement(dt);
+  } else if (gamePhase === 'playing' && myState && !myState.alive) {
+    // Spectator orbit
+    updateSpectator(dt);
+  } else if (gamePhase === 'lobby') {
+    camera.position.y = -50; // keep hidden
   }
 
-  // ── CAMERA STATE: SPECTATOR (dead) ──────────────────────
-  if (cameraState === 'spectator' && lastState) {
-    spectatorAngle += dt * 0.3; // slow orbit
-
-    // Find something to spectate: prefer alive survivors, then entity
-    let targetX, targetZ;
-    const aliveSurvivors = lastState.players ? Object.values(lastState.players).filter(p => p.alive && !p.isMonster && p.id !== myId) : [];
-    
-    if (aliveSurvivors.length > 0) {
-      // Follow a random alive survivor
-      const target = aliveSurvivors[Math.floor(spectatorAngle / 10) % aliveSurvivors.length];
-      targetX = target.x;
-      targetZ = target.z;
-    } else if (lastState.entity) {
-      targetX = lastState.entity.x;
-      targetZ = lastState.entity.z;
-    } else {
-      targetX = camera.position.x;
-      targetZ = camera.position.z;
-    }
-
-    // Orbit at eye level (1.6) behind the target, not overhead
-    const orbitDist = 6;
-    const orbitHeight = 2.5; // slightly above eye level for a cinematic view
-    const cx = targetX + Math.cos(spectatorAngle) * orbitDist;
-    const cz = targetZ + Math.sin(spectatorAngle) * orbitDist;
-    
-    // Smooth transition
-    camera.position.x += (cx - camera.position.x) * 0.05;
-    camera.position.y += (orbitHeight - camera.position.y) * 0.05;
-    camera.position.z += (cz - camera.position.z) * 0.05;
-    
-    // Look at target — use manual math instead of lookAt to avoid rotation order issues
-    const dx = targetX - camera.position.x;
-    const dz = targetZ - camera.position.z;
-    const dy = 1.2 - camera.position.y; // look slightly below camera
-    camera.rotation.order = 'YXZ';
-    camera.rotation.y = Math.atan2(dx, dz);
-    camera.rotation.x = Math.atan2(dy, Math.hypot(dx, dz));
-  }
-
-  // ── CAMERA STATE: LOBBY (hidden underground) ────────────
-  if (cameraState === 'lobby') {
-    camera.position.y = -10; // keep camera hidden
-  }
+  // Decay noise
+  noiseLevel = Math.max(0, noiseLevel - 18 * dt);
 
   renderer.render(scene, camera);
 }
 
-// ── MESSAGES ──────────────────────────────────────────────────
-function showMessage(text, duration) {
-  const el = document.getElementById('message');
-  el.textContent = text;
-  el.classList.add('show');
-  setTimeout(() => el.classList.remove('show'), duration);
+let spectatorAngle = 0;
+function updateSpectator(dt) {
+  spectatorAngle += dt * 0.25;
+  if (lastState && lastState.entity) {
+    const tx = lastState.entity.x;
+    const tz = lastState.entity.z;
+    camera.position.x += (tx + Math.cos(spectatorAngle) * 6 - camera.position.x) * 0.04;
+    camera.position.y += (2.5 - camera.position.y) * 0.04;
+    camera.position.z += (tz + Math.sin(spectatorAngle) * 6 - camera.position.z) * 0.04;
+    camera.rotation.order = 'YXZ';
+    camera.rotation.y = Math.atan2(tx - camera.position.x, tz - camera.position.z);
+    camera.rotation.x = -0.2;
+  }
 }
 
-// ── INIT ──────────────────────────────────────────────────────
-function init() {
-  connect();
-  initScene();
+function updateMovement(dt) {
+  // ── Joystick / keyboard direction ──
+  let moveX = 0, moveZ = 0;
 
-  // Wait for map data then build
-  const waitForMap = setInterval(() => {
-    if (mapData) {
-      clearInterval(waitForMap);
-      buildMap();
-      entityMesh = createEntityMesh(currentEntityType);
-      gameLoop();
+  if (joyActive) {
+    moveX = joyX;
+    moveZ = joyY;
+  } else {
+    if (keys['w'] || keys['arrowup'])    moveZ = -1;
+    if (keys['s'] || keys['arrowdown'])  moveZ =  1;
+    if (keys['a'] || keys['arrowleft'])  moveX = -1;
+    if (keys['d'] || keys['arrowright']) moveX =  1;
+  }
+
+  isMoving = moveX !== 0 || moveZ !== 0;
+
+  if (isMoving) {
+    // Rotate movement by look yaw
+    const cos = Math.cos(lookYaw);
+    const sin = Math.sin(lookYaw);
+    const wx = moveX * cos - moveZ * sin;
+    const wz = moveX * sin + moveZ * cos;
+    const len = Math.hypot(wx, wz) || 1;
+    const speed = crouching ? 2.5 : sprinting ? 7 : 4.5;
+    camera.position.x += (wx / len) * speed * dt;
+    camera.position.z += (wz / len) * speed * dt;
+
+    // Noise
+    const noiseMult = crouching ? 0.2 : sprinting ? 2.5 : 1;
+    noiseLevel = Math.min(100, noiseLevel + 20 * noiseMult * dt);
+
+    // Footsteps
+    footstepTimer += dt;
+    const stepInterval = crouching ? 0.9 : sprinting ? 0.28 : 0.5;
+    if (footstepTimer >= stepInterval) {
+      footstepTimer = 0;
+      playFootstep(crouching ? 0.04 : sprinting ? 0.18 : 0.1);
     }
-  }, 100);
+
+    // Send movement to server
+    const angle = Math.atan2(wz / len, wx / len);
+    send({ type: 'move', angle, sprint: sprinting, rotY: lookYaw });
+  }
+
+  // Camera bob
+  if (isMoving && !crouching) {
+    bobTimer += dt * (sprinting ? 14 : 8);
+    const bobAmt = sprinting ? 0.065 : 0.03;
+    camera.position.y = 1.6 + Math.sin(bobTimer) * bobAmt;
+  } else {
+    const targetY = crouching ? 0.9 : 1.6;
+    camera.position.y += (targetY - camera.position.y) * 0.12;
+    if (!isMoving) bobTimer = 0;
+  }
+
+  // Snap camera to server position on first tick
+  if (!cameraSnapped && lastState && lastState.players && lastState.players[myId]) {
+    const me = lastState.players[myId];
+    camera.position.x = me.x;
+    camera.position.z = me.z;
+    cameraSnapped = true;
+  }
+
+  // Look (touch)
+  if (lookActive) {
+    lookYaw   -= lookDX * 0.003;
+    lookPitch -= lookDY * 0.003;
+    lookDX = 0; lookDY = 0;
+  }
+
+  lookPitch = Math.max(-1.2, Math.min(1.2, lookPitch));
+  camera.rotation.order = 'YXZ';
+  camera.rotation.y = lookYaw;
+  camera.rotation.x = lookPitch;
 }
 
-// Start on first interaction (required for iOS audio)
-let started = false;
-document.addEventListener('touchstart', () => { if (!started) { started = true; init(); } }, { once: false });
-document.addEventListener('click', () => { if (!started) { started = true; init(); } }, { once: false });
-// Also auto-start on desktop
-if (!('ontouchstart' in window)) { started = true; init(); }
-
-// Register service worker for PWA
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js').catch(() => {});
+// ═══════════════════════════════════════════════════════════════
+// AUDIO
+// ═══════════════════════════════════════════════════════════════
+function unlockAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.12;
+  masterGain.connect(audioCtx.destination);
 }
 
-// Show install hint on iOS Safari (not in standalone mode)
-const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-const isStandalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
-if (isIOS && !isStandalone) {
-  const hint = document.getElementById('installHint');
-  if (hint) hint.style.display = 'block';
+function playFootstep(vol = 0.1) {
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.08, audioCtx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+  const g = audioCtx.createGain();
+  g.gain.setValueAtTime(vol, now);
+  g.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+  const filt = audioCtx.createBiquadFilter();
+  filt.type = 'lowpass';
+  filt.frequency.value = 400;
+  src.connect(filt);
+  filt.connect(g);
+  g.connect(masterGain);
+  src.start(now);
 }
 
-// Handle Android "Add to Home Screen" prompt
-let deferredPrompt = null;
-window.addEventListener('beforeinstallprompt', (e) => {
+// ═══════════════════════════════════════════════════════════════
+// SCREEN FX
+// ═══════════════════════════════════════════════════════════════
+function flashDamage() {
+  const el = document.getElementById('damage-flash');
+  el.style.opacity = '1';
+  setTimeout(() => el.style.opacity = '0', 120);
+}
+
+function showMsg(txt, dur = 2500) {
+  const el = document.getElementById('msg-popup');
+  el.textContent = txt;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), dur);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TOUCH INPUT
+// ═══════════════════════════════════════════════════════════════
+const joyZone  = document.getElementById('joystick-zone');
+const lookZone = document.getElementById('look-zone');
+const knob     = document.getElementById('jstick-knob');
+const bg       = document.getElementById('jstick-bg');
+
+// Joystick
+joyZone.addEventListener('touchstart', e => {
   e.preventDefault();
-  deferredPrompt = e;
-  const hint = document.getElementById('installHint');
-  if (hint) {
-    hint.innerHTML = '<button class="lobby-btn secondary" style="min-width:auto;padding:8px 16px;font-size:0.75rem" onclick="installPWA()">INSTALL AS APP</button>';
-    hint.style.display = 'block';
-    hint.style.border = 'none';
+  const t = e.changedTouches[0];
+  joyTouchId = t.identifier;
+  joyCX = t.clientX;
+  joyCY = t.clientY;
+  bg.style.left   = (joyCX - 45) + 'px';
+  bg.style.bottom = '';
+  bg.style.top    = (joyCY - 45) + 'px';
+  knob.style.left   = (joyCX - 30) + 'px';
+  knob.style.top    = (joyCY - 30) + 'px';
+  knob.style.bottom = '';
+  joyActive = true;
+  unlockAudio();
+}, { passive: false });
+
+joyZone.addEventListener('touchmove', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    if (t.identifier !== joyTouchId) continue;
+    const dx = t.clientX - joyCX;
+    const dy = t.clientY - joyCY;
+    const dist = Math.min(Math.hypot(dx, dy), 40);
+    const angle = Math.atan2(dy, dx);
+    joyX = Math.cos(angle) * dist / 40;
+    joyY = Math.sin(angle) * dist / 40;
+    knob.style.left = (joyCX + Math.cos(angle) * dist - 30) + 'px';
+    knob.style.top  = (joyCY + Math.sin(angle) * dist - 30) + 'px';
+  }
+}, { passive: false });
+
+joyZone.addEventListener('touchend', e => {
+  for (const t of e.changedTouches) {
+    if (t.identifier !== joyTouchId) continue;
+    joyActive = false;
+    joyX = 0; joyY = 0;
+    knob.style.left = '31px';
+    knob.style.top  = '';
+    knob.style.bottom = '31px';
+    bg.style.left = '16px';
+    bg.style.top  = '';
+    bg.style.bottom = '16px';
   }
 });
 
-function installPWA() {
-  if (deferredPrompt) {
-    deferredPrompt.prompt();
-    deferredPrompt.userChoice.then(() => { deferredPrompt = null; });
-  }
-}
+// Look zone
+let prevLookX = 0, prevLookY = 0;
+lookZone.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const t = e.changedTouches[0];
+  lookTouchId = t.identifier;
+  prevLookX = t.clientX;
+  prevLookY = t.clientY;
+  lookActive = true;
+  unlockAudio();
+}, { passive: false });
 
+lookZone.addEventListener('touchmove', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    if (t.identifier !== lookTouchId) continue;
+    lookDX += t.clientX - prevLookX;
+    lookDY += t.clientY - prevLookY;
+    prevLookX = t.clientX;
+    prevLookY = t.clientY;
+  }
+}, { passive: false });
+
+lookZone.addEventListener('touchend', e => {
+  for (const t of e.changedTouches) {
+    if (t.identifier !== lookTouchId) continue;
+    lookActive = false;
+  }
+});
+
+// ── Mouse look (desktop) ──
+let pointerLocked = false;
+renderer && document.body.addEventListener('click', () => {
+  if (gamePhase === 'playing') document.body.requestPointerLock();
+});
+document.addEventListener('pointerlockchange', () => {
+  pointerLocked = document.pointerLockElement === document.body;
+});
+document.addEventListener('mousemove', e => {
+  if (!pointerLocked || gamePhase !== 'playing') return;
+  lookYaw   -= e.movementX * 0.002;
+  lookPitch -= e.movementY * 0.002;
+});
+
+// ── Keyboard ──
+document.addEventListener('keydown', e => {
+  keys[e.key.toLowerCase()] = true;
+  if (e.key === 'Shift') { sprinting = true; }
+  if (e.key === 'c' || e.key === 'C') {
+    crouching = !crouching;
+    send({ type: 'crouch', active: crouching });
+    document.getElementById('crouch-btn').classList.toggle('lit', crouching);
+  }
+  if (e.key === 'e' || e.key === 'E') {
+    send({ type: 'interact' });
+    unlockAudio();
+  }
+});
+document.addEventListener('keyup', e => {
+  keys[e.key.toLowerCase()] = false;
+  if (e.key === 'Shift') sprinting = false;
+});
+
+// ── Action buttons ──
+document.getElementById('interact-btn').addEventListener('pointerdown', () => {
+  send({ type: 'interact' });
+  unlockAudio();
+});
+document.getElementById('crouch-btn').addEventListener('pointerdown', () => {
+  crouching = !crouching;
+  send({ type: 'crouch', active: crouching });
+  document.getElementById('crouch-btn').classList.toggle('lit', crouching);
+});
+document.getElementById('sprint-btn').addEventListener('pointerdown', () => {
+  sprinting = true;
+  document.getElementById('sprint-btn').classList.add('active');
+});
+document.getElementById('sprint-btn').addEventListener('pointerup', () => {
+  sprinting = false;
+  document.getElementById('sprint-btn').classList.remove('active');
+});
+
+// ═══════════════════════════════════════════════════════════════
+// BOOT
+// ═══════════════════════════════════════════════════════════════
+initScene();
+animate();
+connect();
 </script>
 </body>
 </html>
