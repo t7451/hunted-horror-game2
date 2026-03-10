@@ -492,7 +492,7 @@ function startPlaying() {
 function initScene() {
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x050508);
-  scene.fog = new THREE.FogExp2(0x050508, 0.018);
+  scene.fog = new THREE.FogExp2(0x050508, 0.022);
 
   camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.05, 200);
   camera.position.set(2, 1.6, 2);
@@ -508,33 +508,22 @@ function initScene() {
   document.body.prepend(renderer.domElement);
 
   clock = new THREE.Clock();
-  
-  // **ENHANCED LIGHTING SYSTEM**
-  // Warm ambient light for atmosphere
-  scene.add(new THREE.AmbientLight(0x2a1a0a, 2.4));
-  
-  // Cool directional light for depth and shadows
-  const dirLight = new THREE.DirectionalLight(0x0a2a4a, 0.6);
-  dirLight.position.set(-15, 14, -12);
-  dirLight.castShadow = !isMobile;
-  if (!isMobile) {
-    dirLight.shadow.mapSize.width = 2048;
-    dirLight.shadow.mapSize.height = 2048;
-    dirLight.shadow.bias = -0.0002;
-    dirLight.shadow.camera.left = -40;
-    dirLight.shadow.camera.right = 40;
-    dirLight.shadow.camera.top = 40;
-    dirLight.shadow.camera.bottom = -40;
-  }
+
+  // Ambient light - warm, dim
+  scene.add(new THREE.AmbientLight(0x1a1520, 1.8));
+
+  // Subtle cool directional for depth
+  const dirLight = new THREE.DirectionalLight(0x0a1a2a, 0.3);
+  dirLight.position.set(-10, 12, -10);
   scene.add(dirLight);
 
-  // **PLAYER FLASHLIGHT - Enhanced**
-  const fl = new THREE.SpotLight(0xfff8e0, 5.5, 55, Math.PI / 5.2, 0.5, 1.2);
+  // Player flashlight
+  const fl = new THREE.SpotLight(0xfff5e0, 4.0, 45, Math.PI / 6.5, 0.45, 1.1);
   fl.position.set(0, 0, 0);
   fl.castShadow = !isMobile;
   if (!isMobile) {
-    fl.shadow.mapSize.width = 2048;
-    fl.shadow.mapSize.height = 2048;
+    fl.shadow.mapSize.width = 1024;
+    fl.shadow.mapSize.height = 1024;
     fl.shadow.bias = -0.0001;
   }
   camera.add(fl);
@@ -606,7 +595,7 @@ function buildMap() {
         scene.add(d);
         // Corridor light near doors
         if (lightIndex % 2 === 0) {
-          const cl = new THREE.PointLight(0x552a10, 1.2, 14);
+          const cl = new THREE.PointLight(0x331a08, 0.6, 10);
           cl.position.set(x, WH - 0.3, z);
           scene.add(cl);
           corridorLights.push(cl);
@@ -616,7 +605,7 @@ function buildMap() {
         const ex = new THREE.Mesh(exitGeo, exitMat);
         ex.position.set(x, WH / 2, z);
         scene.add(ex);
-        const pl = new THREE.PointLight(0x00ff66, 3.5, 20);
+        const pl = new THREE.PointLight(0x00ff44, 2.0, 14);
         pl.position.set(x, 2, z);
         scene.add(pl);
       } else if (t === 'H') {
@@ -625,7 +614,7 @@ function buildMap() {
         scene.add(hb);
       } else if (t === 'K') {
         // Subtle glow at key spawn locations
-        const kl = new THREE.PointLight(0x664400, 1.0, 10);
+        const kl = new THREE.PointLight(0x332200, 0.4, 6);
         kl.position.set(x, 1.5, z);
         scene.add(kl);
       }
@@ -643,8 +632,8 @@ function getOrCreateEntity(state) {
     const bodyGeo = new THREE.CylinderGeometry(0.35, 0.4, 1.8, 8);
     const bodyMat = new THREE.MeshPhongMaterial({
       color: 0x0a0a1e,
-      emissive: 0x0a0a20,
-      shininess: 100,
+      emissive: 0x050510,
+      shininess: 80,
       specular: 0x1a1a3a,
     });
     const body = new THREE.Mesh(bodyGeo, bodyMat);
