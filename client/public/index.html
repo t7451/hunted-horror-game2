@@ -387,7 +387,11 @@ let tauntTimeout = null;
 // ═══════════════════════════════════════════════════════════════
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  ws = new WebSocket(`${proto}//${location.host}`);
+  // Connect to game server on port 2567
+  const host = location.hostname;
+  const port = 2567;
+  ws = new WebSocket(`${proto}//${host}:${port}`);
+  console.log('[App] Connecting to game server:', `${proto}//${host}:${port}`);
 
   ws.onopen = () => {
     setStatus('Connected - enter your name and choose a mode');
