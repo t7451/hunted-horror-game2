@@ -2,7 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover,shrink-to-fit=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="format-detection" content="telephone=no">
+<meta name="format-detection" content="email=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="HUNTED">
@@ -159,15 +164,74 @@ canvas:not(#minimap){position:fixed;inset:0;display:block;width:100%!important;h
 #win-screen button{background:rgba(0,255,136,.15);color:#00ff88;border:1px solid rgba(0,255,136,.3);padding:13px 32px;font-size:.95rem;cursor:pointer;border-radius:5px;font-family:inherit;font-weight:700;letter-spacing:.1em}
 
 /* ── RESPONSIVE ── */
+/* Mobile Phones (Portrait) */
 @media(max-width:500px){
   #jstick-bg{width:80px;height:80px}
   #jstick-knob{width:52px;height:52px}
-  .abtn{width:50px;height:50px}
+  .abtn{width:50px;height:50px;font-size:.55rem}
+  #sprint-btn{width:48px;height:48px;font-size:.5rem}
+  #nameInput,.lbtn{font-size:1.05rem;padding:14px 18px}
+  .diff-btn{padding:10px 16px;font-size:.75rem}
+  #hud-bottom{padding:0 10px 6px}
+  .bar-row{font-size:.6rem}
+  #key-status{font-size:.65rem;top:42px;right:8px}
+  #carrying-label{font-size:.75rem;bottom:85px}
+  #interact-hint{font-size:.75rem;bottom:125px}
 }
+
+/* Tablets (Portrait) */
+@media(min-width:501px) and (max-width:768px){
+  #jstick-bg{width:95px;height:95px}
+  #jstick-knob{width:58px;height:58px}
+  .abtn{width:56px;height:56px}
+  #sprint-btn{width:54px;height:54px}
+  #nameInput,.lbtn{font-size:1.1rem;padding:15px 20px}
+  .diff-btn{padding:10px 18px;font-size:.8rem}
+}
+
+/* Tablets & Landscape */
+@media(min-width:769px){
+  #jstick-bg{width:100px;height:100px}
+  #jstick-knob{width:64px;height:64px}
+  .abtn{width:58px;height:58px}
+}
+
+/* Landscape Mode */
 @media(orientation:landscape) and (max-height:500px){
   #lobby{justify-content:flex-start;padding-top:10px}
   #lobby-title{font-size:2rem}
-  .lbtn{padding:9px 16px}
+  .lbtn{padding:9px 16px;font-size:.8rem}
+  #hud{padding:6px 10px}
+  #timer{font-size:1.2rem}
+  #hud-bottom{padding:0 8px 4px;gap:2px}
+  .bar-row{font-size:.55rem}
+  #jstick-bg{bottom:8px;left:8px;width:75px;height:75px}
+  #jstick-knob{bottom:20px;left:20px;width:48px;height:48px}
+  #action-btns{bottom:8px;right:8px;gap:6px}
+  .abtn{width:46px;height:46px;font-size:.5rem}
+  #sprint-btn{bottom:8px;width:44px;height:44px;font-size:.48rem}
+}
+
+/* iPhone Notch Support */
+@supports(padding: max(0px)) {
+  body { padding-left: max(0px, env(safe-area-inset-left)); padding-right: max(0px, env(safe-area-inset-right)); }
+  #hud { padding-top: max(10px, env(safe-area-inset-top)); }
+  #hud-bottom { padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+  #jstick-bg { bottom: max(16px, env(safe-area-inset-bottom)); left: max(16px, env(safe-area-inset-left)); }
+  #action-btns { bottom: max(14px, env(safe-area-inset-bottom)); right: max(10px, env(safe-area-inset-right)); }
+  #sprint-btn { bottom: max(14px, env(safe-area-inset-bottom)); }
+}
+
+/* High DPI Screens */
+@media(-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  #jstick-bg, #jstick-knob, .abtn { border-width: 1px; }
+}
+
+/* Touch Device Optimizations */
+@media(hover: none) and (pointer: coarse) {
+  .abtn, .lbtn, .diff-btn { min-height: 44px; min-width: 44px; }
+  #nameInput { min-height: 44px; }
+  #crosshair { display: none !important; }
 }
 </style>
 </head>
@@ -551,7 +615,8 @@ function initScene() {
 
   renderer = new THREE.WebGLRenderer({ antialias: !isMobile, powerPreference: 'high-performance' });
   renderer.setSize(innerWidth, innerHeight);
-  renderer.setPixelRatio(Math.min(devicePixelRatio, isMobile ? 1.5 : 2));
+  renderer.setPixelRatio(Math.min(devicePixelRatio, isMobile ? 1.2 : 2));
+  if (isMobile) renderer.powerPreference = 'low-power';
   renderer.shadowMap.enabled = !isMobile;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputEncoding = THREE.sRGBEncoding;
@@ -594,6 +659,15 @@ function initScene() {
   fl.target.position.set(0, -0.15, -1);
   scene.add(camera);
 
+  // Handle orientation changes on mobile
+  window.addEventListener('orientationchange', () => {
+    setTimeout(() => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    }, 100);
+  });
+  
   window.addEventListener('resize', () => {
     camera.aspect = innerWidth / innerHeight;
     camera.updateProjectionMatrix();
@@ -1314,6 +1388,8 @@ joyZone.addEventListener('touchstart', e => {
   knob.style.left   = (joyCX - 30) + 'px';
   knob.style.top    = (joyCY - 30) + 'px';
   knob.style.bottom = '';
+  bg.style.opacity = '0.15';
+  knob.style.opacity = '0.25';
   joyActive = true;
   unlockAudio();
 }, { passive: false });
@@ -1344,6 +1420,8 @@ joyZone.addEventListener('touchend', e => {
     bg.style.left = '16px';
     bg.style.top  = '';
     bg.style.bottom = '16px';
+    bg.style.opacity = '0.03';
+    knob.style.opacity = '0.1';
   }
 });
 
@@ -1356,6 +1434,8 @@ lookZone.addEventListener('touchstart', e => {
   prevLookY = t.clientY;
   lookActive = true;
   unlockAudio();
+  // Provide haptic feedback on supported devices
+  if (navigator.vibrate) navigator.vibrate(10);
 }, { passive: false });
 
 lookZone.addEventListener('touchmove', e => {
@@ -1410,22 +1490,49 @@ document.addEventListener('keyup', e => {
 });
 
 // ── Action buttons ──
-document.getElementById('interact-btn').addEventListener('pointerdown', () => {
+const interactBtn = document.getElementById('interact-btn');
+const crouchBtn = document.getElementById('crouch-btn');
+const sprintBtn = document.getElementById('sprint-btn');
+
+// Prevent default touch behavior for better responsiveness
+[interactBtn, crouchBtn, sprintBtn].forEach(btn => {
+  btn.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
+  btn.addEventListener('touchend', e => e.preventDefault(), { passive: false });
+});
+
+interactBtn.addEventListener('pointerdown', () => {
   send({ type: 'interact' });
   unlockAudio();
+  interactBtn.style.transform = 'scale(0.85)';
 });
-document.getElementById('crouch-btn').addEventListener('pointerdown', () => {
+interactBtn.addEventListener('pointerup', () => {
+  interactBtn.style.transform = 'scale(1)';
+});
+
+crouchBtn.addEventListener('pointerdown', () => {
   crouching = !crouching;
   send({ type: 'crouch', active: crouching });
-  document.getElementById('crouch-btn').classList.toggle('lit', crouching);
+  crouchBtn.classList.toggle('lit', crouching);
+  crouchBtn.style.transform = 'scale(0.85)';
 });
-document.getElementById('sprint-btn').addEventListener('pointerdown', () => {
+crouchBtn.addEventListener('pointerup', () => {
+  crouchBtn.style.transform = 'scale(1)';
+});
+
+sprintBtn.addEventListener('pointerdown', () => {
   sprinting = true;
-  document.getElementById('sprint-btn').classList.add('active');
+  sprintBtn.classList.add('active');
+  sprintBtn.style.transform = 'scale(0.88)';
 });
-document.getElementById('sprint-btn').addEventListener('pointerup', () => {
+sprintBtn.addEventListener('pointerup', () => {
   sprinting = false;
-  document.getElementById('sprint-btn').classList.remove('active');
+  sprintBtn.classList.remove('active');
+  sprintBtn.style.transform = 'scale(1)';
+});
+sprintBtn.addEventListener('pointercancel', () => {
+  sprinting = false;
+  sprintBtn.classList.remove('active');
+  sprintBtn.style.transform = 'scale(1)';
 });
 
 // ═══════════════════════════════════════════════════════════════
