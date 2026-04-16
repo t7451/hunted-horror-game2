@@ -566,6 +566,11 @@ function onMsg(msg) {
         document.getElementById('death-screen').classList.add('show');
         flashDamage();
         playSound('caught');
+        if (navigator.vibrate) navigator.vibrate([100, 50, 200, 50, 300]);
+        gameStats.losses++;
+        gameStats.total++;
+        saveStats();
+        loadStatsUI();
       }
       showMsg(msg.id === myId ? 'CAUGHT!' : `${msg.name} was caught!`, 3000);
       break;
@@ -574,6 +579,7 @@ function onMsg(msg) {
       if (msg.playerId === myId) {
         playSound('pickup');
         showMsg('KEY ACQUIRED', 1500);
+        if (navigator.vibrate) navigator.vibrate(50);
       }
       break;
 
@@ -598,10 +604,20 @@ function onMsg(msg) {
           document.getElementById('leaderboard-display').innerHTML = lb;
         }
         document.getElementById('win-screen').classList.add('show');
+        gameStats.wins++;
+        gameStats.total++;
+        const elapsed = msg.timeUsed || 0;
+        if (!gameStats.bestTime || elapsed < gameStats.bestTime) gameStats.bestTime = elapsed;
+        saveStats();
+        loadStatsUI();
       } else {
         gamePhase = 'dead';
         document.getElementById('death-screen').classList.add('show');
       }
+      break;
+
+    case 'chatMessage':
+      addChatMessage(msg.from, msg.name, msg.text, msg.from === myId);
       break;
 
     case 'restart':
@@ -693,6 +709,7 @@ function startPlaying() {
   document.getElementById('minimap').classList.remove('hidden');
   document.getElementById('action-btns').classList.remove('hidden');
   document.getElementById('sprint-btn').classList.remove('hidden');
+  document.getElementById('chat-toggle').classList.remove('hidden');
   unlockAudio();
   startAmbience();
 }
@@ -1082,7 +1099,9 @@ function checkInteractables(state) {
 // HUD
 // ═══════════════════════════════════════════════════════════════
 function updateHUD(state) {
-  const t = Math.max(0, state.time || 0);
+  const elapsed = Math.max(0, state.time || 0);
+  const maxT = state.maxTime || 180;
+  const t = Math.max(0, maxT - elapsed);
   const m = Math.floor(t / 60);
   const s = Math.floor(t % 60);
   const timerEl = document.getElementById('timer');
@@ -1269,7 +1288,7 @@ function updateMovement(dt) {
     }
 
     const angle = Math.atan2(wz / len, wx / len);
-    send({ type: 'move', angle, sprint: sprinting, rotY: lookYaw });
+    send({ type: 'move', x: camera.position.x, z: camera.position.z, angle, sprint: sprinting, noise: noiseLevel, rotY: lookYaw });
   }
 
   if (isMoving && !crouching) {
@@ -1583,6 +1602,88 @@ document.addEventListener('keyup', e => {
   keys[e.key.toLowerCase()] = false;
   if (e.key === 'Shift') sprinting = false;
 });
+
+// ── Chat System ──
+document.getElementById('chat-send').addEventListener('click', sendChatMessage);
+document.getElementById('chat-input').addEventListener('keydown', e => { if(e.key==='Enter') sendChatMessage(); });
+document.getElementById('chat-toggle').addEventListener('click', () => {
+  const c = document.getElementById('chat-container');
+  c.classList.toggle('hidden');
+  document.getElementById('chat-toggle').classList.toggle('hidden', !c.classList.contains('hidden'));
+});
+
+function sendChatMessage() {
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+  send({ type: 'chat', text });
+  input.value = '';
+}
+
+function addChatMessage(from, name, text, isSelf) {
+  const messages = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = 'chat-msg' + (isSelf ? ' self' : from === 'system' ? ' system' : '');
+  div.innerHTML = from !== 'system' ? `<span class="chat-msg-name">${name}</span>: ${text}` : text;
+  messages.appendChild(div);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+// ── Stats Persistence ──
+let gameStats = JSON.parse(localStorage.getItem('huntedStats') || '{"wins":0,"losses":0,"bestTime":null,"total":0}');
+
+function saveStats() {
+  localStorage.setItem('huntedStats', JSON.stringify(gameStats));
+}
+
+function loadStatsUI() {
+  document.getElementById('stat-wins').textContent = gameStats.wins;
+  document.getElementById('stat-losses').textContent = gameStats.losses;
+  document.getElementById('stat-total').textContent = gameStats.total;
+  document.getElementById('stat-best-time').textContent = gameStats.bestTime
+    ? `${Math.floor(gameStats.bestTime/60)}:${String(gameStats.bestTime%60).padStart(2,'0')}` : '--:--';
+}
+loadStatsUI();
+
+// ── Tutorial ──
+const TUTORIAL_STEPS = [
+  { title: 'Welcome to HUNTED', text: 'Claude, an AI villain, hunts you through a maze. Collect all keys and reach the exit to escape! Avoid being caught.' },
+  { title: 'Controls', text: 'Use the LEFT joystick to move. Drag the RIGHT side to look around. Tap USE to interact with keys and the exit.' },
+  { title: 'Survival Tips', text: 'HIDE in dark corners to evade Claude. CROUCH to reduce noise. SPRINT only when desperate — it attracts attention.' },
+  { title: 'The Exit', text: 'Collect all keys scattered across the map, then use them at the glowing EXIT door. Good luck... you\'ll need it.' },
+];
+let tutorialStep = 0;
+
+function showTutorial() {
+  tutorialStep = 0;
+  updateTutorialStep();
+  document.getElementById('tutorial-overlay').classList.add('show');
+}
+
+function updateTutorialStep() {
+  const step = TUTORIAL_STEPS[tutorialStep];
+  document.getElementById('tutorial-title').textContent = step.title;
+  document.getElementById('tutorial-text').textContent = step.text;
+  document.getElementById('tutorial-next').textContent = tutorialStep < TUTORIAL_STEPS.length - 1 ? 'Next →' : 'Play!';
+}
+
+document.getElementById('tutorial-next').addEventListener('click', () => {
+  if (tutorialStep < TUTORIAL_STEPS.length - 1) {
+    tutorialStep++;
+    updateTutorialStep();
+  } else {
+    document.getElementById('tutorial-overlay').classList.remove('show');
+  }
+});
+
+document.getElementById('tutorial-skip').addEventListener('click', () => {
+  document.getElementById('tutorial-overlay').classList.remove('show');
+});
+
+if (!localStorage.getItem('huntedTutorialDone')) {
+  showTutorial();
+  localStorage.setItem('huntedTutorialDone', '1');
+}
 
 // ── Action buttons ──
 const interactBtn = document.getElementById('interact-btn');
