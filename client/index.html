@@ -460,7 +460,7 @@ const RECONNECT_DELAY = 2000;
 
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = location.hostname;
+  const host = location.host; // includes port (e.g. localhost:3000)
   const wsUrl = `${proto}//${host}/ws`; // Use Vite proxy path
   
   console.log('[App] Attempting WebSocket connection to:', wsUrl);

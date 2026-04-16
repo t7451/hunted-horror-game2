@@ -835,6 +835,14 @@ async function startServer() {
     });
   }, 100);
 
+  app.get("/status", (_req, res) => {
+    res.json({
+      sessions: sessions.size,
+      players: Array.from(sessions.values()).reduce((n, gs) => n + Object.keys(gs.players).length, 0),
+      uptime: process.uptime(),
+    });
+  });
+
   // Static file serving (production)
   const isProduction = process.env.NODE_ENV === "production";
   if (isProduction) {
@@ -844,14 +852,6 @@ async function startServer() {
       res.sendFile(path.join(staticPath, "index.html"));
     });
   }
-
-  app.get("/status", (_req, res) => {
-    res.json({
-      sessions: sessions.size,
-      players: Array.from(sessions.values()).reduce((n, gs) => n + Object.keys(gs.players).length, 0),
-      uptime: process.uptime(),
-    });
-  });
 
   const PORT =
     process.env.NODE_ENV === "production"
