@@ -1607,9 +1607,7 @@ document.addEventListener('keyup', e => {
 document.getElementById('chat-send').addEventListener('click', sendChatMessage);
 document.getElementById('chat-input').addEventListener('keydown', e => { if(e.key==='Enter') sendChatMessage(); });
 document.getElementById('chat-toggle').addEventListener('click', () => {
-  const c = document.getElementById('chat-container');
-  c.classList.toggle('hidden');
-  document.getElementById('chat-toggle').classList.toggle('hidden', !c.classList.contains('hidden'));
+  document.getElementById('chat-container').classList.toggle('hidden');
 });
 
 function sendChatMessage() {
@@ -1624,7 +1622,15 @@ function addChatMessage(from, name, text, isSelf) {
   const messages = document.getElementById('chat-messages');
   const div = document.createElement('div');
   div.className = 'chat-msg' + (isSelf ? ' self' : from === 'system' ? ' system' : '');
-  div.innerHTML = from !== 'system' ? `<span class="chat-msg-name">${name}</span>: ${text}` : text;
+  if (from !== 'system') {
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'chat-msg-name';
+    nameSpan.textContent = name;
+    div.appendChild(nameSpan);
+    div.appendChild(document.createTextNode(': ' + text));
+  } else {
+    div.textContent = text;
+  }
   messages.appendChild(div);
   messages.scrollTop = messages.scrollHeight;
 }
