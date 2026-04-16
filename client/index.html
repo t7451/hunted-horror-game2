@@ -1100,12 +1100,10 @@ function checkInteractables(state) {
 // ═══════════════════════════════════════════════════════════════
 function updateHUD(state) {
   const elapsed = Math.max(0, state.time || 0);
-  const maxT = state.maxTime || 180;
-  const t = Math.max(0, maxT - elapsed);
-  const m = Math.floor(t / 60);
-  const s = Math.floor(t % 60);
+  const maxTime = state.maxTime || 180;
+  const t = Math.max(0, maxTime - elapsed);
   const timerEl = document.getElementById('timer');
-  timerEl.textContent = `${m}:${s.toString().padStart(2,'0')}`;
+  timerEl.textContent = formatTime(t);
   if (t < 30) timerEl.classList.add('urgent'); else timerEl.classList.remove('urgent');
 
   document.getElementById('sanity-fill').style.width = sanityLevel + '%';
@@ -1635,6 +1633,13 @@ function addChatMessage(from, name, text, isSelf) {
   messages.scrollTop = messages.scrollHeight;
 }
 
+// ── Utilities ──
+function formatTime(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
 // ── Stats Persistence ──
 let gameStats = JSON.parse(localStorage.getItem('huntedStats') || '{"wins":0,"losses":0,"bestTime":null,"total":0}');
 
@@ -1646,8 +1651,7 @@ function loadStatsUI() {
   document.getElementById('stat-wins').textContent = gameStats.wins;
   document.getElementById('stat-losses').textContent = gameStats.losses;
   document.getElementById('stat-total').textContent = gameStats.total;
-  document.getElementById('stat-best-time').textContent = gameStats.bestTime
-    ? `${Math.floor(gameStats.bestTime/60)}:${String(gameStats.bestTime%60).padStart(2,'0')}` : '--:--';
+  document.getElementById('stat-best-time').textContent = gameStats.bestTime ? formatTime(gameStats.bestTime) : '--:--';
 }
 loadStatsUI();
 
