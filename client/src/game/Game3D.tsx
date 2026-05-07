@@ -1,7 +1,16 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
 import { MAPS, MAP_KEYS, type MapKey } from "@shared/maps";
 import { supportsWebGL, type GraphicsQuality } from "../util/device";
 import { startGame, type EngineHandle, type RemotePlayer } from "./engine";
+import { useIsMobile } from "../hooks/useMobile";
 import LoadingScreen from "../ui/LoadingScreen";
 
 type Status = "title" | "loading" | "playing" | "caught" | "escaped";
@@ -12,6 +21,16 @@ const DANGER_STYLES: Record<Danger, string> = {
   near: "bg-yellow-950/70 border-yellow-500/60",
   safe: "bg-black/60 border-white/10",
 };
+
+const DESKTOP_START_HINT =
+  "Click to lock pointer · WASD/Arrows move · Shift sprint · E hides near closets";
+const MOBILE_START_HINT =
+  "Drag left pad to move · swipe the screen to look · use sprint/hide buttons";
+const DESKTOP_CONTROL_HINT =
+  "WASD/Arrows move · Mouse look · Shift sprint · E hide near closets";
+const MOBILE_CONTROL_HINT =
+  "Drag left pad to move · swipe view to look · sprint / hide buttons";
+const JOYSTICK_RADIUS_FACTOR = 0.36;
 
 export default function Game3D() {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -30,6 +49,7 @@ export default function Game3D() {
   );
   const [engineError, setEngineError] = useState<string | null>(null);
   const [webglSupported] = useState(() => supportsWebGL());
+  const isMobile = useIsMobile();
 
   const selectedMap = MAPS[difficulty];
   const difficultyOptions = useMemo(
@@ -47,9 +67,7 @@ export default function Game3D() {
     setTimeLeft(selectedMap.timer);
     setDanger("safe");
     setHidden(false);
-    setHint(
-      "Click to lock pointer · WASD/Arrows move · Shift sprint · E hides near closets"
-    );
+    setHint(isMobile ? MOBILE_START_HINT : DESKTOP_START_HINT);
 
     let handle: EngineHandle | null = null;
     try {
@@ -62,7 +80,9 @@ export default function Game3D() {
             setKeysLeft(info.keys);
             setTimeLeft(info.timer);
             setHint(
-              `${info.mapName}: collect every key, then reach the green exit.`
+              isMobile
+                ? `${info.mapName}: collect keys, then reach the green exit. Drag to look.`
+                : `${info.mapName}: collect every key, then reach the green exit.`
             );
           },
           onKeyPickup: remaining => {
@@ -146,7 +166,19 @@ export default function Game3D() {
       handle?.dispose();
       engineRef.current = null;
     };
-  }, [difficulty, quality, selectedMap.timer, sensitivity, status]);
+  }, [difficulty, isMobile, quality, selectedMap.timer, sensitivity, status]);
+
+  const setVirtualMove = useCallback((moveX: number, moveZ: number) => {
+    engineRef.current?.setVirtualInput({ moveX, moveZ });
+  }, []);
+
+  const setVirtualSprint = useCallback((sprinting: boolean) => {
+    engineRef.current?.setVirtualInput({ sprinting });
+  }, []);
+
+  const toggleVirtualHide = useCallback(() => {
+    engineRef.current?.toggleHide();
+  }, []);
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-black text-white select-none">
@@ -268,8 +300,15 @@ export default function Game3D() {
             <div className="mt-1 opacity-70">{hint}</div>
           </div>
           <div className="pointer-events-none absolute bottom-3 left-1/2 w-[min(92vw,520px)] -translate-x-1/2 rounded bg-black/50 px-3 py-2 text-center text-xs opacity-80">
-            WASD/Arrows move · Mouse look · Shift sprint · E hide near closets
+            {isMobile ? MOBILE_CONTROL_HINT : DESKTOP_CONTROL_HINT}
           </div>
+          {isMobile && (
+            <MobileControls
+              onMove={setVirtualMove}
+              onSprint={setVirtualSprint}
+              onHide={toggleVirtualHide}
+            />
+          )}
         </>
       )}
 
@@ -299,6 +338,97 @@ export default function Game3D() {
           <div className="w-1 h-1 bg-white/80 rounded-full" />
         </div>
       )}
+    </div>
+  );
+}
+
+function MobileControls({
+  onMove,
+  onSprint,
+  onHide,
+}: {
+  onMove: (moveX: number, moveZ: number) => void;
+  onSprint: (sprinting: boolean) => void;
+  onHide: () => void;
+}) {
+  const padRef = useRef<HTMLDivElement | null>(null);
+  const pointerIdRef = useRef<number | null>(null);
+  const [knob, setKnob] = useState({ x: 0, y: 0, active: false });
+
+  const updatePad = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const pad = padRef.current;
+      if (!pad) return;
+      const rect = pad.getBoundingClientRect();
+      const radius = Math.max(1, rect.width * JOYSTICK_RADIUS_FACTOR);
+      const dx = event.clientX - (rect.left + rect.width / 2);
+      const dy = event.clientY - (rect.top + rect.height / 2);
+      const len = Math.hypot(dx, dy);
+      const scale = len > radius ? radius / len : 1;
+      const x = dx * scale;
+      const y = dy * scale;
+      onMove(x / radius, y / radius);
+      setKnob({ x, y, active: true });
+    },
+    [onMove]
+  );
+
+  const releasePad = useCallback(() => {
+    pointerIdRef.current = null;
+    onMove(0, 0);
+    setKnob({ x: 0, y: 0, active: false });
+  }, [onMove]);
+
+  return (
+    <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between px-4 pb-16 sm:px-8">
+      <div
+        ref={padRef}
+        className="pointer-events-auto relative h-32 w-32 rounded-full border border-white/25 bg-black/45 backdrop-blur"
+        style={{ touchAction: "none" }}
+        onPointerDown={event => {
+          pointerIdRef.current = event.pointerId;
+          event.currentTarget.setPointerCapture(event.pointerId);
+          updatePad(event);
+        }}
+        onPointerMove={event => {
+          if (pointerIdRef.current === event.pointerId) updatePad(event);
+        }}
+        onPointerUp={releasePad}
+        onPointerCancel={releasePad}
+      >
+        <div
+          className={`absolute left-1/2 top-1/2 h-14 w-14 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/35 ${
+            knob.active ? "bg-red-500/70" : "bg-white/20"
+          }`}
+          style={{
+            transform: `translate(calc(-50% + ${knob.x}px), calc(-50% + ${knob.y}px))`,
+          }}
+        />
+        <div className="absolute inset-x-0 bottom-3 text-center text-[10px] uppercase tracking-widest text-white/60">
+          Move
+        </div>
+      </div>
+
+      <div className="pointer-events-auto flex flex-col gap-3">
+        <button
+          type="button"
+          className="h-16 w-24 rounded-full border border-red-300/40 bg-red-900/65 text-xs font-bold uppercase tracking-widest shadow-lg backdrop-blur active:bg-red-600/80"
+          style={{ touchAction: "none" }}
+          onPointerDown={() => onSprint(true)}
+          onPointerUp={() => onSprint(false)}
+          onPointerCancel={() => onSprint(false)}
+          onPointerLeave={() => onSprint(false)}
+        >
+          Sprint
+        </button>
+        <button
+          type="button"
+          className="h-16 w-24 rounded-full border border-white/30 bg-black/60 text-xs font-bold uppercase tracking-widest shadow-lg backdrop-blur active:bg-white/20"
+          onClick={onHide}
+        >
+          Hide
+        </button>
+      </div>
     </div>
   );
 }
