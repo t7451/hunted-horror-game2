@@ -39,7 +39,10 @@ export type LoadingScreenProps = {
 
 export default function LoadingScreen({
   onReady,
-  durationMs = 2400,
+  // Reduced from 2.4s to 1.0s — when we're not actually loading anything
+  // (no real asset bundle yet), the long delay was just dead air. Real
+  // AssetManager-driven progress will set its own pace.
+  durationMs = 1000,
 }: LoadingScreenProps) {
   const [progress, setProgress] = useState(0); // 0..1
   const [phase, setPhase] = useState<Phase>(PHASES[0]);
