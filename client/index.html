@@ -126,8 +126,8 @@ canvas:not(#minimap){position:fixed;inset:0;display:block;width:100%!important;h
 /* ── MOBILE CONTROLS ── */
 #joystick-zone{position:fixed;bottom:0;left:0;width:44%;height:58%;z-index:40}
 #look-zone{position:fixed;bottom:0;right:0;width:56%;height:75%;z-index:40}
-#jstick-bg{position:fixed;bottom:16px;left:16px;width:90px;height:90px;border-radius:50%;background:rgba(0,229,255,.03);border:1.5px solid rgba(0,229,255,.12);pointer-events:none;z-index:41}
-#jstick-knob{position:fixed;bottom:31px;left:31px;width:60px;height:60px;border-radius:50%;background:rgba(0,229,255,.1);border:1.5px solid rgba(0,229,255,.25);pointer-events:none;z-index:42;transition:transform .05s}
+#jstick-bg{position:fixed;bottom:24px;left:24px;width:130px;height:130px;border-radius:50%;background:rgba(0,229,255,.06);border:2px solid rgba(0,229,255,.35);box-shadow:0 0 24px rgba(0,229,255,.18) inset, 0 0 18px rgba(0,229,255,.12);pointer-events:none;z-index:41}
+#jstick-knob{position:fixed;bottom:54px;left:54px;width:70px;height:70px;border-radius:50%;background:radial-gradient(circle at 35% 30%,rgba(0,229,255,.55),rgba(0,229,255,.15));border:2px solid rgba(0,229,255,.7);box-shadow:0 0 18px rgba(0,229,255,.4);pointer-events:none;z-index:42;transition:transform .05s}
 #action-btns{position:fixed;bottom:14px;right:10px;display:flex;flex-direction:column;gap:8px;z-index:45}
 #action-btns.hidden{display:none}
 .abtn{width:54px;height:54px;border-radius:50%;border:1.5px solid rgba(0,229,255,.25);background:rgba(0,229,255,.05);color:rgba(255,255,255,.8);font-size:.6rem;font-weight:700;display:flex;align-items:center;justify-content:center;cursor:pointer;letter-spacing:.05em;backdrop-filter:blur(4px);transition:all .1s;-webkit-backdrop-filter:blur(4px)}
@@ -530,7 +530,7 @@ function onMsg(msg) {
       hideSpots = msg.hideSpots || [];
       exitTileInfo = msg.exitTile || null;
       setStatus('Ready - choose a game mode');
-      if (!mapBuilt) { buildMap(); mapBuilt = true; }
+      if (!mapBuilt) { buildMap(); buildFurniture(mapData, tileSize, WALL_H); mapBuilt = true; }
       break;
 
     case 'playerJoined':
@@ -798,6 +798,214 @@ function initScene() {
   });
 }
 
+// ── PROCEDURAL TEXTURES ──
+// Generates a CanvasTexture from a hex base color with grain + plank/board
+// striations + scratches. Cheap (one-time, tiny canvases) but it gives walls
+// and floors a "real material" feel instead of the flat-shaded box look.
+function makeNoiseTexture(baseHex, grain, scratches, kind) {
+  const size = 256;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = size;
+  const ctx = cv.getContext('2d');
+  // Base
+  ctx.fillStyle = '#' + baseHex.toString(16).padStart(6, '0');
+  ctx.fillRect(0, 0, size, size);
+  // Grain noise
+  const img = ctx.getImageData(0, 0, size, size);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const n = (Math.random() - 0.5) * grain;
+    img.data[i]   = Math.max(0, Math.min(255, img.data[i]   + n));
+    img.data[i+1] = Math.max(0, Math.min(255, img.data[i+1] + n));
+    img.data[i+2] = Math.max(0, Math.min(255, img.data[i+2] + n));
+  }
+  ctx.putImageData(img, 0, 0);
+  // Striations
+  if (kind === 'planks') {
+    for (let y = 0; y < size; y += 32) {
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.fillRect(0, y, size, 1);
+      ctx.fillStyle = 'rgba(255,255,255,0.04)';
+      ctx.fillRect(0, y + 1, size, 1);
+    }
+  } else if (kind === 'boards') {
+    for (let x = 0; x < size; x += 40) {
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.fillRect(x, 0, 1, size);
+    }
+    for (let y = 0; y < size; y += 60) {
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.fillRect(0, y, size, 1);
+    }
+  }
+  // Scratches
+  ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+  for (let i = 0; i < scratches; i++) {
+    ctx.beginPath();
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + (Math.random() - 0.5) * 60, y + (Math.random() - 0.5) * 60);
+    ctx.stroke();
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.anisotropy = 4;
+  return tex;
+}
+
+// ── ROOM PROPS ──
+// Drop simple but recognizable furniture into open floor tiles so rooms
+// don't read as empty mazes. Deterministic per-tile so the same floor
+// position always gets the same prop.
+function buildFurniture(mapData, T, WH) {
+  if (!scene) return;
+  const H = mapData.length;
+  const W = mapData[0].length;
+  const seedRand = (x, z, salt) => {
+    const v = Math.sin(x * 73.13 + z * 19.71 + salt * 11.07) * 43758.5453;
+    return v - Math.floor(v);
+  };
+  // Shared materials (wood, dark cloth, metal, paint)
+  const wood   = new THREE.MeshPhongMaterial({ color: 0x4a2f1a, shininess: 12 });
+  const wood2  = new THREE.MeshPhongMaterial({ color: 0x351f10, shininess: 8 });
+  const cloth  = new THREE.MeshPhongMaterial({ color: 0x3a1a1a, shininess: 2 });
+  const metal  = new THREE.MeshPhongMaterial({ color: 0x4a4a4f, shininess: 60, specular: 0x888888 });
+  const paint  = new THREE.MeshPhongMaterial({ color: 0x222222, shininess: 4 });
+  const lampMt = new THREE.MeshPhongMaterial({ color: 0xffd277, emissive: 0xffaa44, emissiveIntensity: 1.4 });
+
+  function table(cx, cz) {
+    const g = new THREE.Group();
+    const top = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.12, 1.0), wood);
+    top.position.y = 0.95; g.add(top);
+    [[-0.8,-0.4],[0.8,-0.4],[-0.8,0.4],[0.8,0.4]].forEach(([x,z]) => {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.95, 0.12), wood2);
+      leg.position.set(x, 0.475, z); g.add(leg);
+    });
+    g.position.set(cx, 0, cz); return g;
+  }
+  function chair(cx, cz, rotY) {
+    const g = new THREE.Group();
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.1, 0.6), wood);
+    seat.position.y = 0.5; g.add(seat);
+    const back = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.7, 0.08), wood);
+    back.position.set(0, 0.85, -0.26); g.add(back);
+    [[-0.25,-0.25],[0.25,-0.25],[-0.25,0.25],[0.25,0.25]].forEach(([x,z]) => {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.5, 0.08), wood2);
+      leg.position.set(x, 0.25, z); g.add(leg);
+    });
+    g.position.set(cx, 0, cz); g.rotation.y = rotY; return g;
+  }
+  function bed(cx, cz, rotY) {
+    const g = new THREE.Group();
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.4, 2.4), wood2);
+    frame.position.y = 0.2; g.add(frame);
+    const mat = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.18, 2.2), cloth);
+    mat.position.y = 0.49; g.add(mat);
+    const pillow = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.1, 0.45), new THREE.MeshPhongMaterial({ color: 0x8a8270 }));
+    pillow.position.set(0, 0.6, -0.85); g.add(pillow);
+    g.position.set(cx, 0, cz); g.rotation.y = rotY; return g;
+  }
+  function shelf(cx, cz, rotY) {
+    const g = new THREE.Group();
+    const back = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.4, 0.12), wood2);
+    back.position.y = 1.2; g.add(back);
+    for (let i = 0; i < 3; i++) {
+      const sh = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.06, 0.45), wood);
+      sh.position.set(0, 0.5 + i * 0.7, 0.2); g.add(sh);
+      // a couple of "books" per shelf
+      for (let b = 0; b < 4; b++) {
+        const book = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.32, 0.22),
+          new THREE.MeshPhongMaterial({ color: [0x552020, 0x204450, 0x2a4422, 0x553a14][b % 4] }));
+        book.position.set(-0.6 + b * 0.18, 0.7 + i * 0.7, 0.25); g.add(book);
+      }
+    }
+    g.position.set(cx, 0, cz); g.rotation.y = rotY; return g;
+  }
+  function lamp(cx, cz) {
+    const g = new THREE.Group();
+    const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 1.6, 8), metal);
+    stand.position.y = 0.8; g.add(stand);
+    const shade = new THREE.Mesh(new THREE.ConeGeometry(0.35, 0.5, 12, 1, true), lampMt);
+    shade.position.y = 1.65; g.add(shade);
+    const bulbLight = new THREE.PointLight(0xffc070, 1.2, 7, 2);
+    bulbLight.position.y = 1.55; g.add(bulbLight);
+    g.position.set(cx, 0, cz); return g;
+  }
+  function painting(cx, cz, rotY) {
+    const g = new THREE.Group();
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.7, 0.06), wood2);
+    g.add(frame);
+    const canvas = new THREE.Mesh(new THREE.PlaneGeometry(0.86, 0.56),
+      new THREE.MeshPhongMaterial({ color: 0x1a1014 }));
+    canvas.position.z = 0.04; g.add(canvas);
+    g.position.set(cx, 1.9, cz); g.rotation.y = rotY; return g;
+  }
+  function crate(cx, cz, rotY) {
+    const g = new THREE.Group();
+    const c = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 0.9), wood2);
+    c.position.y = 0.45; g.add(c);
+    g.position.set(cx, 0, cz); g.rotation.y = rotY; return g;
+  }
+  function rug(cx, cz) {
+    const r = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.6),
+      new THREE.MeshPhongMaterial({ color: 0x4a1a1a, shininess: 1 }));
+    r.rotation.x = -Math.PI / 2;
+    r.position.set(cx, 0.01, cz);
+    return r;
+  }
+
+  const props = [];
+  // Pick random props per open floor tile (low density so movement isn't blocked).
+  for (let r = 1; r < H - 1; r++) {
+    for (let c = 1; c < W - 1; c++) {
+      const t = mapData[r][c];
+      if (t !== '.') continue;
+      const x = c * T + T / 2;
+      const z = r * T + T / 2;
+      const rng = seedRand(c, r, 1);
+      // Skip if any neighbor is a key/exit (don't block pickups)
+      const blocking = ['K', 'X', 'S', 'P', 'E', 'H'];
+      if (blocking.includes(mapData[r-1]?.[c]) || blocking.includes(mapData[r+1]?.[c]) ||
+          blocking.includes(mapData[r][c-1])  || blocking.includes(mapData[r][c+1])) continue;
+      // ~30% chance to populate the tile
+      if (rng > 0.32) continue;
+      const choice = seedRand(c, r, 2);
+      const rot = seedRand(c, r, 3) * Math.PI * 2;
+      let prop;
+      if (choice < 0.18) prop = table(x, z);
+      else if (choice < 0.34) prop = chair(x, z, rot);
+      else if (choice < 0.46) prop = bed(x, z, rot);
+      else if (choice < 0.6)  prop = shelf(x, z, rot);
+      else if (choice < 0.72) prop = lamp(x, z);
+      else if (choice < 0.86) prop = crate(x, z, rot);
+      else                    prop = rug(x, z);
+      scene.add(prop);
+      props.push(prop);
+    }
+  }
+
+  // Wall paintings — every ~5th wall tile that faces an open tile, hang one.
+  for (let r = 1; r < H - 1; r++) {
+    for (let c = 1; c < W - 1; c++) {
+      if (mapData[r][c] !== 'W') continue;
+      if (seedRand(c, r, 7) > 0.18) continue;
+      // Find an adjacent open tile to hang the painting toward.
+      const sides = [[0,-1,0],[0,1,Math.PI],[-1,0,Math.PI/2],[1,0,-Math.PI/2]];
+      for (const [dr, dc, rotY] of sides) {
+        const nr = r + dr, nc = c + dc;
+        if (mapData[nr]?.[nc] === '.') {
+          const x = c * T + T / 2 + dc * (T / 2 - 0.05);
+          const z = r * T + T / 2 + dr * (T / 2 - 0.05);
+          const p = painting(x, z, rotY);
+          scene.add(p);
+          props.push(p);
+          break;
+        }
+      }
+    }
+  }
+  return props;
+}
+
 // ── MAP GEOMETRY ──
 function buildMap() {
   if (!mapData || !scene) return;
@@ -828,13 +1036,26 @@ function buildMap() {
     }
   }
   
-  const floorMat = new THREE.MeshPhongMaterial({ color: floorColor, shininess: 8, specular: 0x111111 });
-  const ceilMat  = new THREE.MeshPhongMaterial({ color: ceilColor, shininess: 3 });
-  const wallMat  = new THREE.MeshPhongMaterial({ color: wallColor, shininess: 12, specular: 0x0a0a0a });
-  const wallMat2 = new THREE.MeshPhongMaterial({ color: wallColor2, shininess: 10, specular: 0x080808 });
-  const doorMat  = new THREE.MeshPhongMaterial({ color: doorColor, shininess: 18, specular: 0x111111 });
-  const exitMat  = new THREE.MeshPhongMaterial({ color: exitColor, emissive: 0x082008, shininess: 20 });
-  const hideMat  = new THREE.MeshPhongMaterial({ color: hideColor, shininess: 5 });
+  // Procedural textures via canvas keep the bundle dependency-free while
+  // breaking up the previously flat-shaded blocky look.
+  const wallTex   = makeNoiseTexture(wallColor,  18, 6, 'planks');
+  const wallTex2  = makeNoiseTexture(wallColor2, 14, 4, 'planks');
+  const floorTex  = makeNoiseTexture(floorColor, 22, 6, 'boards');
+  const ceilTex   = makeNoiseTexture(ceilColor,  10, 3, 'plaster');
+  const doorTex   = makeNoiseTexture(doorColor,  18, 5, 'planks');
+  const hideTex   = makeNoiseTexture(hideColor,  16, 5, 'planks');
+  [wallTex, wallTex2, floorTex, ceilTex, doorTex, hideTex].forEach(t => {
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(1, 1);
+  });
+
+  const floorMat = new THREE.MeshPhongMaterial({ map: floorTex, color: 0xffffff, shininess: 4, specular: 0x222222 });
+  const ceilMat  = new THREE.MeshPhongMaterial({ map: ceilTex,  color: 0xffffff, shininess: 2 });
+  const wallMat  = new THREE.MeshPhongMaterial({ map: wallTex,  color: 0xffffff, shininess: 8, specular: 0x111111 });
+  const wallMat2 = new THREE.MeshPhongMaterial({ map: wallTex2, color: 0xffffff, shininess: 7, specular: 0x0c0c0c });
+  const doorMat  = new THREE.MeshPhongMaterial({ map: doorTex,  color: 0xffffff, shininess: 14, specular: 0x222222 });
+  const exitMat  = new THREE.MeshPhongMaterial({ color: exitColor, emissive: 0x0d3d0d, emissiveIntensity: 1.1, shininess: 25 });
+  const hideMat  = new THREE.MeshPhongMaterial({ map: hideTex,  color: 0xffffff, shininess: 5 });
 
   let lightIndex = 0;
 
@@ -1499,54 +1720,69 @@ const lookZone = document.getElementById('look-zone');
 const knob     = document.getElementById('jstick-knob');
 const bg       = document.getElementById('jstick-bg');
 
-joyZone.addEventListener('touchstart', e => {
-  e.preventDefault();
-  const t = e.changedTouches[0];
-  joyTouchId = t.identifier;
-  joyCX = t.clientX;
-  joyCY = t.clientY;
-  bg.style.left   = (joyCX - 45) + 'px';
+// ── Unified pointer (touch + mouse) joystick ──
+// The original implementation only listened for touch events, leaving the
+// joystick non-functional on desktop. Pointer events cover both surfaces.
+const JOY_RADIUS = 65;       // px the knob can travel before clamping
+const JOY_KNOB_HALF = 35;
+const JOY_BG_HALF = 65;
+
+function placeJoystick(cx, cy) {
+  joyCX = cx;
+  joyCY = cy;
+  bg.style.left   = (cx - JOY_BG_HALF) + 'px';
+  bg.style.top    = (cy - JOY_BG_HALF) + 'px';
   bg.style.bottom = '';
-  bg.style.top    = (joyCY - 45) + 'px';
-  knob.style.left   = (joyCX - 30) + 'px';
-  knob.style.top    = (joyCY - 30) + 'px';
+  knob.style.left   = (cx - JOY_KNOB_HALF) + 'px';
+  knob.style.top    = (cy - JOY_KNOB_HALF) + 'px';
   knob.style.bottom = '';
-  bg.style.opacity = '0.15';
-  knob.style.opacity = '0.25';
+  bg.style.opacity = '0.95';
+  knob.style.opacity = '1';
+}
+function moveJoystick(cx, cy) {
+  const dx = cx - joyCX;
+  const dy = cy - joyCY;
+  const dist = Math.min(Math.hypot(dx, dy), JOY_RADIUS);
+  const angle = Math.atan2(dy, dx);
+  joyX = Math.cos(angle) * dist / JOY_RADIUS;
+  joyY = Math.sin(angle) * dist / JOY_RADIUS;
+  knob.style.left = (joyCX + Math.cos(angle) * dist - JOY_KNOB_HALF) + 'px';
+  knob.style.top  = (joyCY + Math.sin(angle) * dist - JOY_KNOB_HALF) + 'px';
+}
+function resetJoystick() {
+  joyActive = false;
+  joyX = 0; joyY = 0;
+  // Snap back to the resting bottom-left position.
+  bg.style.left = '24px';
+  bg.style.top = '';
+  bg.style.bottom = '24px';
+  knob.style.left = '54px';
+  knob.style.top  = '';
+  knob.style.bottom = '54px';
+}
+
+joyZone.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  joyTouchId = e.pointerId;
+  joyZone.setPointerCapture(e.pointerId);
+  placeJoystick(e.clientX, e.clientY);
   joyActive = true;
   unlockAudio();
 }, { passive: false });
 
-joyZone.addEventListener('touchmove', e => {
+joyZone.addEventListener('pointermove', e => {
+  if (!joyActive || e.pointerId !== joyTouchId) return;
   e.preventDefault();
-  for (const t of e.changedTouches) {
-    if (t.identifier !== joyTouchId) continue;
-    const dx = t.clientX - joyCX;
-    const dy = t.clientY - joyCY;
-    const dist = Math.min(Math.hypot(dx, dy), 40);
-    const angle = Math.atan2(dy, dx);
-    joyX = Math.cos(angle) * dist / 40;
-    joyY = Math.sin(angle) * dist / 40;
-    knob.style.left = (joyCX + Math.cos(angle) * dist - 30) + 'px';
-    knob.style.top  = (joyCY + Math.sin(angle) * dist - 30) + 'px';
-  }
+  moveJoystick(e.clientX, e.clientY);
 }, { passive: false });
 
-joyZone.addEventListener('touchend', e => {
-  for (const t of e.changedTouches) {
-    if (t.identifier !== joyTouchId) continue;
-    joyActive = false;
-    joyX = 0; joyY = 0;
-    knob.style.left = '31px';
-    knob.style.top  = '';
-    knob.style.bottom = '31px';
-    bg.style.left = '16px';
-    bg.style.top  = '';
-    bg.style.bottom = '16px';
-    bg.style.opacity = '0.03';
-    knob.style.opacity = '0.1';
-  }
-});
+const endJoy = e => {
+  if (e.pointerId !== joyTouchId) return;
+  resetJoystick();
+};
+joyZone.addEventListener('pointerup', endJoy);
+joyZone.addEventListener('pointercancel', endJoy);
+joyZone.addEventListener('pointerleave', endJoy);
 
 let prevLookX = 0, prevLookY = 0;
 lookZone.addEventListener('touchstart', e => {
@@ -1580,9 +1816,22 @@ lookZone.addEventListener('touchend', e => {
 });
 
 // ── Mouse look (desktop) ──
+// Requesting pointer lock over the joystick zone would steal the mouse from
+// the on-screen joystick, so only lock when the click happens outside it.
 let pointerLocked = false;
-document.body.addEventListener('click', () => {
-  if (gamePhase === 'playing' && renderer) document.body.requestPointerLock();
+document.body.addEventListener('click', e => {
+  if (gamePhase !== 'playing' || !renderer) return;
+  const target = e.target;
+  if (target && (target.closest('#joystick-zone') ||
+                 target.closest('#jstick-bg') ||
+                 target.closest('#jstick-knob') ||
+                 target.closest('#action-btns') ||
+                 target.closest('#sprint-btn') ||
+                 target.closest('#chat-container') ||
+                 target.closest('#chat-toggle'))) {
+    return;
+  }
+  document.body.requestPointerLock();
 });
 document.addEventListener('pointerlockchange', () => {
   pointerLocked = document.pointerLockElement === document.body;
