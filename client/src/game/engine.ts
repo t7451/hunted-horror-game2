@@ -446,7 +446,11 @@ export function startGame(
       const jitter = TILE_SIZE * 0.2;
       const px = cx + (propRng() - 0.5) * jitter;
       const pz = cz + (propRng() - 0.5) * jitter;
-      props.place(picked, new THREE.Vector3(px, 0, pz), propRng() * Math.PI * 2);
+      props.place(
+        picked,
+        new THREE.Vector3(px, 0, pz),
+        propRng() * Math.PI * 2
+      );
     }
   }
   props.commit();
@@ -734,8 +738,10 @@ export function startGame(
   function tryMoveEnemy(dx: number, dz: number) {
     const nx = enemyMesh.position.x + dx;
     const nz = enemyMesh.position.z + dz;
-    if (canOccupy(nx, enemyMesh.position.z, ENEMY_RADIUS)) enemyMesh.position.x = nx;
-    if (canOccupy(enemyMesh.position.x, nz, ENEMY_RADIUS)) enemyMesh.position.z = nz;
+    if (canOccupy(nx, enemyMesh.position.z, ENEMY_RADIUS))
+      enemyMesh.position.x = nx;
+    if (canOccupy(enemyMesh.position.x, nz, ENEMY_RADIUS))
+      enemyMesh.position.z = nz;
     enemyLight.position.set(enemyMesh.position.x, 1.6, enemyMesh.position.z);
   }
 
@@ -862,8 +868,14 @@ export function startGame(
         const targetVx = (fx * cos + fz * sin) * speed;
         const targetVz = (-fx * sin + fz * cos) * speed;
         const maxDelta = MOVE_ACCELERATION * dt;
-        velocityX += Math.max(-maxDelta, Math.min(maxDelta, targetVx - velocityX));
-        velocityZ += Math.max(-maxDelta, Math.min(maxDelta, targetVz - velocityZ));
+        velocityX += Math.max(
+          -maxDelta,
+          Math.min(maxDelta, targetVx - velocityX)
+        );
+        velocityZ += Math.max(
+          -maxDelta,
+          Math.min(maxDelta, targetVz - velocityZ)
+        );
       } else {
         const maxDelta = MOVE_DECELERATION * dt;
         const speed = Math.hypot(velocityX, velocityZ);
@@ -889,15 +901,11 @@ export function startGame(
 
       flickers.update(dt);
       shadowBudget.update(camera);
-      cameraRig.update(
-        dt,
-        { moveMagnitude, sprinting, crouched: isHiding },
-        t,
-      );
+      cameraRig.update(dt, { moveMagnitude, sprinting, crouched: isHiding }, t);
       heartbeat.update(
         dt,
         camera,
-        enemyMesh.visible ? enemyMesh.position : null,
+        enemyMesh.visible ? enemyMesh.position : null
       );
       audio.setHeartbeatIntensity(heartbeat.intensity());
       audio.update(dt);
@@ -974,10 +982,19 @@ export function startGame(
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       document.removeEventListener("mousemove", onMouseMove);
-      renderer.domElement.removeEventListener("pointerdown", onCanvasPointerDown);
-      renderer.domElement.removeEventListener("pointermove", onCanvasPointerMove);
+      renderer.domElement.removeEventListener(
+        "pointerdown",
+        onCanvasPointerDown
+      );
+      renderer.domElement.removeEventListener(
+        "pointermove",
+        onCanvasPointerMove
+      );
       renderer.domElement.removeEventListener("pointerup", onCanvasPointerEnd);
-      renderer.domElement.removeEventListener("pointercancel", onCanvasPointerEnd);
+      renderer.domElement.removeEventListener(
+        "pointercancel",
+        onCanvasPointerEnd
+      );
       renderer.domElement.removeEventListener("click", onCanvasClick);
       detachContextHandlers();
       flashlight.dispose();
