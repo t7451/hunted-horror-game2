@@ -1,0 +1,22 @@
+# Render Blueprint for the HUNTED BY CLAUDE websocket backend.
+# The static client is hosted on Netlify (see netlify.toml); this service
+# only needs to build and run the Express + ws gateway.
+#
+# `--no-frozen-lockfile` prevents the build from failing the moment
+# package.json changes ahead of pnpm-lock.yaml; the existing lockfile is
+# still preferred when valid.
+services:
+  - type: web
+    name: hunted-horror-game2
+    runtime: node
+    plan: free
+    region: oregon
+    branch: main
+    buildCommand: pnpm install --no-frozen-lockfile && pnpm run build:server
+    startCommand: pnpm start
+    healthCheckPath: /status
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "20"
