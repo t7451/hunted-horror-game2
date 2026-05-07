@@ -835,12 +835,25 @@ async function startServer() {
     });
   }, 100);
 
+  // The Netlify-hosted client pings /status on launch to wake the Render
+  // free-tier dyno before opening the WebSocket. CORS headers must be
+  // permissive on this single endpoint so the cross-origin ping doesn't
+  // get blocked by the browser. The endpoint exposes only public counts
+  // / uptime — nothing sensitive.
   app.get("/status", (_req, res) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.set("Cache-Control", "no-store");
     res.json({
       sessions: sessions.size,
       players: Array.from(sessions.values()).reduce((n, gs) => n + Object.keys(gs.players).length, 0),
       uptime: process.uptime(),
     });
+  });
+  app.options("/status", (_req, res) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.sendStatus(204);
   });
 
   // Static file serving (production). Skipped on backend-only deployments

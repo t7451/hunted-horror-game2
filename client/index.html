@@ -52,7 +52,17 @@
   }
 }
 </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<!-- Pre-warm DNS / TLS for the two third-party origins we hit on boot.
+     Saves ~200-500 ms on cold loads, especially mobile, by overlapping
+     handshakes with the HTML parse. The Render host is replaced at
+     build time via Vite's HTML env-var substitution. -->
+<link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+<link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
+<link rel="preconnect" href="https://hunted-horror-game2.onrender.com" crossorigin>
+<link rel="dns-prefetch" href="https://hunted-horror-game2.onrender.com">
+<!-- Three.js core ships from the CDN. We could self-host but the CDN cache
+     is already warm for most users from other Three.js sites. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" crossorigin="anonymous"></script>
 <style>
 /* ── RESET ── */
 *{margin:0;padding:0;box-sizing:border-box;touch-action:none;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
@@ -493,12 +503,67 @@ function connect() {
   }
   const proto = wsUrl.startsWith('wss:') ? 'wss:' : 'ws:';
   const host = wsUrl.replace(/^wss?:\/\//, '').replace(/\/.*$/, '');
-  
+
   console.log('[App] Attempting WebSocket connection to:', wsUrl);
   console.log('[App] Protocol:', proto, 'Host:', host);
-  
-  ws = new WebSocket(wsUrl);
-  
+
+  // Render's free tier puts services to sleep after ~15 minutes of
+  // idleness; the first request then triggers a cold start that can take
+  // 30-60 seconds. WebSocket upgrades during a cold start often look
+  // "hung" to the user. Sending a plain HTTPS GET to /status first
+  // wakes the dyno predictably and lets us show real progress instead
+  // of a frozen "Connecting..." line. We also keep the *visible*
+  // status line useful while the cold start runs.
+  const httpProto  = wsUrl.startsWith('wss:') ? 'https:' : 'http:';
+  const wakeUrl    = `${httpProto}//${host}/status`;
+  const isCrossOrigin = host !== location.host;
+  const startedAt = Date.now();
+  let wakeTicker = null;
+
+  if (isCrossOrigin) {
+    setStatus('Waking up the game server… (free tier sleeps when idle)');
+    wakeTicker = setInterval(() => {
+      const secs = Math.round((Date.now() - startedAt) / 1000);
+      setStatus(`Waking up the game server… ${secs}s (this can take up to a minute the first time)`);
+    }, 1000);
+  } else {
+    setStatus('Connecting…');
+  }
+
+  const openSocket = () => {
+    if (wakeTicker) { clearInterval(wakeTicker); wakeTicker = null; }
+    setStatus('Connecting to game server…');
+    ws = new WebSocket(wsUrl);
+    bindSocketEvents(ws);
+  };
+
+  if (!isCrossOrigin) {
+    openSocket();
+    return;
+  }
+
+  // Race the wake ping against a 65 s ceiling. AbortController lets us
+  // cancel the fetch cleanly if the server happens to come up faster
+  // than our deadline.
+  const ctrl = new AbortController();
+  const deadline = setTimeout(() => ctrl.abort(), 65_000);
+  fetch(wakeUrl, { method: 'GET', signal: ctrl.signal, cache: 'no-store', mode: 'cors' })
+    .then(() => {
+      clearTimeout(deadline);
+      console.log('[App] Server awake after', Math.round((Date.now() - startedAt) / 1000), 's');
+      openSocket();
+    })
+    .catch((err) => {
+      clearTimeout(deadline);
+      console.warn('[App] Wake ping failed; opening socket anyway.', err && err.message);
+      // Even if the wake ping fails (CORS, network blip), the socket
+      // upgrade itself will still wake the dyno on Render — fall through
+      // so the user isn't permanently stranded.
+      openSocket();
+    });
+}
+
+function bindSocketEvents(ws) {
   ws.onopen = () => {
     console.log('[App] WebSocket connected successfully');
     reconnectAttempts = 0;
