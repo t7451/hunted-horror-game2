@@ -58,14 +58,23 @@ export class PropSpawner {
     return slot;
   }
 
-  place(kind: PropKind, position: THREE.Vector3, rotationY = 0, scale = 1): void {
+  place(
+    kind: PropKind,
+    position: THREE.Vector3,
+    rotationY = 0,
+    scale = 1
+  ): void {
     const slot = this.ensure(kind);
     if (slot.count >= slot.capacity) {
-      console.warn(`[props] ${kind} full at ${slot.capacity}; skipping placement`);
+      console.warn(
+        `[props] ${kind} full at ${slot.capacity}; skipping placement`
+      );
       return;
     }
     const m = new THREE.Matrix4();
-    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rotationY, 0));
+    const q = new THREE.Quaternion().setFromEuler(
+      new THREE.Euler(0, rotationY, 0)
+    );
     const p = position.clone();
     p.y += slot.yOffset;
     m.compose(p, q, new THREE.Vector3(scale, scale, scale));
@@ -86,7 +95,7 @@ export class PropSpawner {
       slot.mesh.removeFromParent();
       slot.mesh.geometry.dispose();
       const m = slot.mesh.material as THREE.Material | THREE.Material[];
-      if (Array.isArray(m)) m.forEach((mm) => mm.dispose());
+      if (Array.isArray(m)) m.forEach(mm => mm.dispose());
       else m.dispose();
     }
     this.slots.clear();
@@ -98,7 +107,10 @@ export class PropSpawner {
 // resulting InstancedMesh is one draw call. Avoids pulling in three-stdlib's
 // BufferGeometryUtils.mergeGeometries — done by hand below to keep deps lean.
 
-function mergeBoxes(boxes: BoxSpec[], material: THREE.Material): {
+function mergeBoxes(
+  boxes: BoxSpec[],
+  material: THREE.Material
+): {
   geometry: THREE.BufferGeometry;
   material: THREE.Material;
 } {
@@ -124,7 +136,10 @@ function mergeBoxes(boxes: BoxSpec[], material: THREE.Material): {
   }
 
   const merged = new THREE.BufferGeometry();
-  merged.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  merged.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(positions, 3)
+  );
   merged.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
   merged.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
   merged.computeBoundingBox();
@@ -132,7 +147,14 @@ function mergeBoxes(boxes: BoxSpec[], material: THREE.Material): {
   return { geometry: merged, material };
 }
 
-type BoxSpec = { x: number; y: number; z: number; w: number; h: number; d: number };
+type BoxSpec = {
+  x: number;
+  y: number;
+  z: number;
+  w: number;
+  h: number;
+  d: number;
+};
 
 function buildChair() {
   // Seat at y=0.45, four legs to floor, backrest above seat.
@@ -158,7 +180,11 @@ function buildChair() {
   ];
   return mergeBoxes(
     boxes,
-    new THREE.MeshStandardMaterial({ color: 0x4a3320, roughness: 0.85, metalness: 0.05 }),
+    new THREE.MeshStandardMaterial({
+      color: 0x4a3320,
+      roughness: 0.85,
+      metalness: 0.05,
+    })
   );
 }
 
@@ -179,7 +205,11 @@ function buildTable() {
   ];
   return mergeBoxes(
     boxes,
-    new THREE.MeshStandardMaterial({ color: 0x3a2818, roughness: 0.8, metalness: 0.05 }),
+    new THREE.MeshStandardMaterial({
+      color: 0x3a2818,
+      roughness: 0.8,
+      metalness: 0.05,
+    })
   );
 }
 
@@ -193,7 +223,11 @@ function buildLamp() {
   ];
   const baseAndPole = mergeBoxes(
     boxes,
-    new THREE.MeshStandardMaterial({ color: 0x222020, roughness: 0.8, metalness: 0.4 }),
+    new THREE.MeshStandardMaterial({
+      color: 0x222020,
+      roughness: 0.8,
+      metalness: 0.4,
+    })
   );
   // Shade as a separate emissive cone — but mergeBoxes only takes boxes,
   // so we cheat: include the shade as a wide short box. Fine at distance,
@@ -206,7 +240,7 @@ function buildLamp() {
       emissiveIntensity: 0.7,
       roughness: 0.4,
       metalness: 0.1,
-    }),
+    })
   );
   // Combine the two geometries; result has two material groups so we hand
   // back a multi-material InstancedMesh isn't supported in three. To keep
@@ -232,6 +266,10 @@ function buildShelf() {
   ];
   return mergeBoxes(
     boxes,
-    new THREE.MeshStandardMaterial({ color: 0x2a1d10, roughness: 0.9, metalness: 0.05 }),
+    new THREE.MeshStandardMaterial({
+      color: 0x2a1d10,
+      roughness: 0.9,
+      metalness: 0.05,
+    })
   );
 }

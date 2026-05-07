@@ -12,9 +12,9 @@ export type SharedUniforms = {
 
 export function createSharedUniforms(): SharedUniforms {
   return {
-    vignetteDarkness: { value: 0.55 },
-    vignetteOffset: { value: 0.35 },
-    noiseOpacity: { value: 0.06 },
-    bloomIntensity: { value: 0.6 },
+    vignetteDarkness: { value: 0.68 },
+    vignetteOffset: { value: 0.28 },
+    noiseOpacity: { value: 0.08 },
+    bloomIntensity: { value: 0.45 },
   };
 }

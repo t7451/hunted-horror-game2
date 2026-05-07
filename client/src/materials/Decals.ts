@@ -8,12 +8,13 @@ import * as THREE from "three";
 // the wall/floor surface. Visually equivalent at flashlight distance,
 // and trivially compatible with InstancedMesh worlds.
 
-export type DecalKind = "blood" | "water" | "grime";
+export type DecalKind = "blood" | "water" | "grime" | "scratch";
 
 const COLOR: Record<DecalKind, number> = {
   blood: 0x3a0608,
   water: 0x202830,
   grime: 0x1c1610,
+  scratch: 0x8b7868,
 };
 
 const decalGeo = new THREE.PlaneGeometry(1, 1);
