@@ -1,5 +1,9 @@
 import * as THREE from "three";
-import { isMobile, tier } from "../util/device";
+import {
+  isMobile,
+  resolveGraphicsQuality,
+  type GraphicsQuality,
+} from "../util/device";
 import type { SharedUniforms } from "./uniforms";
 
 // Post-processing pipeline. Built on the pmndrs `postprocessing` package so
@@ -21,6 +25,7 @@ export type PostFX = {
 export type PostFXOptions = {
   uniforms: SharedUniforms;
   lutUrl?: string;
+  quality?: GraphicsQuality;
 };
 
 // Type-only shapes for the postprocessing module so TS compiles even when
@@ -35,7 +40,7 @@ type EffectComposerLike = {
 type PPModule = {
   EffectComposer: new (
     renderer: THREE.WebGLRenderer,
-    opts?: { multisampling?: number },
+    opts?: { multisampling?: number }
   ) => EffectComposerLike;
   RenderPass: new (scene: THREE.Scene, camera: THREE.Camera) => unknown;
   EffectPass: new (camera: THREE.Camera, ...effects: Effect[]) => unknown;
@@ -59,9 +64,21 @@ export async function createPostFX(
   renderer: THREE.WebGLRenderer,
   scene: THREE.Scene,
   camera: THREE.Camera,
-  opts: PostFXOptions,
+  opts: PostFXOptions
 ): Promise<PostFX> {
-  const mod = (await import("postprocessing").catch(() => null)) as PPModule | null;
+  const quality = resolveGraphicsQuality(opts.quality);
+  if (quality === "low") {
+    return {
+      render: () => renderer.render(scene, camera),
+      setSize: () => {},
+      dispose: () => {},
+      ready: false,
+    };
+  }
+
+  const mod = (await import("postprocessing").catch(
+    () => null
+  )) as PPModule | null;
   if (!mod) {
     // Graceful fallback: package not installed yet. Caller can still drive a
     // raw renderer.render() — return a stub so callsites don't branch.
@@ -74,7 +91,7 @@ export async function createPostFX(
   }
 
   const composer = new mod.EffectComposer(renderer, {
-    multisampling: tier === "high" ? 4 : 0,
+    multisampling: quality === "high" ? 4 : 0,
   });
   composer.addPass(new mod.RenderPass(scene, camera));
 
@@ -96,11 +113,11 @@ export async function createPostFX(
   const effects: Effect[] = [];
   // Mobile drops chromatic aberration and LUT for cost; SMAA fills in for
   // the missing native MSAA.
-  if (!isMobile && mod.ChromaticAberrationEffect) {
+  if (!isMobile && quality === "high" && mod.ChromaticAberrationEffect) {
     effects.push(
       new mod.ChromaticAberrationEffect({
         offset: new THREE.Vector2(0.0008, 0.0008),
-      }),
+      })
     );
   }
 
@@ -119,7 +136,7 @@ export async function createPostFX(
   effects.push(noise);
 
   // SMAA on mid/low desktop tiers and mobile compensates for disabled MSAA.
-  if (tier !== "high" && mod.SMAAEffect) {
+  if (quality !== "high" && mod.SMAAEffect) {
     effects.unshift(new mod.SMAAEffect());
   }
 

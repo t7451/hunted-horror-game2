@@ -60,7 +60,10 @@ export class DecalSpawner {
     mesh.position.copy(spec.position);
     // Orient the +Z face of the plane to the surface normal.
     const up = new THREE.Vector3(0, 0, 1);
-    const q = new THREE.Quaternion().setFromUnitVectors(up, spec.normal.clone().normalize());
+    const q = new THREE.Quaternion().setFromUnitVectors(
+      up,
+      spec.normal.clone().normalize()
+    );
     mesh.quaternion.copy(q);
     // Slight random roll keeps the decal from looking grid-aligned.
     mesh.rotateZ(Math.random() * Math.PI * 2);
@@ -69,7 +72,7 @@ export class DecalSpawner {
 
   dispose(): void {
     this.group.removeFromParent();
-    for (const m of this.materials.values()) m.dispose();
+    this.materials.forEach(m => m.dispose());
     decalGeo.dispose();
   }
 }

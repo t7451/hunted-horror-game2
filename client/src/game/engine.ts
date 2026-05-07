@@ -5,10 +5,15 @@ import {
   TILE_SIZE,
   WALL_HEIGHT,
   isBlocked,
+  type MapKey,
   type MapDef,
   type ParsedMap,
 } from "@shared/maps";
-import { perfFlag } from "../util/device";
+import {
+  perfFlag,
+  resolveGraphicsQuality,
+  type GraphicsQuality,
+} from "../util/device";
 import { createPerfMonitor } from "../util/perfMonitor";
 import { createRenderer } from "../render/Renderer";
 import { createPostFX, type PostFX } from "../render/PostFX";
@@ -38,10 +43,15 @@ export type RemotePlayer = {
 };
 
 export type EngineEvents = {
+  onReady?: (info: { keys: number; timer: number; mapName: string }) => void;
   onKeyPickup?: (remaining: number) => void;
   onCaught?: () => void;
   onEscape?: () => void;
   onError?: (err: Error) => void;
+  onHint?: (hint: string) => void;
+  onTimer?: (remaining: number) => void;
+  onDangerChange?: (danger: "safe" | "near" | "critical") => void;
+  onHideChange?: (hidden: boolean) => void;
 };
 
 export type EngineHandle = {
@@ -55,22 +65,55 @@ const PLAYER_RADIUS = 0.6;
 const PLAYER_HEIGHT = 1.7;
 const MOVE_SPEED = 4.5;
 const SPRINT_MULT = 1.6;
+const HIDE_INTERACTION_DISTANCE = 2.2;
+const REMOTE_ENEMY_TIMEOUT_MS = 1200;
+const INVESTIGATING_SPEED_FACTOR = 0.25;
+
+function calculateMoveSpeed(
+  isHidden: boolean,
+  isSprinting: boolean,
+  dt: number
+) {
+  if (isHidden) return 0;
+  return (isSprinting ? MOVE_SPEED * SPRINT_MULT : MOVE_SPEED) * dt;
+}
+
+function calculateEnemySpeed(
+  investigating: boolean,
+  baseSpeed: number,
+  dt: number
+) {
+  const speed = investigating
+    ? baseSpeed * INVESTIGATING_SPEED_FACTOR
+    : baseSpeed;
+  return speed * dt;
+}
 
 export function startGame(
   container: HTMLElement,
   options: {
-    mapKey?: keyof typeof MAPS;
+    mapKey?: MapKey;
+    quality?: GraphicsQuality;
+    sensitivity?: number;
     events?: EngineEvents;
-  } = {},
+  } = {}
 ): EngineHandle {
   const mapDef: MapDef = MAPS[options.mapKey ?? "easy"];
   const parsed = parseMap(mapDef);
   const events = options.events ?? {};
+  const quality = resolveGraphicsQuality(options.quality);
+  const shadowsEnabled = quality !== "low";
 
   // ── Renderer ───────────────────────────────────────────────────────────────
   // Tier-aware construction lives in render/Renderer.ts so PostFX can branch
   // identically (mobile drops native MSAA in favor of SMAA, etc.).
-  const { renderer, contextLost: isContextLost, detachContextHandlers } = createRenderer();
+  const {
+    renderer,
+    contextLost: isContextLost,
+    detachContextHandlers,
+  } = createRenderer({
+    quality: options.quality,
+  });
   container.appendChild(renderer.domElement);
 
   const sharedUniforms = createSharedUniforms();
@@ -92,7 +135,7 @@ export function startGame(
   camera.position.set(
     parsed.spawn.x * TILE_SIZE + TILE_SIZE / 2,
     PLAYER_HEIGHT,
-    parsed.spawn.z * TILE_SIZE + TILE_SIZE / 2,
+    parsed.spawn.z * TILE_SIZE + TILE_SIZE / 2
   );
 
   // ── Lighting ───────────────────────────────────────────────────────────────
@@ -143,28 +186,38 @@ export function startGame(
   const worldW = parsed.width * TILE_SIZE;
   const worldD = parsed.height * TILE_SIZE;
 
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(worldW, worldD), floorMat);
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(worldW, worldD),
+    floorMat
+  );
   floor.rotation.x = -Math.PI / 2;
   floor.position.set(worldW / 2, 0, worldD / 2);
-  floor.receiveShadow = true;
+  floor.receiveShadow = shadowsEnabled;
   scene.add(floor);
 
-  const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(worldW, worldD), ceilingMat);
+  const ceiling = new THREE.Mesh(
+    new THREE.PlaneGeometry(worldW, worldD),
+    ceilingMat
+  );
   ceiling.rotation.x = Math.PI / 2;
   ceiling.position.set(worldW / 2, WALL_HEIGHT, worldD / 2);
   scene.add(ceiling);
 
   // Walls — instanced for performance
   const wallGeo = new THREE.BoxGeometry(TILE_SIZE, WALL_HEIGHT, TILE_SIZE);
-  const wallMesh = new THREE.InstancedMesh(wallGeo, wallMat, parsed.walls.length);
-  wallMesh.castShadow = true;
-  wallMesh.receiveShadow = true;
+  const wallMesh = new THREE.InstancedMesh(
+    wallGeo,
+    wallMat,
+    parsed.walls.length
+  );
+  wallMesh.castShadow = shadowsEnabled;
+  wallMesh.receiveShadow = shadowsEnabled;
   const tmp = new THREE.Object3D();
   parsed.walls.forEach((w, i) => {
     tmp.position.set(
       w.x * TILE_SIZE + TILE_SIZE / 2,
       WALL_HEIGHT / 2,
-      w.z * TILE_SIZE + TILE_SIZE / 2,
+      w.z * TILE_SIZE + TILE_SIZE / 2
     );
     tmp.updateMatrix();
     wallMesh.setMatrixAt(i, tmp.matrix);
@@ -172,12 +225,32 @@ export function startGame(
   wallMesh.instanceMatrix.needsUpdate = true;
   scene.add(wallMesh);
 
+  const doorGeo = new THREE.BoxGeometry(
+    TILE_SIZE * 0.95,
+    WALL_HEIGHT * 0.92,
+    0.2
+  );
+  const keyGeo = new THREE.TorusGeometry(
+    0.25,
+    0.08,
+    8,
+    quality === "low" ? 16 : 24
+  );
+  const hideGeo = new THREE.BoxGeometry(
+    TILE_SIZE * 0.9,
+    WALL_HEIGHT * 0.8,
+    TILE_SIZE * 0.9
+  );
+
   // Seed grime/blood/water decals on random wall faces and floor patches
   // so surfaces don't read as procedurally-clean. Density target from spec
   // is 12–20 per room; we approximate by ratio to wall count until Phase 6
   // brings room volumes online.
   const decals = new DecalSpawner(scene);
-  const decalCount = Math.min(80, Math.max(20, Math.floor(parsed.walls.length * 0.4)));
+  const decalCount =
+    quality === "low"
+      ? Math.min(30, Math.max(8, Math.floor(parsed.walls.length * 0.15)))
+      : Math.min(80, Math.max(20, Math.floor(parsed.walls.length * 0.4)));
   for (let i = 0; i < decalCount; i++) {
     const w = parsed.walls[Math.floor(Math.random() * parsed.walls.length)];
     const wx = w.x * TILE_SIZE + TILE_SIZE / 2;
@@ -187,7 +260,11 @@ export function startGame(
     const face = Math.floor(Math.random() * 4);
     const offset = TILE_SIZE / 2 + 0.01;
     const normal = new THREE.Vector3();
-    const pos = new THREE.Vector3(wx, 0.4 + Math.random() * (WALL_HEIGHT - 0.8), wz);
+    const pos = new THREE.Vector3(
+      wx,
+      0.4 + Math.random() * (WALL_HEIGHT - 0.8),
+      wz
+    );
     if (face === 0) {
       pos.x += offset;
       normal.set(1, 0, 0);
@@ -203,22 +280,24 @@ export function startGame(
     }
     const r = Math.random();
     const kind = r < 0.15 ? "blood" : r < 0.35 ? "water" : "grime";
-    decals.spawn({ kind, position: pos, normal, size: 0.4 + Math.random() * 0.7 });
+    decals.spawn({
+      kind,
+      position: pos,
+      normal,
+      size: 0.4 + Math.random() * 0.7,
+    });
   }
 
   // Doors
   const doorGroup = new THREE.Group();
-  parsed.doors.forEach((d) => {
-    const door = new THREE.Mesh(
-      new THREE.BoxGeometry(TILE_SIZE * 0.95, WALL_HEIGHT * 0.92, 0.2),
-      doorMat,
-    );
-    door.castShadow = true;
-    door.receiveShadow = true;
+  parsed.doors.forEach(d => {
+    const door = new THREE.Mesh(doorGeo, doorMat);
+    door.castShadow = shadowsEnabled;
+    door.receiveShadow = shadowsEnabled;
     door.position.set(
       d.x * TILE_SIZE + TILE_SIZE / 2,
       (WALL_HEIGHT * 0.92) / 2,
-      d.z * TILE_SIZE + TILE_SIZE / 2,
+      d.z * TILE_SIZE + TILE_SIZE / 2
     );
     doorGroup.add(door);
   });
@@ -227,62 +306,62 @@ export function startGame(
   // Keys (with little point lights)
   const keyGroup = new THREE.Group();
   const keyMeshes: THREE.Mesh[] = [];
-  parsed.keys.forEach((k) => {
-    const key = new THREE.Mesh(new THREE.TorusGeometry(0.25, 0.08, 8, 24), keyMat);
-    key.castShadow = true;
+  const keyLights = new Map<THREE.Mesh, THREE.PointLight>();
+  parsed.keys.forEach(k => {
+    const key = new THREE.Mesh(keyGeo, keyMat);
+    key.castShadow = shadowsEnabled;
     key.position.set(
       k.x * TILE_SIZE + TILE_SIZE / 2,
       0.9,
-      k.z * TILE_SIZE + TILE_SIZE / 2,
+      k.z * TILE_SIZE + TILE_SIZE / 2
     );
-    // Each key beacon is a warm-tungsten practical. ~30% of them flicker so
-    // the world doesn't read as static.
-    const light = createPractical({
-      position: key.position.clone(),
-      color: 0xffd24a,
-      intensity: 0.6,
-      distance: 4,
-    });
     keyGroup.add(key);
-    keyGroup.add(light);
-    keyMeshes.push(key);
-    if (Math.random() < 0.3) {
-      flickers.add(new LightFlicker(light, 0.6, 0.12, 7));
+    if (quality !== "low") {
+      // Each key beacon is a warm-tungsten practical. ~30% of them flicker so
+      // the world doesn't read as static.
+      const light = createPractical({
+        position: key.position.clone(),
+        color: 0xffd24a,
+        intensity: 0.6,
+        distance: 4,
+      });
+      keyGroup.add(light);
+      keyLights.set(key, light);
+      if (Math.random() < 0.3) {
+        flickers.add(new LightFlicker(light, 0.6, 0.12, 7));
+      }
     }
+    keyMeshes.push(key);
   });
   scene.add(keyGroup);
 
   // Hiding closets
-  parsed.hides.forEach((h) => {
-    const closet = new THREE.Mesh(
-      new THREE.BoxGeometry(TILE_SIZE * 0.9, WALL_HEIGHT * 0.8, TILE_SIZE * 0.9),
-      hideMat,
-    );
-    closet.castShadow = true;
-    closet.receiveShadow = true;
+  parsed.hides.forEach(h => {
+    const closet = new THREE.Mesh(hideGeo, hideMat);
+    closet.castShadow = shadowsEnabled;
+    closet.receiveShadow = shadowsEnabled;
     closet.position.set(
       h.x * TILE_SIZE + TILE_SIZE / 2,
       (WALL_HEIGHT * 0.8) / 2,
-      h.z * TILE_SIZE + TILE_SIZE / 2,
+      h.z * TILE_SIZE + TILE_SIZE / 2
     );
     scene.add(closet);
   });
 
   // Exit
   if (parsed.exit) {
-    const exitMesh = new THREE.Mesh(
-      new THREE.BoxGeometry(TILE_SIZE * 0.9, WALL_HEIGHT * 0.92, 0.3),
-      exitMat,
-    );
+    const exitMesh = new THREE.Mesh(doorGeo, exitMat);
     exitMesh.position.set(
       parsed.exit.x * TILE_SIZE + TILE_SIZE / 2,
       (WALL_HEIGHT * 0.92) / 2,
-      parsed.exit.z * TILE_SIZE + TILE_SIZE / 2,
+      parsed.exit.z * TILE_SIZE + TILE_SIZE / 2
     );
     scene.add(exitMesh);
-    const exitLight = new THREE.PointLight(0x44ff66, 1.2, 8, 2);
-    exitLight.position.copy(exitMesh.position);
-    scene.add(exitLight);
+    if (quality !== "low") {
+      const exitLight = new THREE.PointLight(0x44ff66, 1.2, 8, 2);
+      exitLight.position.copy(exitMesh.position);
+      scene.add(exitLight);
+    }
   }
 
   // ── Remote players & enemy ────────────────────────────────────────────────
@@ -298,23 +377,23 @@ export function startGame(
       if (!mesh) {
         mesh = new THREE.Mesh(
           new THREE.CapsuleGeometry(0.4, 1.0, 6, 12),
-          new THREE.MeshStandardMaterial({ color: 0x88aaee, roughness: 0.6 }),
+          new THREE.MeshStandardMaterial({ color: 0x88aaee, roughness: 0.6 })
         );
-        mesh.castShadow = true;
+        mesh.castShadow = shadowsEnabled;
         remoteGroup.add(mesh);
         remoteMeshes.set(p.id, mesh);
       }
       mesh.position.set(p.x, PLAYER_HEIGHT / 2 + 0.2, p.z);
       mesh.rotation.y = p.rotY;
     }
-    for (const [id, mesh] of remoteMeshes) {
+    remoteMeshes.forEach((mesh, id) => {
       if (!seen.has(id)) {
         remoteGroup.remove(mesh);
         mesh.geometry.dispose();
         (mesh.material as THREE.Material).dispose();
         remoteMeshes.delete(id);
       }
-    }
+    });
   }
 
   const enemyMesh = new THREE.Mesh(
@@ -324,14 +403,24 @@ export function startGame(
       emissive: 0x550000,
       emissiveIntensity: 0.4,
       roughness: 0.5,
-    }),
+    })
   );
-  enemyMesh.castShadow = true;
+  enemyMesh.castShadow = shadowsEnabled;
   enemyMesh.visible = false;
   scene.add(enemyMesh);
-  const enemyLight = new THREE.PointLight(0xff2222, 0.8, 6, 2);
+  const enemyLight = new THREE.PointLight(
+    0xff2222,
+    quality === "low" ? 0 : 0.8,
+    6,
+    2
+  );
   enemyLight.visible = false;
   scene.add(enemyLight);
+  let lastRemoteEnemyAt = 0;
+  let dangerState: "safe" | "near" | "critical" = "safe";
+  let isHiding = false;
+  let timeLeft = mapDef.timer;
+  let lastTimerSecond = Math.ceil(timeLeft);
 
   function setEnemy(pos: { x: number; z: number } | null) {
     if (!pos) {
@@ -339,8 +428,9 @@ export function startGame(
       enemyLight.visible = false;
       return;
     }
+    lastRemoteEnemyAt = performance.now();
     enemyMesh.visible = true;
-    enemyLight.visible = true;
+    enemyLight.visible = quality !== "low";
     enemyMesh.position.set(pos.x, 1.0, pos.z);
     enemyLight.position.set(pos.x, 1.6, pos.z);
   }
@@ -350,20 +440,37 @@ export function startGame(
       z: parsed.enemy.z * TILE_SIZE + TILE_SIZE / 2,
     });
   }
+  if (!enemyMesh.visible) {
+    setEnemy({
+      x: Math.floor(parsed.width / 2) * TILE_SIZE + TILE_SIZE / 2,
+      z: Math.floor(parsed.height / 2) * TILE_SIZE + TILE_SIZE / 2,
+    });
+    lastRemoteEnemyAt = 0;
+  }
+  events.onReady?.({
+    keys: keyMeshes.length,
+    timer: mapDef.timer,
+    mapName: mapDef.name,
+  });
+  events.onTimer?.(lastTimerSecond);
 
   // ── Input: pointer-lock first-person look + WASD ──────────────────────────
   let yaw = 0;
   let pitch = 0;
   const keys = new Set<string>();
-  const onKeyDown = (e: KeyboardEvent) => keys.add(e.code);
+  const onKeyDown = (e: KeyboardEvent) => {
+    keys.add(e.code);
+    if (e.code === "KeyE") toggleHide();
+  };
   const onKeyUp = (e: KeyboardEvent) => keys.delete(e.code);
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
 
   const onMouseMove = (e: MouseEvent) => {
     if (document.pointerLockElement !== renderer.domElement) return;
-    yaw -= e.movementX * 0.0022;
-    pitch -= e.movementY * 0.0022;
+    const sensitivity = options.sensitivity ?? 1;
+    yaw -= e.movementX * 0.0022 * sensitivity;
+    pitch -= e.movementY * 0.0022 * sensitivity;
     pitch = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, pitch));
   };
   document.addEventListener("mousemove", onMouseMove);
@@ -374,6 +481,36 @@ export function startGame(
     }
   };
   renderer.domElement.addEventListener("click", onCanvasClick);
+
+  function nearestHideDistanceSq() {
+    let best = Infinity;
+    for (const h of parsed.hides) {
+      const hx = h.x * TILE_SIZE + TILE_SIZE / 2;
+      const hz = h.z * TILE_SIZE + TILE_SIZE / 2;
+      const dx = hx - camera.position.x;
+      const dz = hz - camera.position.z;
+      best = Math.min(best, dx * dx + dz * dz);
+    }
+    return best;
+  }
+
+  function toggleHide() {
+    if (
+      nearestHideDistanceSq() >
+      HIDE_INTERACTION_DISTANCE * HIDE_INTERACTION_DISTANCE
+    ) {
+      events.onHint?.("Find a closet, then press E to hide.");
+      return;
+    }
+    isHiding = !isHiding;
+    camera.position.y = isHiding ? PLAYER_HEIGHT * 0.72 : PLAYER_HEIGHT;
+    events.onHideChange?.(isHiding);
+    events.onHint?.(
+      isHiding
+        ? "Hidden · press E to leave the closet"
+        : "Out of hiding · keep moving"
+    );
+  }
 
   // Collision: prevents walking through wall tiles using axis-separated checks.
   function tryMove(dx: number, dz: number) {
@@ -388,6 +525,38 @@ export function startGame(
     void PLAYER_RADIUS;
   }
 
+  function tryMoveEnemy(dx: number, dz: number) {
+    const nx = enemyMesh.position.x + dx;
+    const nz = enemyMesh.position.z + dz;
+    const gxN = Math.floor(nx / TILE_SIZE);
+    const gzCur = Math.floor(enemyMesh.position.z / TILE_SIZE);
+    if (!isBlocked(parsed, gxN, gzCur)) enemyMesh.position.x = nx;
+    const gxCur = Math.floor(enemyMesh.position.x / TILE_SIZE);
+    const gzN = Math.floor(nz / TILE_SIZE);
+    if (!isBlocked(parsed, gxCur, gzN)) enemyMesh.position.z = nz;
+    enemyLight.position.set(enemyMesh.position.x, 1.6, enemyMesh.position.z);
+  }
+
+  function updateLocalEnemy(dt: number, elapsed: number, now: number) {
+    if (!enemyMesh.visible || now - lastRemoteEnemyAt < REMOTE_ENEMY_TIMEOUT_MS)
+      return;
+    const dx = camera.position.x - enemyMesh.position.x;
+    const dz = camera.position.z - enemyMesh.position.z;
+    const dist = Math.hypot(dx, dz) || 1;
+    const investigating = isHiding && dist > 4;
+    const speed = calculateEnemySpeed(investigating, mapDef.claudeSpeed, dt);
+    const wobble = Math.sin(elapsed * 0.9) * 0.4;
+    const tx = investigating ? Math.sin(elapsed * 0.35) + wobble : dx / dist;
+    const tz = investigating ? Math.cos(elapsed * 0.31) - wobble : dz / dist;
+    const len = Math.hypot(tx, tz) || 1;
+    tryMoveEnemy((tx / len) * speed, (tz / len) * speed);
+    enemyMesh.lookAt(
+      camera.position.x,
+      enemyMesh.position.y,
+      camera.position.z
+    );
+  }
+
   function checkPickups() {
     for (let i = keyMeshes.length - 1; i >= 0; i--) {
       const k = keyMeshes[i];
@@ -395,14 +564,11 @@ export function startGame(
       const dz = k.position.z - camera.position.z;
       if (dx * dx + dz * dz < 1.4 * 1.4) {
         keyGroup.remove(k);
-        // Remove the matching point light (it was added directly after).
-        const lights = keyGroup.children.filter(
-          (c): c is THREE.PointLight => (c as THREE.PointLight).isPointLight === true,
-        );
-        const nearestLight = lights
-          .map((l) => ({ l, d: l.position.distanceToSquared(k.position) }))
-          .sort((a, b) => a.d - b.d)[0];
-        if (nearestLight) keyGroup.remove(nearestLight.l);
+        const light = keyLights.get(k);
+        if (light) {
+          keyGroup.remove(light);
+          keyLights.delete(k);
+        }
         keyMeshes.splice(i, 1);
         events.onKeyPickup?.(keyMeshes.length);
       }
@@ -417,7 +583,14 @@ export function startGame(
     if (enemyMesh.visible) {
       const dx = enemyMesh.position.x - camera.position.x;
       const dz = enemyMesh.position.z - camera.position.z;
-      if (dx * dx + dz * dz < 1.5 * 1.5) events.onCaught?.();
+      const distSq = dx * dx + dz * dz;
+      const nextDanger =
+        distSq < 4 * 4 ? "critical" : distSq < 9 * 9 ? "near" : "safe";
+      if (nextDanger !== dangerState) {
+        dangerState = nextDanger;
+        events.onDangerChange?.(dangerState);
+      }
+      if (!isHiding && distSq < 1.5 * 1.5) events.onCaught?.();
     }
   }
 
@@ -437,7 +610,20 @@ export function startGame(
       camera.rotation.y = yaw;
       camera.rotation.x = pitch;
 
-      const speed = (keys.has("ShiftLeft") ? MOVE_SPEED * SPRINT_MULT : MOVE_SPEED) * dt;
+      timeLeft = Math.max(0, timeLeft - dt);
+      const timerSecond = Math.ceil(timeLeft);
+      if (timerSecond !== lastTimerSecond) {
+        lastTimerSecond = timerSecond;
+        events.onTimer?.(timerSecond);
+        if (timerSecond === 30)
+          events.onHint?.("Thirty seconds left. Reach the exit.");
+      }
+      if (timeLeft <= 0) {
+        events.onCaught?.();
+        return;
+      }
+
+      const speed = calculateMoveSpeed(isHiding, keys.has("ShiftLeft"), dt);
       let fx = 0;
       let fz = 0;
       if (keys.has("KeyW") || keys.has("ArrowUp")) fz -= 1;
@@ -456,6 +642,7 @@ export function startGame(
       }
 
       const t = clock.elapsedTime;
+      updateLocalEnemy(dt, t, performance.now());
       for (const k of keyMeshes) {
         k.rotation.y += dt * 2;
         k.position.y = 0.9 + Math.sin(t * 2 + k.position.x) * 0.08;
@@ -490,11 +677,12 @@ export function startGame(
   // through the renderer (graceful degradation handled in PostFX itself).
   void createPostFX(renderer, scene, camera, {
     uniforms: sharedUniforms,
+    quality: options.quality,
     // LUT asset lands in Phase 4 alongside texture pipeline; skip until
     // present so we don't fetch a 404 every page load.
     lutUrl: undefined,
   })
-    .then((fx) => {
+    .then(fx => {
       if (disposed) {
         fx.dispose();
         return;
@@ -504,9 +692,12 @@ export function startGame(
       const h = container.clientHeight || window.innerHeight;
       postfx.setSize(w, h);
     })
-    .catch((err) => {
+    .catch(err => {
       // PostFX is non-essential; surface as warning, keep playing.
-      console.warn("[engine] PostFX init failed; falling back to direct render", err);
+      console.warn(
+        "[engine] PostFX init failed; falling back to direct render",
+        err
+      );
     });
 
   tick();
@@ -529,11 +720,14 @@ export function startGame(
       if (renderer.domElement.parentNode === container) {
         container.removeChild(renderer.domElement);
       }
-      scene.traverse((obj) => {
+      scene.traverse(obj => {
         const mesh = obj as THREE.Mesh;
         if (mesh.geometry) mesh.geometry.dispose?.();
-        const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
-        if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+        const mat = mesh.material as
+          | THREE.Material
+          | THREE.Material[]
+          | undefined;
+        if (Array.isArray(mat)) mat.forEach(m => m.dispose());
         else mat?.dispose?.();
       });
       // The MaterialFactory cache holds the wall/floor/ceiling materials we

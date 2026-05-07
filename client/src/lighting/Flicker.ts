@@ -13,7 +13,7 @@ export class LightFlicker {
     private readonly light: Light,
     baseIntensity: number,
     private readonly amp = 0.12,
-    private readonly speed = 8,
+    private readonly speed = 8
   ) {
     this.base = baseIntensity;
     // Phase-stagger across instances so a row of bulbs doesn't pulse in sync.
@@ -22,8 +22,7 @@ export class LightFlicker {
 
   update(dt: number): void {
     this.t += dt * this.speed;
-    const n =
-      Math.sin(this.t * 1.3) * 0.5 + Math.sin(this.t * 2.7) * 0.5;
+    const n = Math.sin(this.t * 1.3) * 0.5 + Math.sin(this.t * 2.7) * 0.5;
     this.light.intensity = this.base * (1 + n * this.amp);
   }
 }

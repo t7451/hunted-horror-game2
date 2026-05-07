@@ -87,7 +87,7 @@ type Ktx2LoaderLike = {
     url: string,
     onLoad?: (tex: THREE.Texture) => void,
     onProgress?: undefined,
-    onError?: (e: unknown) => void,
+    onError?: (e: unknown) => void
   ) => THREE.Texture;
 };
 
@@ -129,15 +129,15 @@ export function getMaterial(name: MaterialName): THREE.MeshStandardMaterial {
     envMapIntensity: 0.4,
   });
 
-  loadKtx2WithFallback(set.albedo, anisotropy, set.tiling, true).then((t) => {
+  loadKtx2WithFallback(set.albedo, anisotropy, set.tiling, true).then(t => {
     mat.map = t;
     mat.needsUpdate = true;
   });
-  loadKtx2WithFallback(set.normal, anisotropy, set.tiling, false).then((t) => {
+  loadKtx2WithFallback(set.normal, anisotropy, set.tiling, false).then(t => {
     mat.normalMap = t;
     mat.needsUpdate = true;
   });
-  loadKtx2WithFallback(set.orm, anisotropy, set.tiling, false).then((t) => {
+  loadKtx2WithFallback(set.orm, anisotropy, set.tiling, false).then(t => {
     mat.aoMap = t;
     mat.roughnessMap = t;
     mat.metalnessMap = t;
@@ -152,9 +152,9 @@ function loadKtx2WithFallback(
   url: string,
   anisotropy: number,
   tiling: number,
-  srgb: boolean,
+  srgb: boolean
 ): Promise<THREE.Texture> {
-  return new Promise((resolve) => {
+  return new Promise(resolve => {
     const loader = deps.ktx2Loader;
     if (!loader) {
       resolve(makeProceduralTexture(0xffffff, anisotropy, tiling, srgb));
@@ -162,23 +162,28 @@ function loadKtx2WithFallback(
     }
     loader.load(
       url,
-      (tex) => {
+      tex => {
         configureTexture(tex, anisotropy, tiling, srgb);
         resolve(tex);
       },
       undefined,
       () => {
         resolve(makeProceduralTexture(0xffffff, anisotropy, tiling, srgb));
-      },
+      }
     );
   });
 }
 
 function buildFallbackMaterial(
   set: TextureSet,
-  anisotropy: number,
+  anisotropy: number
 ): THREE.MeshStandardMaterial {
-  const albedo = makeProceduralTexture(set.fallbackColor, anisotropy, set.tiling, true);
+  const albedo = makeProceduralTexture(
+    set.fallbackColor,
+    anisotropy,
+    set.tiling,
+    true
+  );
   const normal = makeProceduralNormalTexture(anisotropy, set.tiling);
   const mat = new THREE.MeshStandardMaterial({
     map: albedo,
@@ -196,7 +201,7 @@ function configureTexture(
   tex: THREE.Texture,
   anisotropy: number,
   tiling: number,
-  srgb: boolean,
+  srgb: boolean
 ): void {
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
@@ -212,7 +217,7 @@ function makeProceduralTexture(
   baseColor: number,
   anisotropy: number,
   tiling: number,
-  srgb: boolean,
+  srgb: boolean
 ): THREE.Texture {
   const size = 128;
   const canvas = document.createElement("canvas");
@@ -228,8 +233,7 @@ function makeProceduralTexture(
     // solid fill at flashlight distance.
     const x = i % size;
     const y = (i / size) | 0;
-    const n =
-      hash2(x * 0.13, y * 0.17) * 0.6 + hash2(x * 0.41, y * 0.39) * 0.4;
+    const n = hash2(x * 0.13, y * 0.17) * 0.6 + hash2(x * 0.41, y * 0.39) * 0.4;
     const k = 0.78 + n * 0.22;
     img.data[i * 4 + 0] = clamp255(r * k);
     img.data[i * 4 + 1] = clamp255(g * k);
@@ -242,7 +246,10 @@ function makeProceduralTexture(
   return tex;
 }
 
-function makeProceduralNormalTexture(anisotropy: number, tiling: number): THREE.Texture {
+function makeProceduralNormalTexture(
+  anisotropy: number,
+  tiling: number
+): THREE.Texture {
   const size = 128;
   const canvas = document.createElement("canvas");
   canvas.width = size;
@@ -278,6 +285,6 @@ function clamp255(v: number): number {
 // Test hook: clear cache so a Phase 4 re-init after assets land can swap
 // fallback materials for the real KTX2-backed ones.
 export function resetMaterialCache(): void {
-  for (const m of cache.values()) m.dispose();
+  cache.forEach(m => m.dispose());
   cache.clear();
 }

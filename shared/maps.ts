@@ -5,6 +5,7 @@
 
 export type MapDef = {
   name: string;
+  summary: string;
   difficulty: number;
   timer: number;
   claudeSpeed: number;
@@ -15,9 +16,13 @@ export type MapDef = {
 export const TILE_SIZE = 4;
 export const WALL_HEIGHT = 4;
 
-export const MAPS: Record<string, MapDef> = {
+export const MAP_KEYS = ["easy", "normal", "hard"] as const;
+export type MapKey = (typeof MAP_KEYS)[number];
+
+export const MAPS: Record<MapKey, MapDef> = {
   easy: {
     name: "Granny's Kitchen",
+    summary: "A shorter escape route with wide halls and slower pursuit.",
     difficulty: 1,
     timer: 240,
     claudeSpeed: 3.0,
@@ -44,6 +49,63 @@ export const MAPS: Record<string, MapDef> = {
       "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
     ],
   },
+  normal: {
+    name: "Granny's House",
+    summary: "More keys, more closets, and Claude starts in the center hall.",
+    difficulty: 2,
+    timer: 180,
+    claudeSpeed: 4.2,
+    theme: "house",
+    raw: [
+      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
+      "WS....W.....D.....W.....K....W",
+      "W.....W.....W.....W..........W",
+      "W..H..D..K..W..H..D....W.....W",
+      "W.....W.....W.....W....W.....W",
+      "WWWDWWWWWDWWWWWDWWWWDWWWWWDWWW",
+      "W.....W.....W.....W....W.....W",
+      "W..K..D.....D..E..D....D..H..W",
+      "W.....W.....W.....W....W.....W",
+      "WWWDWWWWWDWWWWWDWWWWDWWWWWDWWW",
+      "W..H..W.....W.....W....W.....W",
+      "W.....D..K..D.....D....D.....W",
+      "W.....W.....W.....W....W..K..W",
+      "WWWDWWWWWDWWWWWDWWWWDWWWWWDWWW",
+      "W.....W.....W.....W....W.....W",
+      "W..K..D.....D..H..D....D.....W",
+      "W.....W.....W.....W....W...X.W",
+      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
+    ],
+  },
+  hard: {
+    name: "Granny's Nightmare",
+    summary:
+      "A tighter maze with less time, fewer safe closets, and faster Claude.",
+    difficulty: 3,
+    timer: 120,
+    claudeSpeed: 5.4,
+    theme: "nightmare",
+    raw: [
+      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
+      "WS.D...W.D...W.....D...W.K...W",
+      "W.W.W..W.W.W.W.WWW.W.W.W.W.W.W",
+      "W.W.K..D...W.W...W...W.D...W.W",
+      "W.W.WWWW.WWWDWWW.WWWWW.WWW.W.W",
+      "W...W....W.....W.....W.....W.W",
+      "WWW.W.WWWW.WWW.WWWWW.WWWWWDWWW",
+      "W...D...K..W...D...E..W......W",
+      "W.WWWWWWWWWW.WWWWWWW.WWWWWW.W",
+      "W...W.....H..W.....W.....K...W",
+      "WWW.W.WWWWWWWWDWWWWWDWWWWWWWWW",
+      "W.K.W.....W.....W.....W......W",
+      "W.W.WWWWW.W.WWW.W.WWW.W.WWW.W",
+      "W...D.....D...H.D.....D...W..W",
+      "WWW.WWWWWWWWWWWWWWW.WWWWWDWWW",
+      "W.....W.....K.....W.....W....W",
+      "W.WWW.W.WWWWWWWWW.WWW.W.WW.XW",
+      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
+    ],
+  },
 };
 
 export type ParsedMap = {
@@ -60,9 +122,15 @@ export type ParsedMap = {
 };
 
 export function parseMap(map: MapDef): ParsedMap {
-  const tiles = map.raw.map((row) => row.split(""));
+  const rows: string[] = [];
+  let width = 0;
+  map.raw.forEach(row => {
+    const trimmed = row.trim();
+    rows.push(trimmed);
+    width = Math.max(width, trimmed.length);
+  });
+  const tiles = rows.map(row => row.padEnd(width, "W").split(""));
   const height = tiles.length;
-  const width = tiles[0]?.length ?? 0;
   const result: ParsedMap = {
     width,
     height,
