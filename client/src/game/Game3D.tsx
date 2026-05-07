@@ -146,8 +146,14 @@ function RestartButton({ onClick }: { onClick: () => void }) {
 }
 
 function buildWsUrl() {
+  // Priority:
+  // 1. VITE_WS_URL — explicit override (e.g. wss://hunted-horror-game2.onrender.com/ws)
+  //    used when the static client is hosted separately from the websocket
+  //    backend (Netlify static + Render websocket service).
+  // 2. Same-origin /ws — used in dev (vite proxies to localhost:2567) and
+  //    when the Express + ws server serves the bundled client itself.
+  const override = import.meta.env.VITE_WS_URL as string | undefined;
+  if (override && override.length > 0) return override;
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  // In dev, vite proxies /ws to localhost:2567. In prod, the same path is
-  // served by the Express + ws server bundled in dist/index.js.
   return `${proto}//${window.location.host}/ws`;
 }
