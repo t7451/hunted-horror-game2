@@ -49,6 +49,12 @@ export type RemotePlayer = {
   name?: string;
 };
 
+export type VirtualInput = {
+  moveX: number;
+  moveZ: number;
+  sprinting: boolean;
+};
+
 export type EngineEvents = {
   onReady?: (info: { keys: number; timer: number; mapName: string }) => void;
   onKeyPickup?: (remaining: number) => void;
@@ -65,6 +71,8 @@ export type EngineHandle = {
   dispose: () => void;
   setRemotePlayers: (players: RemotePlayer[]) => void;
   setEnemy: (pos: { x: number; z: number } | null) => void;
+  setVirtualInput: (input: Partial<VirtualInput>) => void;
+  toggleHide: () => void;
   getPlayerState: () => { x: number; z: number; rotY: number };
   /**
    * Resume the audio context. Must be called from a user gesture (button
@@ -88,20 +96,24 @@ function mulberry32(seed: number): () => number {
 }
 
 const PLAYER_RADIUS = 0.6;
+const ENEMY_RADIUS = 0.45;
 const PLAYER_HEIGHT = 1.7;
 const MOVE_SPEED = 4.5;
 const SPRINT_MULT = 1.6;
+const MOVE_ACCELERATION = 30;
+const MOVE_DECELERATION = 24;
 const HIDE_INTERACTION_DISTANCE = 2.2;
 const REMOTE_ENEMY_TIMEOUT_MS = 1200;
 const INVESTIGATING_SPEED_FACTOR = 0.25;
+const MOBILE_LOOK_SCALE = 0.005;
 
 function calculateMoveSpeed(
   isHidden: boolean,
   isSprinting: boolean,
-  dt: number
+  inputMagnitude: number
 ) {
   if (isHidden) return 0;
-  return (isSprinting ? MOVE_SPEED * SPRINT_MULT : MOVE_SPEED) * dt;
+  return (isSprinting ? MOVE_SPEED * SPRINT_MULT : MOVE_SPEED) * inputMagnitude;
 }
 
 function calculateEnemySpeed(
@@ -184,8 +196,8 @@ export function startGame(
   // Track distance walked so we step on a stride cadence rather than every
   // tick — feels less "every frame thunk" without an asset library.
   let stepDist = 0;
-  let lastCamX = 0;
-  let lastCamZ = 0;
+  let lastCamX = camera.position.x;
+  let lastCamZ = camera.position.z;
 
   // ── Materials ──────────────────────────────────────────────────────────────
   // Walls/floor/ceiling go through MaterialFactory so the eventual KTX2
@@ -334,11 +346,20 @@ export function startGame(
     const door = new THREE.Mesh(doorGeo, doorMat);
     door.castShadow = shadowsEnabled;
     door.receiveShadow = shadowsEnabled;
+    const wallWest = isBlocked(parsed, d.x - 1, d.z);
+    const wallEast = isBlocked(parsed, d.x + 1, d.z);
+    const opensNorthSouth = wallWest && wallEast;
     door.position.set(
       d.x * TILE_SIZE + TILE_SIZE / 2,
       (WALL_HEIGHT * 0.92) / 2,
       d.z * TILE_SIZE + TILE_SIZE / 2
     );
+    if (opensNorthSouth) {
+      door.rotation.y = Math.PI / 2;
+      door.position.x -= TILE_SIZE * 0.36;
+    } else {
+      door.position.z -= TILE_SIZE * 0.36;
+    }
     doorGroup.add(door);
   });
   scene.add(doorGroup);
@@ -531,6 +552,7 @@ export function startGame(
   let isHiding = false;
   let timeLeft = mapDef.timer;
   let lastTimerSecond = Math.ceil(timeLeft);
+  let lastExitHintAt = 0;
 
   function setEnemy(pos: { x: number; z: number } | null) {
     if (!pos) {
@@ -567,6 +589,9 @@ export function startGame(
   // ── Input: pointer-lock first-person look + WASD ──────────────────────────
   let yaw = 0;
   let pitch = 0;
+  let velocityX = 0;
+  let velocityZ = 0;
+  const virtualInput: VirtualInput = { moveX: 0, moveZ: 0, sprinting: false };
   const keys = new Set<string>();
   const onKeyDown = (e: KeyboardEvent) => {
     keys.add(e.code);
@@ -585,6 +610,38 @@ export function startGame(
   };
   document.addEventListener("mousemove", onMouseMove);
 
+  let activeLookPointer: number | null = null;
+  let lastLookX = 0;
+  let lastLookY = 0;
+
+  const onCanvasPointerDown = (e: PointerEvent) => {
+    if (e.pointerType !== "touch" && e.pointerType !== "pen") return;
+    audio.unlock();
+    activeLookPointer = e.pointerId;
+    lastLookX = e.clientX;
+    lastLookY = e.clientY;
+    renderer.domElement.setPointerCapture?.(e.pointerId);
+    e.preventDefault();
+  };
+
+  const onCanvasPointerMove = (e: PointerEvent) => {
+    if (activeLookPointer !== e.pointerId) return;
+    const sensitivity = options.sensitivity ?? 1;
+    yaw -= (e.clientX - lastLookX) * MOBILE_LOOK_SCALE * sensitivity;
+    pitch -= (e.clientY - lastLookY) * MOBILE_LOOK_SCALE * sensitivity;
+    pitch = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, pitch));
+    lastLookX = e.clientX;
+    lastLookY = e.clientY;
+    e.preventDefault();
+  };
+
+  const onCanvasPointerEnd = (e: PointerEvent) => {
+    if (activeLookPointer !== e.pointerId) return;
+    activeLookPointer = null;
+    renderer.domElement.releasePointerCapture?.(e.pointerId);
+    e.preventDefault();
+  };
+
   const onCanvasClick = () => {
     // Doubles as the iOS / autoplay-policy gesture for unlocking the
     // audio context. Idempotent.
@@ -593,6 +650,12 @@ export function startGame(
       renderer.domElement.requestPointerLock?.();
     }
   };
+  renderer.domElement.style.touchAction = "none";
+  renderer.domElement.style.userSelect = "none";
+  renderer.domElement.addEventListener("pointerdown", onCanvasPointerDown);
+  renderer.domElement.addEventListener("pointermove", onCanvasPointerMove);
+  renderer.domElement.addEventListener("pointerup", onCanvasPointerEnd);
+  renderer.domElement.addEventListener("pointercancel", onCanvasPointerEnd);
   renderer.domElement.addEventListener("click", onCanvasClick);
 
   function nearestHideDistanceSq() {
@@ -616,6 +679,10 @@ export function startGame(
       return;
     }
     isHiding = !isHiding;
+    if (isHiding) {
+      velocityX = 0;
+      velocityZ = 0;
+    }
     // Camera height is owned by CameraRig.update() each frame — it smooths
     // the crouch lerp so we don't snap.
     events.onHideChange?.(isHiding);
@@ -626,28 +693,49 @@ export function startGame(
     );
   }
 
-  // Collision: prevents walking through wall tiles using axis-separated checks.
-  function tryMove(dx: number, dz: number) {
+  function setVirtualInput(input: Partial<VirtualInput>) {
+    if (typeof input.moveX === "number") {
+      virtualInput.moveX = Math.max(-1, Math.min(1, input.moveX));
+    }
+    if (typeof input.moveZ === "number") {
+      virtualInput.moveZ = Math.max(-1, Math.min(1, input.moveZ));
+    }
+    if (typeof input.sprinting === "boolean") {
+      virtualInput.sprinting = input.sprinting;
+    }
+  }
+
+  function canOccupy(x: number, z: number, radius: number) {
+    const samples: Array<[number, number]> = [
+      [x - radius, z - radius],
+      [x + radius, z - radius],
+      [x - radius, z + radius],
+      [x + radius, z + radius],
+      [x, z],
+    ];
+    return samples.every(([sx, sz]) => {
+      const gx = Math.floor(sx / TILE_SIZE);
+      const gz = Math.floor(sz / TILE_SIZE);
+      return !isBlocked(parsed, gx, gz);
+    });
+  }
+
+  // Collision: prevents clipping through wall barriers while still allowing
+  // slide-along-wall movement and intentionally open doorways.
+  function tryMove(dx: number, dz: number, radius = PLAYER_RADIUS) {
     const nx = camera.position.x + dx;
     const nz = camera.position.z + dz;
-    const gxN = Math.floor(nx / TILE_SIZE);
-    const gzCur = Math.floor(camera.position.z / TILE_SIZE);
-    if (!isBlocked(parsed, gxN, gzCur)) camera.position.x = nx;
-    const gxCur = Math.floor(camera.position.x / TILE_SIZE);
-    const gzN = Math.floor(nz / TILE_SIZE);
-    if (!isBlocked(parsed, gxCur, gzN)) camera.position.z = nz;
-    void PLAYER_RADIUS;
+    if (canOccupy(nx, camera.position.z, radius)) camera.position.x = nx;
+    else velocityX = 0;
+    if (canOccupy(camera.position.x, nz, radius)) camera.position.z = nz;
+    else velocityZ = 0;
   }
 
   function tryMoveEnemy(dx: number, dz: number) {
     const nx = enemyMesh.position.x + dx;
     const nz = enemyMesh.position.z + dz;
-    const gxN = Math.floor(nx / TILE_SIZE);
-    const gzCur = Math.floor(enemyMesh.position.z / TILE_SIZE);
-    if (!isBlocked(parsed, gxN, gzCur)) enemyMesh.position.x = nx;
-    const gxCur = Math.floor(enemyMesh.position.x / TILE_SIZE);
-    const gzN = Math.floor(nz / TILE_SIZE);
-    if (!isBlocked(parsed, gxCur, gzN)) enemyMesh.position.z = nz;
+    if (canOccupy(nx, enemyMesh.position.z, ENEMY_RADIUS)) enemyMesh.position.x = nx;
+    if (canOccupy(enemyMesh.position.x, nz, ENEMY_RADIUS)) enemyMesh.position.z = nz;
     enemyLight.position.set(enemyMesh.position.x, 1.6, enemyMesh.position.z);
   }
 
@@ -687,12 +775,21 @@ export function startGame(
         events.onKeyPickup?.(keyMeshes.length);
       }
     }
-    if (parsed.exit && keyMeshes.length === 0) {
+    if (parsed.exit) {
       const ex = parsed.exit.x * TILE_SIZE + TILE_SIZE / 2;
       const ez = parsed.exit.z * TILE_SIZE + TILE_SIZE / 2;
       const dx = ex - camera.position.x;
       const dz = ez - camera.position.z;
-      if (dx * dx + dz * dz < 2 * 2) events.onEscape?.();
+      const exitDistSq = dx * dx + dz * dz;
+      if (keyMeshes.length === 0) {
+        if (exitDistSq < 2 * 2) events.onEscape?.();
+      } else if (exitDistSq < 2.2 * 2.2) {
+        const now = performance.now();
+        if (now - lastExitHintAt > 1800) {
+          lastExitHintAt = now;
+          events.onHint?.(`${keyMeshes.length} key(s) still missing.`);
+        }
+      }
     }
     if (enemyMesh.visible) {
       const dx = enemyMesh.position.x - camera.position.x;
@@ -743,25 +840,44 @@ export function startGame(
         return;
       }
 
-      const sprinting = keys.has("ShiftLeft");
-      const speed = calculateMoveSpeed(isHiding, sprinting, dt);
+      const sprinting = keys.has("ShiftLeft") || virtualInput.sprinting;
       let fx = 0;
       let fz = 0;
       if (keys.has("KeyW") || keys.has("ArrowUp")) fz -= 1;
       if (keys.has("KeyS") || keys.has("ArrowDown")) fz += 1;
       if (keys.has("KeyA") || keys.has("ArrowLeft")) fx -= 1;
       if (keys.has("KeyD") || keys.has("ArrowRight")) fx += 1;
+      fx += virtualInput.moveX;
+      fz += virtualInput.moveZ;
       let moveMagnitude = 0;
       if (fx !== 0 || fz !== 0) {
-        const len = Math.hypot(fx, fz);
-        fx /= len;
-        fz /= len;
-        moveMagnitude = sprinting ? 1 : 0.6;
+        const rawLen = Math.hypot(fx, fz);
+        const inputMagnitude = Math.min(1, rawLen);
+        fx /= rawLen;
+        fz /= rawLen;
+        moveMagnitude = sprinting ? inputMagnitude : 0.6 * inputMagnitude;
         const sin = Math.sin(yaw);
         const cos = Math.cos(yaw);
-        const dx = (fx * cos + fz * sin) * speed;
-        const dz = (-fx * sin + fz * cos) * speed;
-        tryMove(dx, dz);
+        const speed = calculateMoveSpeed(isHiding, sprinting, inputMagnitude);
+        const targetVx = (fx * cos + fz * sin) * speed;
+        const targetVz = (-fx * sin + fz * cos) * speed;
+        const maxDelta = MOVE_ACCELERATION * dt;
+        velocityX += Math.max(-maxDelta, Math.min(maxDelta, targetVx - velocityX));
+        velocityZ += Math.max(-maxDelta, Math.min(maxDelta, targetVz - velocityZ));
+      } else {
+        const maxDelta = MOVE_DECELERATION * dt;
+        const speed = Math.hypot(velocityX, velocityZ);
+        if (speed <= maxDelta) {
+          velocityX = 0;
+          velocityZ = 0;
+        } else {
+          const scale = (speed - maxDelta) / speed;
+          velocityX *= scale;
+          velocityZ *= scale;
+        }
+      }
+      if (velocityX !== 0 || velocityZ !== 0) {
+        tryMove(velocityX * dt, velocityZ * dt);
       }
 
       const t = clock.elapsedTime;
@@ -858,6 +974,10 @@ export function startGame(
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       document.removeEventListener("mousemove", onMouseMove);
+      renderer.domElement.removeEventListener("pointerdown", onCanvasPointerDown);
+      renderer.domElement.removeEventListener("pointermove", onCanvasPointerMove);
+      renderer.domElement.removeEventListener("pointerup", onCanvasPointerEnd);
+      renderer.domElement.removeEventListener("pointercancel", onCanvasPointerEnd);
       renderer.domElement.removeEventListener("click", onCanvasClick);
       detachContextHandlers();
       flashlight.dispose();
@@ -889,6 +1009,8 @@ export function startGame(
     },
     setRemotePlayers,
     setEnemy,
+    setVirtualInput,
+    toggleHide,
     getPlayerState: () => ({
       x: camera.position.x,
       z: camera.position.z,
