@@ -35,9 +35,20 @@
     { id: 'daily_dweller', label: 'Daily Dweller', test: s => s.dailyStreak >= 3 },
   ];
 
+  function randomToken(length) {
+    const bytes = new Uint8Array(length);
+    if (window.crypto?.getRandomValues) {
+      window.crypto.getRandomValues(bytes);
+    } else {
+      const seed = `${Date.now().toString(36)}${performance.now().toString(36)}`;
+      for (let i = 0; i < bytes.length; i++) bytes[i] = seed.charCodeAt(i % seed.length);
+    }
+    return Array.from(bytes, byte => (byte % 36).toString(36)).join('');
+  }
+
   function uuid() {
-    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
-    return 'p-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+    if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+    return 'p-' + Date.now().toString(36) + '-' + randomToken(10);
   }
   function todayKey(d = new Date()) { return d.toISOString().slice(0, 10); }
   function safeParse(raw) { try { return raw ? JSON.parse(raw) : null; } catch { return null; } }
@@ -46,7 +57,7 @@
     return {
       schema: SCHEMA,
       uid: uuid(),
-      name: 'Ghost_' + Math.random().toString(36).slice(2, 6).toUpperCase(),
+      name: 'Ghost_' + randomToken(4).toUpperCase(),
       character: CHARACTERS[0].id,
       color: COLORS[0],
       createdAt: Date.now(),
