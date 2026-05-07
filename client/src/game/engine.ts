@@ -8,6 +8,8 @@ import {
   type MapDef,
   type ParsedMap,
 } from "@shared/maps";
+import { perfFlag } from "../util/device";
+import { createPerfMonitor } from "../util/perfMonitor";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rendering backend for HUNTED BY CLAUDE.
@@ -30,6 +32,7 @@ export type EngineEvents = {
   onKeyPickup?: (remaining: number) => void;
   onCaught?: () => void;
   onEscape?: () => void;
+  onError?: (err: Error) => void;
 };
 
 export type EngineHandle = {
@@ -64,6 +67,19 @@ export function startGame(
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 0.85;
   container.appendChild(renderer.domElement);
+
+  // Pause the loop while the WebGL context is lost; resume on restore.
+  // Without this the next render() throws and the RAF cascade keeps re-throwing.
+  let contextLost = false;
+  const onContextLost = (e: Event) => {
+    e.preventDefault();
+    contextLost = true;
+  };
+  const onContextRestored = () => {
+    contextLost = false;
+  };
+  renderer.domElement.addEventListener("webglcontextlost", onContextLost);
+  renderer.domElement.addEventListener("webglcontextrestored", onContextRestored);
 
   const resize = () => {
     const w = container.clientWidth || window.innerWidth;
@@ -383,45 +399,59 @@ export function startGame(
 
   // ── Loop ──────────────────────────────────────────────────────────────────
   const clock = new THREE.Clock();
+  const perf = createPerfMonitor(perfFlag);
   let raf = 0;
   let disposed = false;
 
   function tick() {
     if (disposed) return;
+    try {
+      perf.begin();
+      const dt = Math.min(clock.getDelta(), 0.05);
+
+      camera.rotation.order = "YXZ";
+      camera.rotation.y = yaw;
+      camera.rotation.x = pitch;
+
+      const speed = (keys.has("ShiftLeft") ? MOVE_SPEED * SPRINT_MULT : MOVE_SPEED) * dt;
+      let fx = 0;
+      let fz = 0;
+      if (keys.has("KeyW") || keys.has("ArrowUp")) fz -= 1;
+      if (keys.has("KeyS") || keys.has("ArrowDown")) fz += 1;
+      if (keys.has("KeyA") || keys.has("ArrowLeft")) fx -= 1;
+      if (keys.has("KeyD") || keys.has("ArrowRight")) fx += 1;
+      if (fx !== 0 || fz !== 0) {
+        const len = Math.hypot(fx, fz);
+        fx /= len;
+        fz /= len;
+        const sin = Math.sin(yaw);
+        const cos = Math.cos(yaw);
+        const dx = (fx * cos + fz * sin) * speed;
+        const dz = (-fx * sin + fz * cos) * speed;
+        tryMove(dx, dz);
+      }
+
+      const t = clock.elapsedTime;
+      for (const k of keyMeshes) {
+        k.rotation.y += dt * 2;
+        k.position.y = 0.9 + Math.sin(t * 2 + k.position.x) * 0.08;
+      }
+
+      checkPickups();
+      if (!contextLost) renderer.render(scene, camera);
+      perf.end(renderer);
+    } catch (err) {
+      // A throw inside the RAF callback would otherwise repeat every frame
+      // (the next frame is already queued), spamming the console and
+      // appearing to "crash" the page. Stop the loop and surface the error.
+      disposed = true;
+      cancelAnimationFrame(raf);
+      const error = err instanceof Error ? err : new Error(String(err));
+      console.error("[engine] render loop crashed:", error);
+      events.onError?.(error);
+      return;
+    }
     raf = requestAnimationFrame(tick);
-    const dt = Math.min(clock.getDelta(), 0.05);
-
-    camera.rotation.order = "YXZ";
-    camera.rotation.y = yaw;
-    camera.rotation.x = pitch;
-
-    const speed = (keys.has("ShiftLeft") ? MOVE_SPEED * SPRINT_MULT : MOVE_SPEED) * dt;
-    let fx = 0;
-    let fz = 0;
-    if (keys.has("KeyW") || keys.has("ArrowUp")) fz -= 1;
-    if (keys.has("KeyS") || keys.has("ArrowDown")) fz += 1;
-    if (keys.has("KeyA") || keys.has("ArrowLeft")) fx -= 1;
-    if (keys.has("KeyD") || keys.has("ArrowRight")) fx += 1;
-    if (fx !== 0 || fz !== 0) {
-      const len = Math.hypot(fx, fz);
-      fx /= len;
-      fz /= len;
-      const sin = Math.sin(yaw);
-      const cos = Math.cos(yaw);
-      const dx = (fx * cos + fz * sin) * speed;
-      const dz = (-fx * sin + fz * cos) * speed;
-      tryMove(dx, dz);
-    }
-
-    // Animate keys (rotating + bobbing) for visual flair.
-    const t = clock.elapsedTime;
-    for (const k of keyMeshes) {
-      k.rotation.y += dt * 2;
-      k.position.y = 0.9 + Math.sin(t * 2 + k.position.x) * 0.08;
-    }
-
-    checkPickups();
-    renderer.render(scene, camera);
   }
 
   const ro = new ResizeObserver(resize);
@@ -438,6 +468,9 @@ export function startGame(
       window.removeEventListener("keyup", onKeyUp);
       document.removeEventListener("mousemove", onMouseMove);
       renderer.domElement.removeEventListener("click", onCanvasClick);
+      renderer.domElement.removeEventListener("webglcontextlost", onContextLost);
+      renderer.domElement.removeEventListener("webglcontextrestored", onContextRestored);
+      perf.dispose();
       renderer.dispose();
       if (renderer.domElement.parentNode === container) {
         container.removeChild(renderer.domElement);
