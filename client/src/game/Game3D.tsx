@@ -10,6 +10,7 @@ export default function Game3D() {
   const [status, setStatus] = useState<Status>("title");
   const [keysLeft, setKeysLeft] = useState<number | null>(null);
   const [hint, setHint] = useState("Click to lock pointer · WASD to move · Shift to sprint");
+  const [engineError, setEngineError] = useState<string | null>(null);
 
   useEffect(() => {
     if (status !== "playing" || !containerRef.current) return;
@@ -19,6 +20,10 @@ export default function Game3D() {
         onKeyPickup: (remaining) => setKeysLeft(remaining),
         onCaught: () => setStatus("caught"),
         onEscape: () => setStatus("escaped"),
+        onError: (err) => {
+          setEngineError(err.message || "Render loop crashed");
+          setStatus("title");
+        },
       },
     });
     engineRef.current = handle;
@@ -82,9 +87,17 @@ export default function Game3D() {
         <Overlay>
           <h1 className="text-5xl font-bold tracking-widest mb-2">HUNTED</h1>
           <p className="opacity-70 mb-8">A Granny-style multiplayer horror escape</p>
+          {engineError && (
+            <div className="mb-4 px-4 py-2 bg-red-900/70 border border-red-500 rounded text-sm text-red-100 max-w-md text-center">
+              Render loop crashed: {engineError}
+            </div>
+          )}
           <button
             type="button"
-            onClick={() => setStatus("playing")}
+            onClick={() => {
+              setEngineError(null);
+              setStatus("playing");
+            }}
             className="px-8 py-3 bg-red-700 hover:bg-red-600 transition-colors rounded font-semibold tracking-widest"
           >
             ENTER THE HOUSE
