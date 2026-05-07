@@ -617,6 +617,12 @@ export function startGame(
   let activeLookPointer: number | null = null;
   let lastLookX = 0;
   let lastLookY = 0;
+  const captureCanvasPointer = renderer.domElement.setPointerCapture?.bind(
+    renderer.domElement
+  );
+  const releaseCanvasPointer = renderer.domElement.releasePointerCapture?.bind(
+    renderer.domElement
+  );
 
   const onCanvasPointerDown = (e: PointerEvent) => {
     if (e.pointerType !== "touch" && e.pointerType !== "pen") return;
@@ -624,7 +630,7 @@ export function startGame(
     activeLookPointer = e.pointerId;
     lastLookX = e.clientX;
     lastLookY = e.clientY;
-    renderer.domElement.setPointerCapture?.(e.pointerId);
+    captureCanvasPointer?.(e.pointerId);
     e.preventDefault();
   };
 
@@ -642,7 +648,7 @@ export function startGame(
   const onCanvasPointerEnd = (e: PointerEvent) => {
     if (activeLookPointer !== e.pointerId) return;
     activeLookPointer = null;
-    renderer.domElement.releasePointerCapture?.(e.pointerId);
+    releaseCanvasPointer?.(e.pointerId);
     e.preventDefault();
   };
 

@@ -22,6 +22,16 @@ const DANGER_STYLES: Record<Danger, string> = {
   safe: "bg-black/60 border-white/10",
 };
 
+const DESKTOP_START_HINT =
+  "Click to lock pointer · WASD/Arrows move · Shift sprint · E hides near closets";
+const MOBILE_START_HINT =
+  "Drag left pad to move · swipe the screen to look · use sprint/hide buttons";
+const DESKTOP_CONTROL_HINT =
+  "WASD/Arrows move · Mouse look · Shift sprint · E hide near closets";
+const MOBILE_CONTROL_HINT =
+  "Drag left pad to move · swipe view to look · sprint / hide buttons";
+const JOYSTICK_RADIUS_FACTOR = 0.36;
+
 export default function Game3D() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const engineRef = useRef<EngineHandle | null>(null);
@@ -57,11 +67,7 @@ export default function Game3D() {
     setTimeLeft(selectedMap.timer);
     setDanger("safe");
     setHidden(false);
-    setHint(
-      isMobile
-        ? "Drag left pad to move · swipe the screen to look · use sprint/hide buttons"
-        : "Click to lock pointer · WASD/Arrows move · Shift sprint · E hides near closets"
-    );
+    setHint(isMobile ? MOBILE_START_HINT : DESKTOP_START_HINT);
 
     let handle: EngineHandle | null = null;
     try {
@@ -294,9 +300,7 @@ export default function Game3D() {
             <div className="mt-1 opacity-70">{hint}</div>
           </div>
           <div className="pointer-events-none absolute bottom-3 left-1/2 w-[min(92vw,520px)] -translate-x-1/2 rounded bg-black/50 px-3 py-2 text-center text-xs opacity-80">
-            {isMobile
-              ? "Drag left pad to move · swipe view to look · sprint / hide buttons"
-              : "WASD/Arrows move · Mouse look · Shift sprint · E hide near closets"}
+            {isMobile ? MOBILE_CONTROL_HINT : DESKTOP_CONTROL_HINT}
           </div>
           {isMobile && (
             <MobileControls
@@ -356,7 +360,7 @@ function MobileControls({
       const pad = padRef.current;
       if (!pad) return;
       const rect = pad.getBoundingClientRect();
-      const radius = Math.max(1, rect.width * 0.36);
+      const radius = Math.max(1, rect.width * JOYSTICK_RADIUS_FACTOR);
       const dx = event.clientX - (rect.left + rect.width / 2);
       const dy = event.clientY - (rect.top + rect.height / 2);
       const len = Math.hypot(dx, dy);
