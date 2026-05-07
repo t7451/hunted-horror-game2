@@ -1,0 +1,29 @@
+# Netlify deployment configuration for HUNTED BY CLAUDE.
+#
+# The repo contains both a static React/Three.js client and an Express +
+# `ws` websocket server. Netlify's static hosting deploys the built client
+# from `dist/public`. The realtime websocket gateway is intentionally not
+# bundled into Netlify Functions (Functions don't support long-lived ws
+# connections); the client falls back to single-player rendering when no
+# websocket gateway is reachable.
+
+[build]
+  base = "."
+  publish = "dist/public"
+  command = "pnpm install --no-frozen-lockfile && pnpm run build"
+
+[build.environment]
+  NODE_VERSION = "20"
+  NPM_FLAGS = "--no-audit --no-fund"
+
+# SPA fallback so wouter-driven client routes resolve correctly.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Long-cache hashed assets emitted by Vite.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
