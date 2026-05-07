@@ -782,9 +782,10 @@ export function startGame(
         lastTimerSecond = timerSecond;
         events.onTimer?.(timerSecond);
         if (timerSecond === 30) {
+          lastDirectorTickSecond = timerSecond;
           events.onHint?.("Thirty seconds left. Reach the exit.");
           emitDirector("timerWarning");
-        } else if (Math.abs(timerSecond - lastDirectorTickSecond) >= 5) {
+        } else if (lastDirectorTickSecond - timerSecond >= 5) {
           lastDirectorTickSecond = timerSecond;
           emitDirector("tick");
         }

@@ -149,7 +149,7 @@ function selectHint(
   if (event === "keyPickup") {
     if (snapshot.keysRemaining === 0)
       return "The house exhales. Every key is yours; find the green exit.";
-    return `${snapshot.keysRemaining} key${snapshot.keysRemaining === 1 ? "" : "s"} remain. Claude is adapting to your route.`;
+    return `${snapshot.keysRemaining} key${snapshot.keysRemaining === 1 ? "" : "s"} remain. Your path has been noticed.`;
   }
   if (event === "hideChange") {
     return snapshot.hidden
