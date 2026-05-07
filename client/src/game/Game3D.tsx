@@ -246,7 +246,7 @@ export default function Game3D() {
           <p className="mt-6 text-xs opacity-60 max-w-xl text-center">
             Find glowing keys, hide in closets with E, then reach the green exit
             before the timer expires. A local AI director adapts pursuit pace
-            and hints without requiring a paid cloud API.
+            and hints entirely in your browser.
           </p>
         </Overlay>
       )}
