@@ -76,13 +76,13 @@ export class PropSpawner {
 
   /** Flush instance matrices after a batch of `place` calls. */
   commit(): void {
-    for (const slot of this.slots.values()) {
+    for (const slot of Array.from(this.slots.values())) {
       slot.mesh.instanceMatrix.needsUpdate = true;
     }
   }
 
   dispose(): void {
-    for (const slot of this.slots.values()) {
+    for (const slot of Array.from(this.slots.values())) {
       slot.mesh.removeFromParent();
       slot.mesh.geometry.dispose();
       const m = slot.mesh.material as THREE.Material | THREE.Material[];
