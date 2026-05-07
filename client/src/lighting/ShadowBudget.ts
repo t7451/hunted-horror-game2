@@ -17,6 +17,8 @@ type Tracked = {
 export class ShadowBudget {
   private readonly tracked: Tracked[] = [];
   private readonly tmp = new THREE.Vector3();
+  /** Reused for each tracked light's world-position read; avoids per-frame Vector3 alloc per light. */
+  private readonly tmpLightPos = new THREE.Vector3();
 
   constructor(public budget: number = DEFAULT_BUDGET) {}
 
@@ -42,10 +44,13 @@ export class ShadowBudget {
     }
     const camPos = camera.getWorldPosition(this.tmp);
     // Compute squared distance once per light, then sort.
+    // Reuse tmpLightPos across all reads — getWorldPosition(target) writes
+    // into target and returns it, so the squared distance must be captured
+    // before the next iteration overwrites it.
     const sorted = this.tracked
       .filter((t) => t.baseCastShadow)
       .map((t) => {
-        const lp = t.light.getWorldPosition(new THREE.Vector3());
+        const lp = t.light.getWorldPosition(this.tmpLightPos);
         return { t, d: lp.distanceToSquared(camPos) };
       })
       .sort((a, b) => a.d - b.d);

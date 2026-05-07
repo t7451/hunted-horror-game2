@@ -436,10 +436,17 @@ export function startGame(
   const cobwebs = new CobwebSet(scene);
   // Drifting dust motes — single Points draw call, wraps around the camera
   // so the 200-particle population always reads as ambient air.
-  const dust = new DustParticles(scene, { count: 200 });
+  // Tier-gated population: 200 desktop, 80 mid, 0 on low (full skip — the
+  // CPU drift loop is cheap but the Points draw still blits transparency
+  // and that's measurable on a phone iGPU).
+  const dustCount = quality === "low" ? 0 : quality === "mid" ? 80 : 200;
+  const dust = dustCount > 0 ? new DustParticles(scene, { count: dustCount }) : null;
   const cobwebRng = mulberry32(0xc0bea73);
+  // Cobweb planes are individual transparent meshes — each is a draw call
+  // and they get sorted every frame. Gate density by tier.
+  const cobwebRatio = quality === "low" ? 0 : quality === "mid" ? 0.06 : 0.15;
   for (const w of parsed.walls) {
-    if (cobwebRng() > 0.15) continue;
+    if (cobwebRng() > cobwebRatio) continue;
     const dirs: Array<[number, number]> = [
       [1, 0],
       [-1, 0],
@@ -785,7 +792,7 @@ export function startGame(
       );
       audio.setHeartbeatIntensity(heartbeat.intensity());
       audio.update(dt);
-      dust.update(dt, camera);
+      dust?.update(dt, camera);
       // Footstep cadence — fire one click every ~0.8m of horizontal travel.
       const dxStep = camera.position.x - lastCamX;
       const dzStep = camera.position.z - lastCamZ;
@@ -864,7 +871,7 @@ export function startGame(
       decals.dispose();
       props.dispose();
       cobwebs.dispose();
-      dust.dispose();
+      dust?.dispose();
       shadowBudget.dispose();
       audio.dispose();
       postfx?.dispose();
