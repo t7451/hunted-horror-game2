@@ -52,7 +52,17 @@
   }
 }
 </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<!-- Pre-warm DNS / TLS for the two third-party origins we hit on boot.
+     Saves ~200-500 ms on cold loads, especially mobile, by overlapping
+     handshakes with the HTML parse. The Render host is replaced at
+     build time via Vite's HTML env-var substitution. -->
+<link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+<link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
+<link rel="preconnect" href="https://hunted-horror-game2.onrender.com" crossorigin>
+<link rel="dns-prefetch" href="https://hunted-horror-game2.onrender.com">
+<!-- Three.js core ships from the CDN. We could self-host but the CDN cache
+     is already warm for most users from other Three.js sites. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" crossorigin="anonymous"></script>
 <style>
 /* ── RESET ── */
 *{margin:0;padding:0;box-sizing:border-box;touch-action:none;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
@@ -185,6 +195,17 @@ canvas:not(#minimap){position:fixed;inset:0;display:block;width:100%!important;h
 /* ── MESSAGE POPUP ── */
 #msg-popup{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:150;font-size:clamp(1.4rem,5vw,2.8rem);color:#ff3333;text-shadow:0 0 40px #ff333388;pointer-events:none;opacity:0;transition:opacity .4s;text-align:center;letter-spacing:.1em}
 #msg-popup.show{opacity:1}
+
+/* ── LOADING / ERROR / FPS OVERLAYS ── */
+#loading-overlay{position:fixed;inset:0;z-index:600;background:radial-gradient(ellipse at 50% 30%,#0a0515 0%,#020008 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;color:#00e5ff;font-family:inherit;letter-spacing:.16em;font-weight:700;font-size:.9rem;text-shadow:0 0 20px #00e5ff66;transition:opacity .35s}
+#loading-overlay.hidden{opacity:0;pointer-events:none}
+#loading-bar-wrap{width:min(280px,80vw);height:6px;background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.3);border-radius:3px;overflow:hidden}
+#loading-bar{height:100%;width:0%;background:linear-gradient(90deg,#00b8cc,#00e5ff);box-shadow:0 0 18px rgba(0,229,255,.55);transition:width .25s ease-out}
+#loading-tip{font-size:.7rem;color:#779;letter-spacing:.05em;font-style:italic;font-weight:400;text-align:center;max-width:80vw;line-height:1.6;text-shadow:none;margin-top:6px}
+#error-toast{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:700;background:rgba(40,5,5,.95);border:1px solid rgba(255,80,80,.6);color:#ffb0b0;padding:12px 20px;border-radius:6px;font-size:.8rem;letter-spacing:.04em;max-width:88vw;box-shadow:0 6px 24px rgba(0,0,0,.5);display:none}
+#error-toast.show{display:block}
+#fps-overlay{position:fixed;top:8px;right:8px;z-index:120;background:rgba(0,0,0,.55);border:1px solid rgba(0,229,255,.2);color:#00e5ff;font-family:'Courier New',monospace;font-size:.7rem;padding:4px 8px;border-radius:3px;display:none;pointer-events:none;line-height:1.4}
+#fps-overlay.show{display:block}
 
 /* ── DEATH SCREEN ── */
 #death-screen{position:fixed;inset:0;z-index:300;background:rgba(5,0,15,.96);display:flex;flex-direction:column;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity 1s}
@@ -322,6 +343,15 @@ canvas:not(#minimap){position:fixed;inset:0;display:block;width:100%!important;h
 
 <!-- ═══ CROSSHAIR ═══ -->
 <div id="crosshair" class="hidden"></div>
+
+<!-- ═══ LOADING / ERROR / FPS ═══ -->
+<div id="loading-overlay" class="hidden">
+  <div>BUILDING THE HOUSE</div>
+  <div id="loading-bar-wrap"><div id="loading-bar"></div></div>
+  <div id="loading-tip">Lighting candles, hanging paintings, sweeping the floors&hellip;</div>
+</div>
+<div id="error-toast"></div>
+<div id="fps-overlay">FPS --</div>
 
 <!-- ═══ MINIMAP ═══ -->
 <canvas id="minimap" class="hidden" width="100" height="76"></canvas>
@@ -473,12 +503,67 @@ function connect() {
   }
   const proto = wsUrl.startsWith('wss:') ? 'wss:' : 'ws:';
   const host = wsUrl.replace(/^wss?:\/\//, '').replace(/\/.*$/, '');
-  
+
   console.log('[App] Attempting WebSocket connection to:', wsUrl);
   console.log('[App] Protocol:', proto, 'Host:', host);
-  
-  ws = new WebSocket(wsUrl);
-  
+
+  // Render's free tier puts services to sleep after ~15 minutes of
+  // idleness; the first request then triggers a cold start that can take
+  // 30-60 seconds. WebSocket upgrades during a cold start often look
+  // "hung" to the user. Sending a plain HTTPS GET to /status first
+  // wakes the dyno predictably and lets us show real progress instead
+  // of a frozen "Connecting..." line. We also keep the *visible*
+  // status line useful while the cold start runs.
+  const httpProto  = wsUrl.startsWith('wss:') ? 'https:' : 'http:';
+  const wakeUrl    = `${httpProto}//${host}/status`;
+  const isCrossOrigin = host !== location.host;
+  const startedAt = Date.now();
+  let wakeTicker = null;
+
+  if (isCrossOrigin) {
+    setStatus('Waking up the game server… (free tier sleeps when idle)');
+    wakeTicker = setInterval(() => {
+      const secs = Math.round((Date.now() - startedAt) / 1000);
+      setStatus(`Waking up the game server… ${secs}s (this can take up to a minute the first time)`);
+    }, 1000);
+  } else {
+    setStatus('Connecting…');
+  }
+
+  const openSocket = () => {
+    if (wakeTicker) { clearInterval(wakeTicker); wakeTicker = null; }
+    setStatus('Connecting to game server…');
+    ws = new WebSocket(wsUrl);
+    bindSocketEvents(ws);
+  };
+
+  if (!isCrossOrigin) {
+    openSocket();
+    return;
+  }
+
+  // Race the wake ping against a 65 s ceiling. AbortController lets us
+  // cancel the fetch cleanly if the server happens to come up faster
+  // than our deadline.
+  const ctrl = new AbortController();
+  const deadline = setTimeout(() => ctrl.abort(), 65_000);
+  fetch(wakeUrl, { method: 'GET', signal: ctrl.signal, cache: 'no-store', mode: 'cors' })
+    .then(() => {
+      clearTimeout(deadline);
+      console.log('[App] Server awake after', Math.round((Date.now() - startedAt) / 1000), 's');
+      openSocket();
+    })
+    .catch((err) => {
+      clearTimeout(deadline);
+      console.warn('[App] Wake ping failed; opening socket anyway.', err && err.message);
+      // Even if the wake ping fails (CORS, network blip), the socket
+      // upgrade itself will still wake the dyno on Render — fall through
+      // so the user isn't permanently stranded.
+      openSocket();
+    });
+}
+
+function bindSocketEvents(ws) {
   ws.onopen = () => {
     console.log('[App] WebSocket connected successfully');
     reconnectAttempts = 0;
@@ -530,7 +615,7 @@ function onMsg(msg) {
       hideSpots = msg.hideSpots || [];
       exitTileInfo = msg.exitTile || null;
       setStatus('Ready - choose a game mode');
-      if (!mapBuilt) { buildMap(); buildFurniture(mapData, tileSize, WALL_H); mapBuilt = true; }
+      if (!mapBuilt) { mapBuilt = true; buildWorldAsync(); }
       break;
 
     case 'playerJoined':
@@ -866,57 +951,87 @@ function buildFurniture(mapData, T, WH) {
     const v = Math.sin(x * 73.13 + z * 19.71 + salt * 11.07) * 43758.5453;
     return v - Math.floor(v);
   };
-  // Shared materials (wood, dark cloth, metal, paint)
-  const wood   = new THREE.MeshPhongMaterial({ color: 0x4a2f1a, shininess: 12 });
-  const wood2  = new THREE.MeshPhongMaterial({ color: 0x351f10, shininess: 8 });
-  const cloth  = new THREE.MeshPhongMaterial({ color: 0x3a1a1a, shininess: 2 });
-  const metal  = new THREE.MeshPhongMaterial({ color: 0x4a4a4f, shininess: 60, specular: 0x888888 });
-  const paint  = new THREE.MeshPhongMaterial({ color: 0x222222, shininess: 4 });
-  const lampMt = new THREE.MeshPhongMaterial({ color: 0xffd277, emissive: 0xffaa44, emissiveIntensity: 1.4 });
+  // Shared materials. ALL props now reuse this fixed set instead of
+  // calling `new THREE.MeshPhongMaterial(...)` per mesh — every distinct
+  // material that ships to the GPU compiles its own shader program, and
+  // the previous build was emitting hundreds of one-off materials per
+  // map (one per book, pillow, painting canvas, rug…).
+  const wood     = new THREE.MeshPhongMaterial({ color: 0x4a2f1a, shininess: 12 });
+  const wood2    = new THREE.MeshPhongMaterial({ color: 0x351f10, shininess: 8 });
+  const cloth    = new THREE.MeshPhongMaterial({ color: 0x3a1a1a, shininess: 2 });
+  const metal    = new THREE.MeshPhongMaterial({ color: 0x4a4a4f, shininess: 60, specular: 0x888888 });
+  const paint    = new THREE.MeshPhongMaterial({ color: 0x222222, shininess: 4 });
+  const lampMt   = new THREE.MeshPhongMaterial({ color: 0xffd277, emissive: 0xffaa44, emissiveIntensity: 1.4 });
+  const pillowMt = new THREE.MeshPhongMaterial({ color: 0x8a8270, shininess: 4 });
+  const canvasMt = new THREE.MeshPhongMaterial({ color: 0x1a1014, shininess: 1 });
+  const rugMt    = new THREE.MeshPhongMaterial({ color: 0x4a1a1a, shininess: 1, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+  const bookMts  = [
+    new THREE.MeshPhongMaterial({ color: 0x552020 }),
+    new THREE.MeshPhongMaterial({ color: 0x204450 }),
+    new THREE.MeshPhongMaterial({ color: 0x2a4422 }),
+    new THREE.MeshPhongMaterial({ color: 0x553a14 }),
+  ];
+  // Shared geometries — same idea: avoid creating dozens of identical
+  // BoxGeometry instances when one would do.
+  const tableTopGeo = new THREE.BoxGeometry(1.8, 0.12, 1.0);
+  const tableLegGeo = new THREE.BoxGeometry(0.12, 0.95, 0.12);
+  const chairSeatGeo = new THREE.BoxGeometry(0.6, 0.1, 0.6);
+  const chairBackGeo = new THREE.BoxGeometry(0.6, 0.7, 0.08);
+  const chairLegGeo  = new THREE.BoxGeometry(0.08, 0.5, 0.08);
+  const bedFrameGeo  = new THREE.BoxGeometry(1.6, 0.4, 2.4);
+  const bedMatGeo    = new THREE.BoxGeometry(1.5, 0.18, 2.2);
+  const pillowGeo    = new THREE.BoxGeometry(0.6, 0.1, 0.45);
+  const shelfBackGeo = new THREE.BoxGeometry(1.6, 2.4, 0.12);
+  const shelfBoardGeo = new THREE.BoxGeometry(1.6, 0.06, 0.45);
+  const bookGeo      = new THREE.BoxGeometry(0.12, 0.32, 0.22);
+  const lampStandGeo = new THREE.CylinderGeometry(0.05, 0.08, 1.6, 8);
+  const lampShadeGeo = new THREE.ConeGeometry(0.35, 0.5, 12, 1, true);
+  const paintFrameGeo = new THREE.BoxGeometry(1.0, 0.7, 0.06);
+  const paintCanvasGeo = new THREE.PlaneGeometry(0.86, 0.56);
+  const crateGeo     = new THREE.BoxGeometry(0.9, 0.9, 0.9);
+  const rugGeo       = new THREE.PlaneGeometry(2.4, 1.6);
 
   function table(cx, cz) {
     const g = new THREE.Group();
-    const top = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.12, 1.0), wood);
+    const top = new THREE.Mesh(tableTopGeo, wood);
     top.position.y = 0.95; g.add(top);
     [[-0.8,-0.4],[0.8,-0.4],[-0.8,0.4],[0.8,0.4]].forEach(([x,z]) => {
-      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.95, 0.12), wood2);
+      const leg = new THREE.Mesh(tableLegGeo, wood2);
       leg.position.set(x, 0.475, z); g.add(leg);
     });
     g.position.set(cx, 0, cz); return g;
   }
   function chair(cx, cz, rotY) {
     const g = new THREE.Group();
-    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.1, 0.6), wood);
+    const seat = new THREE.Mesh(chairSeatGeo, wood);
     seat.position.y = 0.5; g.add(seat);
-    const back = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.7, 0.08), wood);
+    const back = new THREE.Mesh(chairBackGeo, wood);
     back.position.set(0, 0.85, -0.26); g.add(back);
     [[-0.25,-0.25],[0.25,-0.25],[-0.25,0.25],[0.25,0.25]].forEach(([x,z]) => {
-      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.5, 0.08), wood2);
+      const leg = new THREE.Mesh(chairLegGeo, wood2);
       leg.position.set(x, 0.25, z); g.add(leg);
     });
     g.position.set(cx, 0, cz); g.rotation.y = rotY; return g;
   }
   function bed(cx, cz, rotY) {
     const g = new THREE.Group();
-    const frame = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.4, 2.4), wood2);
+    const frame = new THREE.Mesh(bedFrameGeo, wood2);
     frame.position.y = 0.2; g.add(frame);
-    const mat = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.18, 2.2), cloth);
+    const mat = new THREE.Mesh(bedMatGeo, cloth);
     mat.position.y = 0.49; g.add(mat);
-    const pillow = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.1, 0.45), new THREE.MeshPhongMaterial({ color: 0x8a8270 }));
+    const pillow = new THREE.Mesh(pillowGeo, pillowMt);
     pillow.position.set(0, 0.6, -0.85); g.add(pillow);
     g.position.set(cx, 0, cz); g.rotation.y = rotY; return g;
   }
   function shelf(cx, cz, rotY) {
     const g = new THREE.Group();
-    const back = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.4, 0.12), wood2);
+    const back = new THREE.Mesh(shelfBackGeo, wood2);
     back.position.y = 1.2; g.add(back);
     for (let i = 0; i < 3; i++) {
-      const sh = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.06, 0.45), wood);
+      const sh = new THREE.Mesh(shelfBoardGeo, wood);
       sh.position.set(0, 0.5 + i * 0.7, 0.2); g.add(sh);
-      // a couple of "books" per shelf
       for (let b = 0; b < 4; b++) {
-        const book = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.32, 0.22),
-          new THREE.MeshPhongMaterial({ color: [0x552020, 0x204450, 0x2a4422, 0x553a14][b % 4] }));
+        const book = new THREE.Mesh(bookGeo, bookMts[b % bookMts.length]);
         book.position.set(-0.6 + b * 0.18, 0.7 + i * 0.7, 0.25); g.add(book);
       }
     }
@@ -927,35 +1042,35 @@ function buildFurniture(mapData, T, WH) {
     // shader. The shade is strongly emissive so the lamp still reads as
     // "lit" without affecting global illumination cost.
     const g = new THREE.Group();
-    const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 1.6, 8), metal);
+    const stand = new THREE.Mesh(lampStandGeo, metal);
     stand.position.y = 0.8; g.add(stand);
-    const shade = new THREE.Mesh(new THREE.ConeGeometry(0.35, 0.5, 12, 1, true), lampMt);
+    const shade = new THREE.Mesh(lampShadeGeo, lampMt);
     shade.position.y = 1.65; g.add(shade);
     g.position.set(cx, 0, cz); return g;
   }
   function painting(cx, cz, rotY) {
     const g = new THREE.Group();
-    const frame = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.7, 0.06), wood2);
+    const frame = new THREE.Mesh(paintFrameGeo, wood2);
     g.add(frame);
-    const canvas = new THREE.Mesh(new THREE.PlaneGeometry(0.86, 0.56),
-      new THREE.MeshPhongMaterial({ color: 0x1a1014 }));
+    const canvas = new THREE.Mesh(paintCanvasGeo, canvasMt);
     canvas.position.z = 0.04; g.add(canvas);
     g.position.set(cx, 1.9, cz); g.rotation.y = rotY; return g;
   }
   function crate(cx, cz, rotY) {
     const g = new THREE.Group();
-    const c = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 0.9), wood2);
+    const c = new THREE.Mesh(crateGeo, wood2);
     c.position.y = 0.45; g.add(c);
     g.position.set(cx, 0, cz); g.rotation.y = rotY; return g;
   }
   function rug(cx, cz) {
-    // polygonOffset prevents z-fighting with the merged floor plane below.
-    const r = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.6),
-      new THREE.MeshPhongMaterial({ color: 0x4a1a1a, shininess: 1, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
+    const r = new THREE.Mesh(rugGeo, rugMt);
     r.rotation.x = -Math.PI / 2;
     r.position.set(cx, 0.02, cz);
     return r;
   }
+  // `paint` is a leftover material slot reserved for future props (e.g.
+  // colored picture frames). Touch it once to silence unused-let warnings.
+  void paint;
 
   const props = [];
   // Pick random props per open floor tile (low density so movement isn't blocked).
@@ -1019,6 +1134,44 @@ function buildFurniture(mapData, T, WH) {
   return props;
 }
 
+// ── ASYNC WORLD BUILD ──
+// Progressive build with a loading overlay + chunked yields between phases
+// so the browser can paint between heavy steps and the user sees feedback
+// instead of a frozen lobby. `requestAnimationFrame` is used as the yield
+// primitive because it's everywhere and is naturally rate-limited.
+function _yieldFrame() {
+  return new Promise(resolve => requestAnimationFrame(() => resolve()));
+}
+
+async function buildWorldAsync() {
+  const overlay = document.getElementById('loading-overlay');
+  const bar     = document.getElementById('loading-bar');
+  const tip     = document.getElementById('loading-tip');
+  if (overlay) overlay.classList.remove('hidden');
+  const setProgress = (pct, label) => {
+    if (bar) bar.style.width = pct + '%';
+    if (tip && label) tip.textContent = label;
+  };
+  try {
+    setProgress(10, 'Laying floorboards…');
+    await _yieldFrame();
+    buildMap();
+    setProgress(60, 'Hanging paintings and lighting candles…');
+    await _yieldFrame();
+    const props = buildFurniture(mapData, tileSize, WALL_H) || [];
+    window._furnitureProps = props;
+    setProgress(100, 'Welcoming you in…');
+    await _yieldFrame();
+    setTimeout(() => overlay && overlay.classList.add('hidden'), 200);
+  } catch (err) {
+    console.error('[buildWorldAsync]', err);
+    if (typeof showError === 'function') {
+      showError('Could not finish building the world. Some props may be missing.');
+    }
+    if (overlay) overlay.classList.add('hidden');
+  }
+}
+
 // ── MAP GEOMETRY ──
 function buildMap() {
   if (!mapData || !scene) return;
@@ -1062,13 +1215,17 @@ function buildMap() {
     t.repeat.set(1, 1);
   });
 
-  const floorMat = new THREE.MeshPhongMaterial({ map: floorTex, color: 0xffffff, shininess: 4, specular: 0x222222 });
-  const ceilMat  = new THREE.MeshPhongMaterial({ map: ceilTex,  color: 0xffffff, shininess: 2 });
-  const wallMat  = new THREE.MeshPhongMaterial({ map: wallTex,  color: 0xffffff, shininess: 8, specular: 0x111111 });
-  const wallMat2 = new THREE.MeshPhongMaterial({ map: wallTex2, color: 0xffffff, shininess: 7, specular: 0x0c0c0c });
-  const doorMat  = new THREE.MeshPhongMaterial({ map: doorTex,  color: 0xffffff, shininess: 14, specular: 0x222222 });
-  const exitMat  = new THREE.MeshPhongMaterial({ color: exitColor, emissive: 0x0d3d0d, emissiveIntensity: 1.1, shininess: 25 });
-  const hideMat  = new THREE.MeshPhongMaterial({ map: hideTex,  color: 0xffffff, shininess: 5 });
+  // Lambert shaders skip the per-fragment specular pass that Phong runs,
+  // and the floor / ceiling / walls in this game don't show meaningful
+  // specular highlights anyway. This is a measurable shader-cost win on
+  // mobile GPUs without changing the look.
+  const floorMat = new THREE.MeshLambertMaterial({ map: floorTex });
+  const ceilMat  = new THREE.MeshLambertMaterial({ map: ceilTex });
+  const wallMat  = new THREE.MeshLambertMaterial({ map: wallTex  });
+  const wallMat2 = new THREE.MeshLambertMaterial({ map: wallTex2 });
+  const doorMat  = new THREE.MeshLambertMaterial({ map: doorTex  });
+  const exitMat  = new THREE.MeshLambertMaterial({ color: exitColor, emissive: 0x0d3d0d, emissiveIntensity: 1.1 });
+  const hideMat  = new THREE.MeshLambertMaterial({ map: hideTex  });
 
   // ── Merged floor/ceiling ──
   // One plane each instead of one mesh per tile. Floor texture tiling makes
@@ -1533,6 +1690,29 @@ function drawMinimap(state) {
 // ═══════════════════════════════════════════════════════════════
 // ANIMATION LOOP
 // ═══════════════════════════════════════════════════════════════
+// Furniture LOD / distance culling. Three.js's automatic frustum culling
+// catches off-screen meshes for free, but the fog visibility horizon is
+// ~25-30 units and there's no point shading anything past that. We hide
+// furniture groups beyond CULL_DIST so the renderer doesn't even queue
+// them. Re-evaluated every CULL_INTERVAL_MS to keep the per-frame cost
+// negligible even with hundreds of props.
+const CULL_DIST = 26;
+const CULL_INTERVAL_MS = 200;
+let lastCullTs = 0;
+function applyFurnitureCulling() {
+  const props = window._furnitureProps;
+  if (!props || !props.length || !camera) return;
+  const cx = camera.position.x;
+  const cz = camera.position.z;
+  const r2 = CULL_DIST * CULL_DIST;
+  for (let i = 0; i < props.length; i++) {
+    const p = props[i];
+    const dx = p.position.x - cx;
+    const dz = p.position.z - cz;
+    p.visible = (dx * dx + dz * dz) <= r2;
+  }
+}
+
 function animate() {
   requestAnimationFrame(animate);
   if (!renderer || !scene || !camera) return;
@@ -1549,7 +1729,16 @@ function animate() {
 
   noiseLevel = Math.max(0, noiseLevel - 18 * dt);
 
+  const now = performance.now();
+  if (now - lastCullTs > CULL_INTERVAL_MS) {
+    applyFurnitureCulling();
+    lastCullTs = now;
+  }
+
   renderer.render(scene, camera);
+  // tickFps is defined in the boot block; guard so it doesn't crash if
+  // animate() runs before that block executes (paranoia).
+  if (typeof tickFps === 'function') tickFps();
 }
 
 let spectatorAngle = 0;
@@ -1629,14 +1818,20 @@ function updateMovement(dt) {
   isMoving = moveX !== 0 || moveZ !== 0;
 
   if (isMoving) {
+    // Keep direction normalised but respect the input magnitude. The old
+    // code divided through by Math.hypot(wx, wz), which made small joystick
+    // deflections snap to full sprint speed. Now |moveVec| <= 1 from the
+    // joystick is preserved, while keyboard's diagonal sqrt(2) gets capped.
     const cos = Math.cos(lookYaw);
     const sin = Math.sin(lookYaw);
     const wx = moveX * cos - moveZ * sin;
     const wz = moveX * sin + moveZ * cos;
-    const len = Math.hypot(wx, wz) || 1;
+    const inputMag = Math.min(1, Math.hypot(moveX, moveZ));
+    const dirLen = Math.hypot(wx, wz) || 1;
     const speed = crouching ? 2.5 : sprinting ? 7 : 4.5;
-    const dx = (wx / len) * speed * dt;
-    const dz = (wz / len) * speed * dt;
+    const factor = (speed * dt * inputMag) / dirLen;
+    const dx = wx * factor;
+    const dz = wz * factor;
     // Axis-separated collision: try each axis independently so the player
     // slides along walls instead of sticking to corners. Bounds are clamped
     // last so the camera can never leave the map and reappear on the far
@@ -1918,7 +2113,11 @@ const endJoy = e => {
 };
 joyZone.addEventListener('pointerup', endJoy);
 joyZone.addEventListener('pointercancel', endJoy);
-joyZone.addEventListener('pointerleave', endJoy);
+// Note: pointerleave is intentionally NOT bound. With setPointerCapture in
+// place pointermove keeps firing outside the element bounds, but the
+// browser still emits pointerleave on the original element — listening for
+// it would prematurely cancel the drag the moment the user moves past the
+// 44%-wide joystick zone.
 
 let prevLookX = 0, prevLookY = 0;
 lookZone.addEventListener('touchstart', e => {
@@ -1951,24 +2150,39 @@ lookZone.addEventListener('touchend', e => {
   }
 });
 
-// ── Mouse look (desktop) ──
-// Requesting pointer lock over the joystick zone would steal the mouse from
-// the on-screen joystick, so only lock when the click happens outside it.
-let pointerLocked = false;
-document.body.addEventListener('click', e => {
-  if (gamePhase !== 'playing' || !renderer) return;
-  const target = e.target;
-  if (target && (target.closest('#joystick-zone') ||
-                 target.closest('#jstick-bg') ||
-                 target.closest('#jstick-knob') ||
-                 target.closest('#action-btns') ||
-                 target.closest('#sprint-btn') ||
-                 target.closest('#chat-container') ||
-                 target.closest('#chat-toggle'))) {
-    return;
-  }
-  document.body.requestPointerLock();
+// Mouse drag-to-look on the same zone (desktop). Only fires for primary
+// mouse button so right-click menus and middle-click scroll still work.
+let mouseLookId = null;
+lookZone.addEventListener('pointerdown', e => {
+  if (e.pointerType !== 'mouse' || e.button !== 0) return;
+  mouseLookId = e.pointerId;
+  lookZone.setPointerCapture(e.pointerId);
+  prevLookX = e.clientX;
+  prevLookY = e.clientY;
+  lookActive = true;
+  unlockAudio();
 });
+lookZone.addEventListener('pointermove', e => {
+  if (e.pointerId !== mouseLookId) return;
+  lookDX += e.clientX - prevLookX;
+  lookDY += e.clientY - prevLookY;
+  prevLookX = e.clientX;
+  prevLookY = e.clientY;
+});
+const endMouseLook = e => {
+  if (e.pointerId !== mouseLookId) return;
+  lookActive = false;
+  mouseLookId = null;
+};
+lookZone.addEventListener('pointerup', endMouseLook);
+lookZone.addEventListener('pointercancel', endMouseLook);
+
+// ── Mouse look (desktop) ──
+// Auto pointer-lock has been removed: capturing the cursor on the first
+// canvas click made the on-screen joystick unusable on desktop. Mouselook
+// is now opt-in via the 'L' key (see the keyboard handler below). On both
+// desktop and mobile the right-half "look-zone" handles drag-to-look.
+let pointerLocked = false;
 document.addEventListener('pointerlockchange', () => {
   pointerLocked = document.pointerLockElement === document.body;
 });
@@ -1991,7 +2205,14 @@ document.addEventListener('keydown', e => {
     send({ type: 'interact' });
     unlockAudio();
   }
+  // 'L' toggles mouselook (pointer-lock). Opt-in to keep the joystick
+  // usable on desktop by default.
+  if (e.key === 'l' || e.key === 'L') {
+    if (pointerLocked) document.exitPointerLock();
+    else if (renderer) document.body.requestPointerLock();
+  }
 });
+
 document.addEventListener('keyup', e => {
   keys[e.key.toLowerCase()] = false;
   if (e.key === 'Shift') sprinting = false;
@@ -2188,9 +2409,58 @@ function showUpdateNotification() {
 }
 
 // ═══ BOOT ═══
-initScene();
-animate();
-connect();
+// Wrap the renderer/connection bring-up so a missing WebGL context, a
+// blocked websocket, or any thrown error surfaces as a friendly toast
+// instead of a blank black screen.
+function showError(message) {
+  console.error('[error]', message);
+  const el = document.getElementById('error-toast');
+  if (!el) return;
+  el.textContent = message;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 6500);
+}
+
+try {
+  initScene();
+} catch (err) {
+  console.error('[initScene]', err);
+  showError('WebGL failed to start. Please update your browser or enable hardware acceleration.');
+}
+try {
+  animate();
+} catch (err) {
+  console.error('[animate]', err);
+  showError('Render loop crashed: ' + (err && err.message ? err.message : err));
+}
+try {
+  connect();
+} catch (err) {
+  console.error('[connect]', err);
+  showError('Could not connect to game server. Single-player only.');
+}
+
+// FPS overlay — toggle with F. Updated from the animate loop (see below).
+const fpsOverlay = document.getElementById('fps-overlay');
+let fpsVisible = false;
+let fpsFrames = 0;
+let fpsLastTs = performance.now();
+document.addEventListener('keydown', e => {
+  if (e.key === 'f' || e.key === 'F') {
+    fpsVisible = !fpsVisible;
+    fpsOverlay.classList.toggle('show', fpsVisible);
+  }
+});
+function tickFps() {
+  fpsFrames++;
+  const now = performance.now();
+  if (now - fpsLastTs >= 500) {
+    const fps = (fpsFrames * 1000) / (now - fpsLastTs);
+    if (fpsVisible) fpsOverlay.textContent = `FPS ${fps.toFixed(0)}  draws ${renderer?.info?.render?.calls ?? '?'}`;
+    fpsFrames = 0;
+    fpsLastTs = now;
+  }
+}
 </script>
 </body>
 </html>
