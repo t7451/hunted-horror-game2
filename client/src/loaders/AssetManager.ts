@@ -192,7 +192,7 @@ export class AssetManager {
       total: Math.max(this.totalCount, this.loadedCount),
       currentItem,
     };
-    for (const cb of this.progressCbs) cb(info);
+    this.progressCbs.forEach((cb) => cb(info));
   }
 
   private maybeEmitPhase(url: string) {
@@ -203,7 +203,7 @@ export class AssetManager {
   private emitPhase(phase: string) {
     if (phase === this.currentPhase) return;
     this.currentPhase = phase;
-    for (const cb of this.phaseCbs) cb(phase);
+    this.phaseCbs.forEach((cb) => cb(phase));
   }
 
   getAudioContext(): AudioContext {

@@ -1,5 +1,11 @@
 import * as THREE from "three";
-import { dpr, isMobile, tier } from "../util/device";
+import {
+  isMobile,
+  pixelRatioForQuality,
+  resolveGraphicsQuality,
+  tier,
+  type GraphicsQuality,
+} from "../util/device";
 
 // Single source of truth for renderer construction.
 // Phase 2 of the visual overhaul: tier-aware shadow + AA selection so
@@ -11,23 +17,30 @@ export type CreatedRenderer = {
   detachContextHandlers: () => void;
 };
 
-export function createRenderer(canvas?: HTMLCanvasElement): CreatedRenderer {
+export type RendererOptions = {
+  canvas?: HTMLCanvasElement;
+  quality?: GraphicsQuality;
+};
+
+export function createRenderer(options: RendererOptions = {}): CreatedRenderer {
+  const quality = resolveGraphicsQuality(options.quality);
   const renderer = new THREE.WebGLRenderer({
-    canvas,
+    canvas: options.canvas,
     // SMAA via PostFX handles mobile AA so we skip native MSAA on phones.
-    antialias: !isMobile,
+    antialias: !isMobile && quality !== "low",
     powerPreference: "high-performance",
     stencil: false,
     depth: true,
   });
-  renderer.setPixelRatio(dpr);
+  renderer.setPixelRatio(pixelRatioForQuality(options.quality));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.85;
-  renderer.shadowMap.enabled = true;
+  renderer.toneMappingExposure = quality === "low" ? 0.78 : 0.85;
+  renderer.shadowMap.enabled = quality !== "low";
   // BasicShadowMap on mobile sidesteps the SpotLight+PCF crash class on
   // some Android drivers and is dramatically cheaper.
-  renderer.shadowMap.type = isMobile ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type =
+    isMobile || quality === "mid" ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
 
   let lost = false;
   const onLost = (e: Event) => {
