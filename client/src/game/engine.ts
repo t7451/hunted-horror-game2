@@ -279,6 +279,7 @@ export function startGame(
   // Keys (with little point lights)
   const keyGroup = new THREE.Group();
   const keyMeshes: THREE.Mesh[] = [];
+  const keyLights = new Map<THREE.Mesh, THREE.PointLight>();
   parsed.keys.forEach(k => {
     const key = new THREE.Mesh(keyGeo, keyMat);
     key.castShadow = shadowsEnabled;
@@ -292,6 +293,7 @@ export function startGame(
       const light = new THREE.PointLight(0xffd24a, 0.6, 4, 2);
       light.position.copy(key.position);
       keyGroup.add(light);
+      keyLights.set(key, light);
     }
     keyMeshes.push(key);
   });
@@ -499,11 +501,8 @@ export function startGame(
     enemyLight.position.set(enemyMesh.position.x, 1.6, enemyMesh.position.z);
   }
 
-  function updateLocalEnemy(dt: number, elapsed: number) {
-    if (
-      !enemyMesh.visible ||
-      performance.now() - lastRemoteEnemyAt < REMOTE_ENEMY_TIMEOUT_MS
-    )
+  function updateLocalEnemy(dt: number, elapsed: number, now: number) {
+    if (!enemyMesh.visible || now - lastRemoteEnemyAt < REMOTE_ENEMY_TIMEOUT_MS)
       return;
     const dx = camera.position.x - enemyMesh.position.x;
     const dz = camera.position.z - enemyMesh.position.z;
@@ -529,15 +528,11 @@ export function startGame(
       const dz = k.position.z - camera.position.z;
       if (dx * dx + dz * dz < 1.4 * 1.4) {
         keyGroup.remove(k);
-        // Remove the matching point light (it was added directly after).
-        const lights = keyGroup.children.filter(
-          (c): c is THREE.PointLight =>
-            (c as THREE.PointLight).isPointLight === true
-        );
-        const nearestLight = lights
-          .map(l => ({ l, d: l.position.distanceToSquared(k.position) }))
-          .sort((a, b) => a.d - b.d)[0];
-        if (nearestLight) keyGroup.remove(nearestLight.l);
+        const light = keyLights.get(k);
+        if (light) {
+          keyGroup.remove(light);
+          keyLights.delete(k);
+        }
         keyMeshes.splice(i, 1);
         events.onKeyPickup?.(keyMeshes.length);
       }
@@ -611,7 +606,7 @@ export function startGame(
       }
 
       const t = clock.elapsedTime;
-      updateLocalEnemy(dt, t);
+      updateLocalEnemy(dt, t, performance.now());
       for (const k of keyMeshes) {
         k.rotation.y += dt * 2;
         k.position.y = 0.9 + Math.sin(t * 2 + k.position.x) * 0.08;

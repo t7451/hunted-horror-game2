@@ -122,8 +122,13 @@ export type ParsedMap = {
 };
 
 export function parseMap(map: MapDef): ParsedMap {
-  const rows = map.raw.map(row => row.trim());
-  const width = Math.max(...rows.map(row => row.length));
+  const rows: string[] = [];
+  let width = 0;
+  map.raw.forEach(row => {
+    const trimmed = row.trim();
+    rows.push(trimmed);
+    width = Math.max(width, trimmed.length);
+  });
   const tiles = rows.map(row => row.padEnd(width, "W").split(""));
   const height = tiles.length;
   const result: ParsedMap = {
