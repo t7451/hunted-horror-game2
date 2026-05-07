@@ -10,6 +10,9 @@ import {
 } from "@shared/maps";
 import { perfFlag } from "../util/device";
 import { createPerfMonitor } from "../util/perfMonitor";
+import { createRenderer } from "../render/Renderer";
+import { createPostFX, type PostFX } from "../render/PostFX";
+import { createSharedUniforms } from "../render/uniforms";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rendering backend for HUNTED BY CLAUDE.
@@ -59,32 +62,19 @@ export function startGame(
   const events = options.events ?? {};
 
   // ── Renderer ───────────────────────────────────────────────────────────────
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.85;
+  // Tier-aware construction lives in render/Renderer.ts so PostFX can branch
+  // identically (mobile drops native MSAA in favor of SMAA, etc.).
+  const { renderer, contextLost: isContextLost, detachContextHandlers } = createRenderer();
   container.appendChild(renderer.domElement);
 
-  // Pause the loop while the WebGL context is lost; resume on restore.
-  // Without this the next render() throws and the RAF cascade keeps re-throwing.
-  let contextLost = false;
-  const onContextLost = (e: Event) => {
-    e.preventDefault();
-    contextLost = true;
-  };
-  const onContextRestored = () => {
-    contextLost = false;
-  };
-  renderer.domElement.addEventListener("webglcontextlost", onContextLost);
-  renderer.domElement.addEventListener("webglcontextrestored", onContextRestored);
+  const sharedUniforms = createSharedUniforms();
+  let postfx: PostFX | null = null;
 
   const resize = () => {
     const w = container.clientWidth || window.innerWidth;
     const h = container.clientHeight || window.innerHeight;
     renderer.setSize(w, h, false);
+    postfx?.setSize(w, h);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
   };
@@ -438,7 +428,10 @@ export function startGame(
       }
 
       checkPickups();
-      if (!contextLost) renderer.render(scene, camera);
+      if (!isContextLost()) {
+        if (postfx) postfx.render(dt);
+        else renderer.render(scene, camera);
+      }
       perf.end(renderer);
     } catch (err) {
       // A throw inside the RAF callback would otherwise repeat every frame
@@ -457,6 +450,30 @@ export function startGame(
   const ro = new ResizeObserver(resize);
   ro.observe(container);
   resize();
+
+  // Kick off PostFX async init. Until it resolves the loop renders directly
+  // through the renderer (graceful degradation handled in PostFX itself).
+  void createPostFX(renderer, scene, camera, {
+    uniforms: sharedUniforms,
+    // LUT asset lands in Phase 4 alongside texture pipeline; skip until
+    // present so we don't fetch a 404 every page load.
+    lutUrl: undefined,
+  })
+    .then((fx) => {
+      if (disposed) {
+        fx.dispose();
+        return;
+      }
+      postfx = fx;
+      const w = container.clientWidth || window.innerWidth;
+      const h = container.clientHeight || window.innerHeight;
+      postfx.setSize(w, h);
+    })
+    .catch((err) => {
+      // PostFX is non-essential; surface as warning, keep playing.
+      console.warn("[engine] PostFX init failed; falling back to direct render", err);
+    });
+
   tick();
 
   return {
@@ -468,8 +485,8 @@ export function startGame(
       window.removeEventListener("keyup", onKeyUp);
       document.removeEventListener("mousemove", onMouseMove);
       renderer.domElement.removeEventListener("click", onCanvasClick);
-      renderer.domElement.removeEventListener("webglcontextlost", onContextLost);
-      renderer.domElement.removeEventListener("webglcontextrestored", onContextRestored);
+      detachContextHandlers();
+      postfx?.dispose();
       perf.dispose();
       renderer.dispose();
       if (renderer.domElement.parentNode === container) {
