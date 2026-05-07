@@ -18,18 +18,20 @@ export default function Game3D() {
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [danger, setDanger] = useState<Danger>("safe");
   const [hidden, setHidden] = useState(false);
-  const [hint, setHint] = useState("Click to lock pointer · WASD to move · Shift to sprint");
+  const [hint, setHint] = useState(
+    "Click to lock pointer · WASD to move · Shift to sprint"
+  );
   const [engineError, setEngineError] = useState<string | null>(null);
   const [webglSupported] = useState(() => supportsWebGL());
 
   const selectedMap = MAPS[difficulty];
   const difficultyOptions = useMemo(
     () =>
-      MAP_KEYS.map((key) => ({
+      MAP_KEYS.map(key => ({
         key,
         ...MAPS[key],
       })),
-    [],
+    []
   );
 
   useEffect(() => {
@@ -38,7 +40,9 @@ export default function Game3D() {
     setTimeLeft(selectedMap.timer);
     setDanger("safe");
     setHidden(false);
-    setHint("Click to lock pointer · WASD/Arrows move · Shift sprint · E hides near closets");
+    setHint(
+      "Click to lock pointer · WASD/Arrows move · Shift sprint · E hides near closets"
+    );
 
     let handle: EngineHandle | null = null;
     try {
@@ -47,18 +51,24 @@ export default function Game3D() {
         quality,
         sensitivity,
         events: {
-          onReady: (info) => {
+          onReady: info => {
             setKeysLeft(info.keys);
             setTimeLeft(info.timer);
-            setHint(`${info.mapName}: collect every key, then reach the green exit.`);
+            setHint(
+              `${info.mapName}: collect every key, then reach the green exit.`
+            );
           },
-          onKeyPickup: (remaining) => {
+          onKeyPickup: remaining => {
             setKeysLeft(remaining);
-            setHint(remaining === 0 ? "All keys found. The exit is open." : "Key collected.");
+            setHint(
+              remaining === 0
+                ? "All keys found. The exit is open."
+                : "Key collected."
+            );
           },
           onCaught: () => setStatus("caught"),
           onEscape: () => setStatus("escaped"),
-          onError: (err) => {
+          onError: err => {
             setEngineError(err.message || "Render loop crashed");
             setStatus("title");
           },
@@ -90,10 +100,12 @@ export default function Game3D() {
         stateTimer = window.setInterval(() => {
           if (!handle || ws?.readyState !== WebSocket.OPEN) return;
           const s = handle.getPlayerState();
-          ws.send(JSON.stringify({ type: "move", x: s.x, z: s.z, rotY: s.rotY }));
+          ws.send(
+            JSON.stringify({ type: "move", x: s.x, z: s.z, rotY: s.rotY })
+          );
         }, 80);
       });
-      ws.addEventListener("message", (ev) => {
+      ws.addEventListener("message", ev => {
         try {
           const msg = JSON.parse(typeof ev.data === "string" ? ev.data : "");
           if (msg.type === "state" && Array.isArray(msg.players)) {
@@ -113,7 +125,9 @@ export default function Game3D() {
           // ignore malformed frames
         }
       });
-      ws.addEventListener("error", () => setHint("Multiplayer offline · local Claude enabled"));
+      ws.addEventListener("error", () =>
+        setHint("Multiplayer offline · local Claude enabled")
+      );
     } catch {
       setHint("Multiplayer offline · local Claude enabled");
     }
@@ -134,11 +148,13 @@ export default function Game3D() {
       {status === "title" && (
         <Overlay>
           <h1 className="text-5xl font-bold tracking-widest mb-2">HUNTED</h1>
-          <p className="opacity-70 mb-6">A browser-first horror escape with adaptive graphics</p>
+          <p className="opacity-70 mb-6">
+            A browser-first horror escape with adaptive graphics
+          </p>
           {!webglSupported && (
             <div className="mb-4 px-4 py-2 bg-red-900/70 border border-red-500 rounded text-sm text-red-100 max-w-md text-center">
-              WebGL is unavailable in this browser. Enable hardware acceleration or try another
-              browser.
+              WebGL is unavailable in this browser. Enable hardware acceleration
+              or try another browser.
             </div>
           )}
           {engineError && (
@@ -148,7 +164,7 @@ export default function Game3D() {
           )}
 
           <div className="grid gap-3 w-[min(92vw,720px)] sm:grid-cols-3 mb-5">
-            {difficultyOptions.map((option) => (
+            {difficultyOptions.map(option => (
               <button
                 key={option.key}
                 type="button"
@@ -170,10 +186,12 @@ export default function Game3D() {
 
           <div className="mb-6 grid w-[min(92vw,520px)] gap-3 rounded border border-white/15 bg-black/40 p-4 text-sm sm:grid-cols-2">
             <label className="flex flex-col gap-1">
-              <span className="text-xs uppercase tracking-widest opacity-60">Graphics</span>
+              <span className="text-xs uppercase tracking-widest opacity-60">
+                Graphics
+              </span>
               <select
                 value={quality}
-                onChange={(e) => setQuality(e.target.value as GraphicsQuality)}
+                onChange={e => setQuality(e.target.value as GraphicsQuality)}
                 className="rounded bg-black/80 border border-white/20 px-2 py-2"
               >
                 <option value="auto">Auto</option>
@@ -183,14 +201,16 @@ export default function Game3D() {
               </select>
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-xs uppercase tracking-widest opacity-60">Look sensitivity</span>
+              <span className="text-xs uppercase tracking-widest opacity-60">
+                Look sensitivity
+              </span>
               <input
                 type="range"
                 min="0.5"
                 max="1.6"
                 step="0.1"
                 value={sensitivity}
-                onChange={(e) => setSensitivity(Number(e.target.value))}
+                onChange={e => setSensitivity(Number(e.target.value))}
               />
             </label>
           </div>
@@ -207,8 +227,9 @@ export default function Game3D() {
             ENTER THE HOUSE
           </button>
           <p className="mt-6 text-xs opacity-60 max-w-xl text-center">
-            Find glowing keys, hide in closets with E, then reach the green exit before the timer
-            expires. Low graphics skips costly effects for older browsers and mobile GPUs.
+            Find glowing keys, hide in closets with E, then reach the green exit
+            before the timer expires. Low graphics skips costly effects for
+            older browsers and mobile GPUs.
           </p>
         </Overlay>
       )}
@@ -224,10 +245,21 @@ export default function Game3D() {
                   : "bg-black/60 border-white/10"
             }`}
           >
-            <div>Objective: {keysLeft === 0 ? "Reach the exit" : "Find every key"}</div>
+            <div>
+              Objective: {keysLeft === 0 ? "Reach the exit" : "Find every key"}
+            </div>
             <div>Keys remaining: {keysLeft ?? "—"}</div>
-            <div>Time left: {timeLeft == null ? "—" : formatTime(timeLeft)}</div>
-            <div>Stealth: {hidden ? "hidden" : danger === "safe" ? "clear" : "Claude is close"}</div>
+            <div>
+              Time left: {timeLeft == null ? "—" : formatTime(timeLeft)}
+            </div>
+            <div>
+              Stealth:{" "}
+              {hidden
+                ? "hidden"
+                : danger === "safe"
+                  ? "clear"
+                  : "Claude is close"}
+            </div>
             <div className="mt-1 opacity-70">{hint}</div>
           </div>
           <div className="pointer-events-none absolute bottom-3 left-1/2 w-[min(92vw,520px)] -translate-x-1/2 rounded bg-black/50 px-3 py-2 text-center text-xs opacity-80">
@@ -247,7 +279,9 @@ export default function Game3D() {
       )}
       {status === "escaped" && (
         <Overlay>
-          <h2 className="text-4xl font-bold text-green-400 mb-4">YOU ESCAPED</h2>
+          <h2 className="text-4xl font-bold text-green-400 mb-4">
+            YOU ESCAPED
+          </h2>
           <p className="mb-6 max-w-md text-center text-sm opacity-70">
             Every key recovered. The exit opened just in time.
           </p>

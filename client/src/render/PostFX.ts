@@ -1,5 +1,9 @@
 import * as THREE from "three";
-import { isMobile, resolveGraphicsQuality, type GraphicsQuality } from "../util/device";
+import {
+  isMobile,
+  resolveGraphicsQuality,
+  type GraphicsQuality,
+} from "../util/device";
 import type { SharedUniforms } from "./uniforms";
 
 // Post-processing pipeline. Built on the pmndrs `postprocessing` package so
@@ -36,7 +40,7 @@ type EffectComposerLike = {
 type PPModule = {
   EffectComposer: new (
     renderer: THREE.WebGLRenderer,
-    opts?: { multisampling?: number },
+    opts?: { multisampling?: number }
   ) => EffectComposerLike;
   RenderPass: new (scene: THREE.Scene, camera: THREE.Camera) => unknown;
   EffectPass: new (camera: THREE.Camera, ...effects: Effect[]) => unknown;
@@ -60,7 +64,7 @@ export async function createPostFX(
   renderer: THREE.WebGLRenderer,
   scene: THREE.Scene,
   camera: THREE.Camera,
-  opts: PostFXOptions,
+  opts: PostFXOptions
 ): Promise<PostFX> {
   const quality = resolveGraphicsQuality(opts.quality);
   if (quality === "low") {
@@ -72,7 +76,9 @@ export async function createPostFX(
     };
   }
 
-  const mod = (await import("postprocessing").catch(() => null)) as PPModule | null;
+  const mod = (await import("postprocessing").catch(
+    () => null
+  )) as PPModule | null;
   if (!mod) {
     // Graceful fallback: package not installed yet. Caller can still drive a
     // raw renderer.render() — return a stub so callsites don't branch.
@@ -111,7 +117,7 @@ export async function createPostFX(
     effects.push(
       new mod.ChromaticAberrationEffect({
         offset: new THREE.Vector2(0.0008, 0.0008),
-      }),
+      })
     );
   }
 

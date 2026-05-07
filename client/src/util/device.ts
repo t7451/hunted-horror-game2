@@ -25,7 +25,7 @@ export const tier: Tier = (() => {
     const dbg = gl.getExtension("WEBGL_debug_renderer_info");
     const renderer = dbg
       ? (gl.getParameter(
-          (dbg as { UNMASKED_RENDERER_WEBGL: number }).UNMASKED_RENDERER_WEBGL,
+          (dbg as { UNMASKED_RENDERER_WEBGL: number }).UNMASKED_RENDERER_WEBGL
         ) as string)
       : "";
     if (/Intel/i.test(renderer)) return "mid";
@@ -39,7 +39,9 @@ export const perfFlag =
   typeof window !== "undefined" &&
   new URLSearchParams(window.location.search).has("perf");
 
-export function resolveGraphicsQuality(quality: GraphicsQuality = "auto"): Tier {
+export function resolveGraphicsQuality(
+  quality: GraphicsQuality = "auto"
+): Tier {
   return quality === "auto" ? tier : quality;
 }
 

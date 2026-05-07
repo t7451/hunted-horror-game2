@@ -40,7 +40,9 @@ export function createRenderer(options: RendererOptions = {}): CreatedRenderer {
   // BasicShadowMap on mobile sidesteps the SpotLight+PCF crash class on
   // some Android drivers and is dramatically cheaper.
   renderer.shadowMap.type =
-    isMobile || quality === "mid" ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
+    isMobile || quality === "mid"
+      ? THREE.BasicShadowMap
+      : THREE.PCFSoftShadowMap;
 
   let lost = false;
   const onLost = (e: Event) => {
@@ -58,7 +60,10 @@ export function createRenderer(options: RendererOptions = {}): CreatedRenderer {
     contextLost: () => lost,
     detachContextHandlers: () => {
       renderer.domElement.removeEventListener("webglcontextlost", onLost);
-      renderer.domElement.removeEventListener("webglcontextrestored", onRestored);
+      renderer.domElement.removeEventListener(
+        "webglcontextrestored",
+        onRestored
+      );
     },
   };
 }

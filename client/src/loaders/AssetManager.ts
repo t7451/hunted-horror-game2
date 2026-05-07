@@ -47,7 +47,10 @@ export class AssetManager {
   private audioLoader: THREE.AudioLoader | null = null;
   private audioCtx: AudioContext | null = null;
 
-  constructor(private readonly basisPath = "/basis/", private readonly dracoPath = "/draco/") {
+  constructor(
+    private readonly basisPath = "/basis/",
+    private readonly dracoPath = "/draco/"
+  ) {
     this.manager.onStart = (url, loaded, total) => {
       this.totalCount = total;
       this.loadedCount = loaded;
@@ -72,7 +75,10 @@ export class AssetManager {
     return () => this.phaseCbs.delete(cb);
   }
 
-  async load(manifest: Manifest, renderer?: THREE.WebGLRenderer): Promise<LoadResult> {
+  async load(
+    manifest: Manifest,
+    renderer?: THREE.WebGLRenderer
+  ): Promise<LoadResult> {
     const result: LoadResult = {
       textures: new Map(),
       models: new Map(),
@@ -84,28 +90,30 @@ export class AssetManager {
     }
 
     // Group by kind so we can lazy-init only the loaders we need.
-    const textures = manifest.filter((m) => m.kind === "texture");
-    const models = manifest.filter((m) => m.kind === "model");
-    const audio = manifest.filter((m) => m.kind === "audio");
+    const textures = manifest.filter(m => m.kind === "texture");
+    const models = manifest.filter(m => m.kind === "model");
+    const audio = manifest.filter(m => m.kind === "audio");
 
     const tasks: Promise<void>[] = [];
 
     if (textures.length > 0) {
       const ktx2 = await this.getKtx2Loader(renderer);
-      const ktx2Load = ktx2 as { loadAsync: (url: string) => Promise<THREE.Texture> } | null;
+      const ktx2Load = ktx2 as {
+        loadAsync: (url: string) => Promise<THREE.Texture>;
+      } | null;
       const texLoader = new THREE.TextureLoader(this.manager);
       for (const t of textures) {
         if (t.url.endsWith(".ktx2") && ktx2Load) {
           tasks.push(
-            ktx2Load.loadAsync(t.url).then((tex) => {
+            ktx2Load.loadAsync(t.url).then(tex => {
               result.textures.set(t.key, tex);
-            }),
+            })
           );
         } else {
           tasks.push(
-            texLoader.loadAsync(t.url).then((tex) => {
+            texLoader.loadAsync(t.url).then(tex => {
               result.textures.set(t.key, tex);
-            }),
+            })
           );
         }
       }
@@ -116,9 +124,9 @@ export class AssetManager {
       const gltfLoad = gltf as { loadAsync: (url: string) => Promise<unknown> };
       for (const m of models) {
         tasks.push(
-          gltfLoad.loadAsync(m.url).then((g) => {
+          gltfLoad.loadAsync(m.url).then(g => {
             result.models.set(m.key, g);
-          }),
+          })
         );
       }
     }
@@ -127,9 +135,9 @@ export class AssetManager {
       this.audioLoader ??= new THREE.AudioLoader(this.manager);
       for (const a of audio) {
         tasks.push(
-          this.audioLoader.loadAsync(a.url).then((buf) => {
+          this.audioLoader.loadAsync(a.url).then(buf => {
             result.audio.set(a.key, buf);
-          }),
+          })
         );
       }
     }
@@ -150,7 +158,8 @@ export class AssetManager {
       DRACOLoader?: new () => { setDecoderPath: (p: string) => void };
       MeshoptDecoder?: unknown;
     };
-    if (!mod.GLTFLoader) throw new Error("GLTFLoader missing from three-stdlib");
+    if (!mod.GLTFLoader)
+      throw new Error("GLTFLoader missing from three-stdlib");
     const loader = new mod.GLTFLoader(this.manager) as {
       setDRACOLoader: (l: unknown) => void;
       setMeshoptDecoder: (d: unknown) => void;
@@ -168,7 +177,9 @@ export class AssetManager {
     return loader;
   }
 
-  private async getKtx2Loader(renderer?: THREE.WebGLRenderer): Promise<unknown | null> {
+  private async getKtx2Loader(
+    renderer?: THREE.WebGLRenderer
+  ): Promise<unknown | null> {
     if (this.ktx2Loader) return this.ktx2Loader;
     const stdlib = await import("three-stdlib").catch(() => null);
     if (!stdlib) return null;
@@ -192,7 +203,7 @@ export class AssetManager {
       total: Math.max(this.totalCount, this.loadedCount),
       currentItem,
     };
-    this.progressCbs.forEach((cb) => cb(info));
+    this.progressCbs.forEach(cb => cb(info));
   }
 
   private maybeEmitPhase(url: string) {
@@ -203,14 +214,16 @@ export class AssetManager {
   private emitPhase(phase: string) {
     if (phase === this.currentPhase) return;
     this.currentPhase = phase;
-    this.phaseCbs.forEach((cb) => cb(phase));
+    this.phaseCbs.forEach(cb => cb(phase));
   }
 
   getAudioContext(): AudioContext {
     if (!this.audioCtx) {
       const Ctor =
-        (window as unknown as { AudioContext: typeof AudioContext }).AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        (window as unknown as { AudioContext: typeof AudioContext })
+          .AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext })
+          .webkitAudioContext;
       this.audioCtx = new Ctor();
     }
     return this.audioCtx;

@@ -9,7 +9,11 @@ import {
   type MapDef,
   type ParsedMap,
 } from "@shared/maps";
-import { perfFlag, resolveGraphicsQuality, type GraphicsQuality } from "../util/device";
+import {
+  perfFlag,
+  resolveGraphicsQuality,
+  type GraphicsQuality,
+} from "../util/device";
 import { createPerfMonitor } from "../util/perfMonitor";
 import { createRenderer } from "../render/Renderer";
 import { createPostFX, type PostFX } from "../render/PostFX";
@@ -63,7 +67,7 @@ export function startGame(
     quality?: GraphicsQuality;
     sensitivity?: number;
     events?: EngineEvents;
-  } = {},
+  } = {}
 ): EngineHandle {
   const mapDef: MapDef = MAPS[options.mapKey ?? "easy"];
   const parsed = parseMap(mapDef);
@@ -74,7 +78,11 @@ export function startGame(
   // ── Renderer ───────────────────────────────────────────────────────────────
   // Tier-aware construction lives in render/Renderer.ts so PostFX can branch
   // identically (mobile drops native MSAA in favor of SMAA, etc.).
-  const { renderer, contextLost: isContextLost, detachContextHandlers } = createRenderer({
+  const {
+    renderer,
+    contextLost: isContextLost,
+    detachContextHandlers,
+  } = createRenderer({
     quality: options.quality,
   });
   container.appendChild(renderer.domElement);
@@ -100,7 +108,7 @@ export function startGame(
   camera.position.set(
     parsed.spawn.x * TILE_SIZE + TILE_SIZE / 2,
     PLAYER_HEIGHT,
-    parsed.spawn.z * TILE_SIZE + TILE_SIZE / 2,
+    parsed.spawn.z * TILE_SIZE + TILE_SIZE / 2
   );
 
   // ── Lighting (Granny-style: dim warm interior + flashlight) ────────────────
@@ -109,9 +117,19 @@ export function startGame(
   moonlight.position.set(20, 40, 10);
   scene.add(moonlight);
 
-  const flashlight = new THREE.SpotLight(0xfff1c2, 6, 22, Math.PI / 6, 0.45, 1.6);
+  const flashlight = new THREE.SpotLight(
+    0xfff1c2,
+    6,
+    22,
+    Math.PI / 6,
+    0.45,
+    1.6
+  );
   flashlight.castShadow = shadowsEnabled;
-  flashlight.shadow.mapSize.set(quality === "high" ? 1024 : 512, quality === "high" ? 1024 : 512);
+  flashlight.shadow.mapSize.set(
+    quality === "high" ? 1024 : 512,
+    quality === "high" ? 1024 : 512
+  );
   flashlight.shadow.camera.near = 0.5;
   flashlight.shadow.camera.far = 22;
   camera.add(flashlight);
@@ -164,20 +182,30 @@ export function startGame(
   const worldW = parsed.width * TILE_SIZE;
   const worldD = parsed.height * TILE_SIZE;
 
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(worldW, worldD), floorMat);
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(worldW, worldD),
+    floorMat
+  );
   floor.rotation.x = -Math.PI / 2;
   floor.position.set(worldW / 2, 0, worldD / 2);
   floor.receiveShadow = shadowsEnabled;
   scene.add(floor);
 
-  const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(worldW, worldD), ceilingMat);
+  const ceiling = new THREE.Mesh(
+    new THREE.PlaneGeometry(worldW, worldD),
+    ceilingMat
+  );
   ceiling.rotation.x = Math.PI / 2;
   ceiling.position.set(worldW / 2, WALL_HEIGHT, worldD / 2);
   scene.add(ceiling);
 
   // Walls — instanced for performance
   const wallGeo = new THREE.BoxGeometry(TILE_SIZE, WALL_HEIGHT, TILE_SIZE);
-  const wallMesh = new THREE.InstancedMesh(wallGeo, wallMat, parsed.walls.length);
+  const wallMesh = new THREE.InstancedMesh(
+    wallGeo,
+    wallMat,
+    parsed.walls.length
+  );
   wallMesh.castShadow = shadowsEnabled;
   wallMesh.receiveShadow = shadowsEnabled;
   const tmp = new THREE.Object3D();
@@ -185,7 +213,7 @@ export function startGame(
     tmp.position.set(
       w.x * TILE_SIZE + TILE_SIZE / 2,
       WALL_HEIGHT / 2,
-      w.z * TILE_SIZE + TILE_SIZE / 2,
+      w.z * TILE_SIZE + TILE_SIZE / 2
     );
     tmp.updateMatrix();
     wallMesh.setMatrixAt(i, tmp.matrix);
@@ -193,23 +221,33 @@ export function startGame(
   wallMesh.instanceMatrix.needsUpdate = true;
   scene.add(wallMesh);
 
-  const doorGeo = new THREE.BoxGeometry(TILE_SIZE * 0.95, WALL_HEIGHT * 0.92, 0.2);
-  const keyGeo = new THREE.TorusGeometry(0.25, 0.08, 8, quality === "low" ? 16 : 24);
-  const hideGeo = new THREE.BoxGeometry(TILE_SIZE * 0.9, WALL_HEIGHT * 0.8, TILE_SIZE * 0.9);
+  const doorGeo = new THREE.BoxGeometry(
+    TILE_SIZE * 0.95,
+    WALL_HEIGHT * 0.92,
+    0.2
+  );
+  const keyGeo = new THREE.TorusGeometry(
+    0.25,
+    0.08,
+    8,
+    quality === "low" ? 16 : 24
+  );
+  const hideGeo = new THREE.BoxGeometry(
+    TILE_SIZE * 0.9,
+    WALL_HEIGHT * 0.8,
+    TILE_SIZE * 0.9
+  );
 
   // Doors
   const doorGroup = new THREE.Group();
-  parsed.doors.forEach((d) => {
-    const door = new THREE.Mesh(
-      doorGeo,
-      doorMat,
-    );
+  parsed.doors.forEach(d => {
+    const door = new THREE.Mesh(doorGeo, doorMat);
     door.castShadow = shadowsEnabled;
     door.receiveShadow = shadowsEnabled;
     door.position.set(
       d.x * TILE_SIZE + TILE_SIZE / 2,
       (WALL_HEIGHT * 0.92) / 2,
-      d.z * TILE_SIZE + TILE_SIZE / 2,
+      d.z * TILE_SIZE + TILE_SIZE / 2
     );
     doorGroup.add(door);
   });
@@ -218,13 +256,13 @@ export function startGame(
   // Keys (with little point lights)
   const keyGroup = new THREE.Group();
   const keyMeshes: THREE.Mesh[] = [];
-  parsed.keys.forEach((k) => {
+  parsed.keys.forEach(k => {
     const key = new THREE.Mesh(keyGeo, keyMat);
     key.castShadow = shadowsEnabled;
     key.position.set(
       k.x * TILE_SIZE + TILE_SIZE / 2,
       0.9,
-      k.z * TILE_SIZE + TILE_SIZE / 2,
+      k.z * TILE_SIZE + TILE_SIZE / 2
     );
     keyGroup.add(key);
     if (quality !== "low") {
@@ -237,28 +275,25 @@ export function startGame(
   scene.add(keyGroup);
 
   // Hiding closets
-  parsed.hides.forEach((h) => {
+  parsed.hides.forEach(h => {
     const closet = new THREE.Mesh(hideGeo, hideMat);
     closet.castShadow = shadowsEnabled;
     closet.receiveShadow = shadowsEnabled;
     closet.position.set(
       h.x * TILE_SIZE + TILE_SIZE / 2,
       (WALL_HEIGHT * 0.8) / 2,
-      h.z * TILE_SIZE + TILE_SIZE / 2,
+      h.z * TILE_SIZE + TILE_SIZE / 2
     );
     scene.add(closet);
   });
 
   // Exit
   if (parsed.exit) {
-    const exitMesh = new THREE.Mesh(
-      doorGeo,
-      exitMat,
-    );
+    const exitMesh = new THREE.Mesh(doorGeo, exitMat);
     exitMesh.position.set(
       parsed.exit.x * TILE_SIZE + TILE_SIZE / 2,
       (WALL_HEIGHT * 0.92) / 2,
-      parsed.exit.z * TILE_SIZE + TILE_SIZE / 2,
+      parsed.exit.z * TILE_SIZE + TILE_SIZE / 2
     );
     scene.add(exitMesh);
     if (quality !== "low") {
@@ -281,7 +316,7 @@ export function startGame(
       if (!mesh) {
         mesh = new THREE.Mesh(
           new THREE.CapsuleGeometry(0.4, 1.0, 6, 12),
-          new THREE.MeshStandardMaterial({ color: 0x88aaee, roughness: 0.6 }),
+          new THREE.MeshStandardMaterial({ color: 0x88aaee, roughness: 0.6 })
         );
         mesh.castShadow = shadowsEnabled;
         remoteGroup.add(mesh);
@@ -307,12 +342,17 @@ export function startGame(
       emissive: 0x550000,
       emissiveIntensity: 0.4,
       roughness: 0.5,
-    }),
+    })
   );
   enemyMesh.castShadow = shadowsEnabled;
   enemyMesh.visible = false;
   scene.add(enemyMesh);
-  const enemyLight = new THREE.PointLight(0xff2222, quality === "low" ? 0 : 0.8, 6, 2);
+  const enemyLight = new THREE.PointLight(
+    0xff2222,
+    quality === "low" ? 0 : 0.8,
+    6,
+    2
+  );
   enemyLight.visible = false;
   scene.add(enemyLight);
   let lastRemoteEnemyAt = 0;
@@ -346,7 +386,11 @@ export function startGame(
     });
     lastRemoteEnemyAt = 0;
   }
-  events.onReady?.({ keys: keyMeshes.length, timer: mapDef.timer, mapName: mapDef.name });
+  events.onReady?.({
+    keys: keyMeshes.length,
+    timer: mapDef.timer,
+    mapName: mapDef.name,
+  });
   events.onTimer?.(lastTimerSecond);
 
   // ── Input: pointer-lock first-person look + WASD ──────────────────────────
@@ -397,7 +441,11 @@ export function startGame(
     isHiding = !isHiding;
     camera.position.y = isHiding ? PLAYER_HEIGHT * 0.72 : PLAYER_HEIGHT;
     events.onHideChange?.(isHiding);
-    events.onHint?.(isHiding ? "Hidden · press E to leave the closet" : "Out of hiding · keep moving");
+    events.onHint?.(
+      isHiding
+        ? "Hidden · press E to leave the closet"
+        : "Out of hiding · keep moving"
+    );
   }
 
   // Collision: prevents walking through wall tiles using axis-separated checks.
@@ -426,18 +474,24 @@ export function startGame(
   }
 
   function updateLocalEnemy(dt: number, elapsed: number) {
-    if (!enemyMesh.visible || performance.now() - lastRemoteEnemyAt < 1200) return;
+    if (!enemyMesh.visible || performance.now() - lastRemoteEnemyAt < 1200)
+      return;
     const dx = camera.position.x - enemyMesh.position.x;
     const dz = camera.position.z - enemyMesh.position.z;
     const dist = Math.hypot(dx, dz) || 1;
     const investigating = isHiding && dist > 4;
-    const speed = (investigating ? mapDef.claudeSpeed * 0.25 : mapDef.claudeSpeed) * dt;
+    const speed =
+      (investigating ? mapDef.claudeSpeed * 0.25 : mapDef.claudeSpeed) * dt;
     const wobble = Math.sin(elapsed * 0.9) * 0.4;
     const tx = investigating ? Math.sin(elapsed * 0.35) + wobble : dx / dist;
     const tz = investigating ? Math.cos(elapsed * 0.31) - wobble : dz / dist;
     const len = Math.hypot(tx, tz) || 1;
     tryMoveEnemy((tx / len) * speed, (tz / len) * speed);
-    enemyMesh.lookAt(camera.position.x, enemyMesh.position.y, camera.position.z);
+    enemyMesh.lookAt(
+      camera.position.x,
+      enemyMesh.position.y,
+      camera.position.z
+    );
   }
 
   function checkPickups() {
@@ -449,10 +503,11 @@ export function startGame(
         keyGroup.remove(k);
         // Remove the matching point light (it was added directly after).
         const lights = keyGroup.children.filter(
-          (c): c is THREE.PointLight => (c as THREE.PointLight).isPointLight === true,
+          (c): c is THREE.PointLight =>
+            (c as THREE.PointLight).isPointLight === true
         );
         const nearestLight = lights
-          .map((l) => ({ l, d: l.position.distanceToSquared(k.position) }))
+          .map(l => ({ l, d: l.position.distanceToSquared(k.position) }))
           .sort((a, b) => a.d - b.d)[0];
         if (nearestLight) keyGroup.remove(nearestLight.l);
         keyMeshes.splice(i, 1);
@@ -470,7 +525,8 @@ export function startGame(
       const dx = enemyMesh.position.x - camera.position.x;
       const dz = enemyMesh.position.z - camera.position.z;
       const distSq = dx * dx + dz * dz;
-      const nextDanger = distSq < 4 * 4 ? "critical" : distSq < 9 * 9 ? "near" : "safe";
+      const nextDanger =
+        distSq < 4 * 4 ? "critical" : distSq < 9 * 9 ? "near" : "safe";
       if (nextDanger !== dangerState) {
         dangerState = nextDanger;
         events.onDangerChange?.(dangerState);
@@ -500,7 +556,8 @@ export function startGame(
       if (timerSecond !== lastTimerSecond) {
         lastTimerSecond = timerSecond;
         events.onTimer?.(timerSecond);
-        if (timerSecond === 30) events.onHint?.("Thirty seconds left. Reach the exit.");
+        if (timerSecond === 30)
+          events.onHint?.("Thirty seconds left. Reach the exit.");
       }
       if (timeLeft <= 0) {
         events.onCaught?.();
@@ -508,7 +565,11 @@ export function startGame(
       }
 
       const speed =
-        (isHiding ? 0 : keys.has("ShiftLeft") ? MOVE_SPEED * SPRINT_MULT : MOVE_SPEED) * dt;
+        (isHiding
+          ? 0
+          : keys.has("ShiftLeft")
+            ? MOVE_SPEED * SPRINT_MULT
+            : MOVE_SPEED) * dt;
       let fx = 0;
       let fz = 0;
       if (keys.has("KeyW") || keys.has("ArrowUp")) fz -= 1;
@@ -566,7 +627,7 @@ export function startGame(
     // present so we don't fetch a 404 every page load.
     lutUrl: undefined,
   })
-    .then((fx) => {
+    .then(fx => {
       if (disposed) {
         fx.dispose();
         return;
@@ -576,9 +637,12 @@ export function startGame(
       const h = container.clientHeight || window.innerHeight;
       postfx.setSize(w, h);
     })
-    .catch((err) => {
+    .catch(err => {
       // PostFX is non-essential; surface as warning, keep playing.
-      console.warn("[engine] PostFX init failed; falling back to direct render", err);
+      console.warn(
+        "[engine] PostFX init failed; falling back to direct render",
+        err
+      );
     });
 
   tick();
@@ -599,11 +663,14 @@ export function startGame(
       if (renderer.domElement.parentNode === container) {
         container.removeChild(renderer.domElement);
       }
-      scene.traverse((obj) => {
+      scene.traverse(obj => {
         const mesh = obj as THREE.Mesh;
         if (mesh.geometry) mesh.geometry.dispose?.();
-        const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
-        if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+        const mat = mesh.material as
+          | THREE.Material
+          | THREE.Material[]
+          | undefined;
+        if (Array.isArray(mat)) mat.forEach(m => m.dispose());
         else mat?.dispose?.();
       });
     },

@@ -79,7 +79,8 @@ export const MAPS: Record<MapKey, MapDef> = {
   },
   hard: {
     name: "Granny's Nightmare",
-    summary: "A tighter maze with less time, fewer safe closets, and faster Claude.",
+    summary:
+      "A tighter maze with less time, fewer safe closets, and faster Claude.",
     difficulty: 3,
     timer: 120,
     claudeSpeed: 5.4,
@@ -121,8 +122,8 @@ export type ParsedMap = {
 };
 
 export function parseMap(map: MapDef): ParsedMap {
-  const width = Math.max(...map.raw.map((row) => row.length));
-  const tiles = map.raw.map((row) => row.padEnd(width, "W").split(""));
+  const width = Math.max(...map.raw.map(row => row.length));
+  const tiles = map.raw.map(row => row.padEnd(width, "W").split(""));
   const height = tiles.length;
   const result: ParsedMap = {
     width,
