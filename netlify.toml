@@ -15,6 +15,11 @@
 [build.environment]
   NODE_VERSION = "20"
   NPM_FLAGS = "--no-audit --no-fund"
+  # pnpm v10 ignores the explicit `--no-frozen-lockfile` install flag when
+  # CI=true (which Netlify sets by default), so we have to disable
+  # frozen-lockfile via the dedicated env var. Without this, every PR that
+  # adds/changes a dep blows up at install time with ERR_PNPM_OUTDATED_LOCKFILE.
+  NPM_CONFIG_FROZEN_LOCKFILE = "false"
 
 # SPA fallback so wouter-driven client routes resolve correctly.
 [[redirects]]

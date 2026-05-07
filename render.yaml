@@ -20,3 +20,8 @@ services:
         value: production
       - key: NODE_VERSION
         value: "20"
+      # pnpm v10 ignores the install flag when CI=true; force-disable the
+      # frozen-lockfile check via the dedicated env var so PRs that touch
+      # deps don't break the deploy on stale pnpm-lock.yaml.
+      - key: NPM_CONFIG_FROZEN_LOCKFILE
+        value: "false"
