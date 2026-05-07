@@ -738,7 +738,9 @@ function initScene() {
 
   renderer = new THREE.WebGLRenderer({ antialias: !isMobile, powerPreference: 'high-performance' });
   renderer.setSize(innerWidth, innerHeight);
-  renderer.setPixelRatio(Math.min(devicePixelRatio, isMobile ? 1.2 : 2));
+  // Cap pixel ratio aggressively on mobile — most phones have devicePixelRatio
+  // 2-3, so rendering at native is 4-9× more fragments than necessary.
+  renderer.setPixelRatio(Math.min(devicePixelRatio, isMobile ? 1.0 : 1.75));
   if (isMobile) renderer.powerPreference = 'low-power';
   renderer.shadowMap.enabled = !isMobile;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -921,13 +923,14 @@ function buildFurniture(mapData, T, WH) {
     g.position.set(cx, 0, cz); g.rotation.y = rotY; return g;
   }
   function lamp(cx, cz) {
+    // No PointLight on the lamp itself — too many dynamic lights tank the
+    // shader. The shade is strongly emissive so the lamp still reads as
+    // "lit" without affecting global illumination cost.
     const g = new THREE.Group();
     const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 1.6, 8), metal);
     stand.position.y = 0.8; g.add(stand);
     const shade = new THREE.Mesh(new THREE.ConeGeometry(0.35, 0.5, 12, 1, true), lampMt);
     shade.position.y = 1.65; g.add(shade);
-    const bulbLight = new THREE.PointLight(0xffc070, 1.2, 7, 2);
-    bulbLight.position.y = 1.55; g.add(bulbLight);
     g.position.set(cx, 0, cz); return g;
   }
   function painting(cx, cz, rotY) {
@@ -946,10 +949,11 @@ function buildFurniture(mapData, T, WH) {
     g.position.set(cx, 0, cz); g.rotation.y = rotY; return g;
   }
   function rug(cx, cz) {
+    // polygonOffset prevents z-fighting with the merged floor plane below.
     const r = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.6),
-      new THREE.MeshPhongMaterial({ color: 0x4a1a1a, shininess: 1 }));
+      new THREE.MeshPhongMaterial({ color: 0x4a1a1a, shininess: 1, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
     r.rotation.x = -Math.PI / 2;
-    r.position.set(cx, 0.01, cz);
+    r.position.set(cx, 0.02, cz);
     return r;
   }
 
@@ -966,8 +970,9 @@ function buildFurniture(mapData, T, WH) {
       const blocking = ['K', 'X', 'S', 'P', 'E', 'H'];
       if (blocking.includes(mapData[r-1]?.[c]) || blocking.includes(mapData[r+1]?.[c]) ||
           blocking.includes(mapData[r][c-1])  || blocking.includes(mapData[r][c+1])) continue;
-      // ~30% chance to populate the tile
-      if (rng > 0.32) continue;
+      // ~18% chance to populate the tile (was 32% — caused frame drops on
+      // mid-range mobile and crowded the corridors).
+      if (rng > 0.18) continue;
       const choice = seedRand(c, r, 2);
       const rot = seedRand(c, r, 3) * Math.PI * 2;
       let prop;
@@ -983,18 +988,26 @@ function buildFurniture(mapData, T, WH) {
     }
   }
 
-  // Wall paintings — every ~5th wall tile that faces an open tile, hang one.
+  // Wall paintings — sparse, hung on wall tiles facing an open neighbor.
+  // Side table: (dr, dc) points from the wall into the open tile, rotY is
+  // the rotation that makes the painting's local +z face that direction.
+  // Previously the rotations were inverted, so paintings displayed inside
+  // the wall and weren't visible from the open room.
+  const sides = [
+    [-1,  0, Math.PI],     // open tile is to the north
+    [ 1,  0, 0],           // south
+    [ 0, -1, -Math.PI / 2],// west
+    [ 0,  1,  Math.PI / 2],// east
+  ];
   for (let r = 1; r < H - 1; r++) {
     for (let c = 1; c < W - 1; c++) {
       if (mapData[r][c] !== 'W') continue;
-      if (seedRand(c, r, 7) > 0.18) continue;
-      // Find an adjacent open tile to hang the painting toward.
-      const sides = [[0,-1,0],[0,1,Math.PI],[-1,0,Math.PI/2],[1,0,-Math.PI/2]];
+      if (seedRand(c, r, 7) > 0.10) continue;
       for (const [dr, dc, rotY] of sides) {
         const nr = r + dr, nc = c + dc;
         if (mapData[nr]?.[nc] === '.') {
-          const x = c * T + T / 2 + dc * (T / 2 - 0.05);
-          const z = r * T + T / 2 + dr * (T / 2 - 0.05);
+          const x = c * T + T / 2 + dc * (T / 2 - 0.06);
+          const z = r * T + T / 2 + dr * (T / 2 - 0.06);
           const p = painting(x, z, rotY);
           scene.add(p);
           props.push(p);
@@ -1057,7 +1070,61 @@ function buildMap() {
   const exitMat  = new THREE.MeshPhongMaterial({ color: exitColor, emissive: 0x0d3d0d, emissiveIntensity: 1.1, shininess: 25 });
   const hideMat  = new THREE.MeshPhongMaterial({ map: hideTex,  color: 0xffffff, shininess: 5 });
 
+  // ── Merged floor/ceiling ──
+  // One plane each instead of one mesh per tile. Floor texture tiling makes
+  // it visually identical but cuts ~520 draw calls on the easy map. We hide
+  // a small section under wall tiles by keeping floor *underneath* walls;
+  // walls are opaque so the floor isn't visible there anyway.
+  const floorTiledTex = floorTex.clone();
+  floorTiledTex.needsUpdate = true;
+  floorTiledTex.repeat.set(W, H);
+  const floorTiledMat = new THREE.MeshPhongMaterial({ map: floorTiledTex, shininess: 4, specular: 0x222222 });
+  const floorBig = new THREE.Mesh(new THREE.PlaneGeometry(W * T, H * T), floorTiledMat);
+  floorBig.rotation.x = -Math.PI / 2;
+  floorBig.position.set((W * T) / 2, 0, (H * T) / 2);
+  floorBig.receiveShadow = !isMobile;
+  scene.add(floorBig);
+
+  const ceilTiledTex = ceilTex.clone();
+  ceilTiledTex.needsUpdate = true;
+  ceilTiledTex.repeat.set(W, H);
+  const ceilTiledMat = new THREE.MeshPhongMaterial({ map: ceilTiledTex, shininess: 2 });
+  const ceilBig = new THREE.Mesh(new THREE.PlaneGeometry(W * T, H * T), ceilTiledMat);
+  ceilBig.rotation.x = Math.PI / 2;
+  ceilBig.position.set((W * T) / 2, WH, (H * T) / 2);
+  scene.add(ceilBig);
+
+  // ── Instanced walls ──
+  // Replaces ~300 individual wall meshes with a single InstancedMesh,
+  // collapsing walls into one draw call.
+  let wallCount = 0;
+  let doorCount = 0;
+  let exitCount = 0;
+  let hideCount = 0;
+  let keyCount  = 0;
+  for (let r = 0; r < H; r++) {
+    for (let c = 0; c < W; c++) {
+      const t = mapData[r][c];
+      if (t === 'W') wallCount++;
+      else if (t === 'D') doorCount++;
+      else if (t === 'X') exitCount++;
+      else if (t === 'H') hideCount++;
+      else if (t === 'K') keyCount++;
+    }
+  }
+
+  const wallInst = new THREE.InstancedMesh(wallGeo, wallMat, wallCount);
+  wallInst.castShadow = !isMobile;
+  wallInst.receiveShadow = !isMobile;
+  const tmpMat = new THREE.Matrix4();
+
+  // Doors are still individual (few of them) so they can be opened later.
   let lightIndex = 0;
+  let wallI = 0;
+  // Cap dynamic lights to avoid blowing past Three.js's per-material light
+  // budget — too many active PointLights silently drop FPS into the floor.
+  const MAX_CORRIDOR_LIGHTS = isMobile ? 4 : 8;
+  const MAX_KEY_LIGHTS      = isMobile ? 3 : 6;
 
   for (let r = 0; r < H; r++) {
     for (let c = 0; c < W; c++) {
@@ -1065,31 +1132,15 @@ function buildMap() {
       const x = c * T + T / 2;
       const z = r * T + T / 2;
 
-      if (t !== 'W') {
-        const f = new THREE.Mesh(floorGeo, floorMat);
-        f.rotation.x = -Math.PI / 2;
-        f.position.set(x, 0, z);
-        f.receiveShadow = !isMobile;
-        scene.add(f);
-        const ce = new THREE.Mesh(ceilGeo, ceilMat);
-        ce.rotation.x = Math.PI / 2;
-        ce.position.set(x, WH, z);
-        scene.add(ce);
-      }
-
       if (t === 'W') {
-        const w = new THREE.Mesh(wallGeo, r % 2 === 0 ? wallMat : wallMat2);
-        w.position.set(x, WH / 2, z);
-        w.castShadow = !isMobile;
-        w.receiveShadow = !isMobile;
-        scene.add(w);
+        tmpMat.makeTranslation(x, WH / 2, z);
+        wallInst.setMatrixAt(wallI++, tmpMat);
       } else if (t === 'D') {
         const d = new THREE.Mesh(doorGeo, doorMat);
         d.position.set(x, WH / 2, z);
         scene.add(d);
-        // Corridor light near doors
-        if (lightIndex % 2 === 0) {
-          const cl = new THREE.PointLight(0x552a10, 1.2, 14);
+        if (corridorLights.length < MAX_CORRIDOR_LIGHTS && lightIndex % 6 === 0) {
+          const cl = new THREE.PointLight(0x552a10, 1.0, 12);
           cl.position.set(x, WH - 0.3, z);
           scene.add(cl);
           corridorLights.push(cl);
@@ -1099,7 +1150,7 @@ function buildMap() {
         const ex = new THREE.Mesh(exitGeo, exitMat);
         ex.position.set(x, WH / 2, z);
         scene.add(ex);
-        const pl = new THREE.PointLight(0x00ff66, 3.5, 20);
+        const pl = new THREE.PointLight(0x00ff66, 2.5, 14);
         pl.position.set(x, 2, z);
         scene.add(pl);
       } else if (t === 'H') {
@@ -1107,13 +1158,20 @@ function buildMap() {
         hb.position.set(x, WH * 0.375, z);
         scene.add(hb);
       } else if (t === 'K') {
-        // Subtle glow at key spawn locations
-        const kl = new THREE.PointLight(0x664400, 1.0, 10);
-        kl.position.set(x, 1.5, z);
-        scene.add(kl);
+        // Only place a glow on the first MAX_KEY_LIGHTS key tiles. Keeps
+        // lighting cost bounded on hard maps that have many keys.
+        scene.userData._keyLightsAdded = scene.userData._keyLightsAdded || 0;
+        if (scene.userData._keyLightsAdded < MAX_KEY_LIGHTS) {
+          const kl = new THREE.PointLight(0x664400, 0.6, 6);
+          kl.position.set(x, 1.5, z);
+          scene.add(kl);
+          scene.userData._keyLightsAdded++;
+        }
       }
     }
   }
+  wallInst.instanceMatrix.needsUpdate = true;
+  scene.add(wallInst);
 }
 
 // ── ENTITY / PLAYER MESHES ──
