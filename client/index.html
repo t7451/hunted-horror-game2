@@ -2421,6 +2421,20 @@ function showError(message) {
   setTimeout(() => el.classList.remove('show'), 6500);
 }
 
+// FPS overlay state — declared here so animate()'s first synchronous
+// frame (which calls tickFps -> reads fpsFrames) doesn't hit TDZ.
+// `tickFps` itself is a hoisted function declaration further below.
+const fpsOverlay = document.getElementById('fps-overlay');
+let fpsVisible = false;
+let fpsFrames = 0;
+let fpsLastTs = performance.now();
+document.addEventListener('keydown', e => {
+  if (e.key === 'f' || e.key === 'F') {
+    fpsVisible = !fpsVisible;
+    fpsOverlay?.classList.toggle('show', fpsVisible);
+  }
+});
+
 try {
   initScene();
 } catch (err) {
@@ -2440,17 +2454,11 @@ try {
   showError('Could not connect to game server. Single-player only.');
 }
 
-// FPS overlay — toggle with F. Updated from the animate loop (see below).
-const fpsOverlay = document.getElementById('fps-overlay');
-let fpsVisible = false;
-let fpsFrames = 0;
-let fpsLastTs = performance.now();
-document.addEventListener('keydown', e => {
-  if (e.key === 'f' || e.key === 'F') {
-    fpsVisible = !fpsVisible;
-    fpsOverlay.classList.toggle('show', fpsVisible);
-  }
-});
+// FPS overlay — declarations live up by initScene() so animate()'s
+// synchronous first-frame call to tickFps() doesn't hit TDZ on
+// fpsFrames / fpsLastTs (let bindings, no hoist). Function declarations
+// (tickFps itself) are hoisted, so this function definition staying
+// here is fine.
 function tickFps() {
   fpsFrames++;
   const now = performance.now();
