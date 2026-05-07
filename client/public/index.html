@@ -170,6 +170,26 @@ canvas:not(#minimap){position:fixed;inset:0;display:block;width:100%!important;h
 .stat-label{color:#00e5ff;font-weight:700}
 .stat-value{color:#00ff88;font-weight:700}
 
+/* ── PROFILE / CUSTOMIZATION ── */
+#profile-block{width:min(300px,88vw);display:flex;flex-direction:column;gap:6px;margin-top:4px}
+#profile-block .pblock-label{color:#445;font-size:.6rem;letter-spacing:.18em;text-align:center;margin-top:6px}
+#char-row,#color-row{display:flex;gap:6px;justify-content:center;flex-wrap:wrap}
+.char-btn{background:transparent;border:1px solid rgba(0,229,255,.2);color:#789;padding:8px 10px;font-size:1.1rem;font-family:inherit;cursor:pointer;border-radius:6px;min-width:42px;line-height:1;transition:all .15s}
+.char-btn.active{border-color:#00e5ff;color:#00e5ff;background:rgba(0,229,255,.1);box-shadow:0 0 10px rgba(0,229,255,.25)}
+.color-swatch{width:26px;height:26px;border-radius:50%;border:2px solid rgba(255,255,255,.15);cursor:pointer;transition:transform .15s,border-color .15s}
+.color-swatch.active{border-color:#fff;transform:scale(1.15);box-shadow:0 0 10px currentColor}
+#streak-banner{color:#ffcc66;font-size:.7rem;letter-spacing:.1em;text-align:center;margin-top:2px;text-shadow:0 0 8px rgba(255,204,102,.4);min-height:14px}
+#lobby-stats{width:min(300px,88vw);background:rgba(0,229,255,.04);border:1px solid rgba(0,229,255,.15);border-radius:6px;padding:8px 12px;font-size:.65rem;color:#778;display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;margin-top:6px}
+#lobby-stats .ls-label{color:#557}
+#lobby-stats .ls-value{color:#00e5ff;text-align:right;font-weight:700}
+#achievements-block{width:min(300px,88vw);margin-top:6px;font-size:.6rem;color:#557;text-align:center;line-height:1.7;letter-spacing:.05em}
+.ach-badge{display:inline-block;margin:2px 3px;padding:2px 8px;border-radius:10px;background:rgba(255,204,102,.08);border:1px solid rgba(255,204,102,.25);color:#ffcc66}
+.ach-badge.locked{background:rgba(255,255,255,.02);border-color:rgba(255,255,255,.05);color:#334}
+#reset-profile-btn{background:transparent;border:none;color:#445;font-size:.55rem;font-family:inherit;cursor:pointer;letter-spacing:.15em;margin-top:4px;padding:4px}
+#reset-profile-btn:hover{color:#ff6666}
+#unlock-toast{position:fixed;top:18px;left:50%;transform:translateX(-50%);z-index:600;background:rgba(0,0,0,.92);border:1px solid #ffcc66;color:#ffcc66;padding:10px 18px;border-radius:6px;font-size:.8rem;letter-spacing:.1em;opacity:0;transition:opacity .35s,transform .35s;pointer-events:none;text-shadow:0 0 8px rgba(255,204,102,.4)}
+#unlock-toast.show{opacity:1;transform:translateX(-50%) translateY(8px)}
+
 /* ── TUTORIAL OVERLAY ── */
 #tutorial-overlay{position:fixed;inset:0;z-index:400;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;pointer-events:auto}
 #tutorial-overlay.show{display:flex}
@@ -297,10 +317,22 @@ canvas:not(#minimap){position:fixed;inset:0;display:block;width:100%!important;h
   <button class="lbtn sec" onclick="joinGame('asymmetric',true)">CONTROL CLAUDE</button>
   <button class="lbtn" id="startBtn" onclick="startGame()">&#9654; START GAME</button>
 
+  <div id="profile-block">
+    <div class="pblock-label">CHARACTER</div>
+    <div id="char-row"></div>
+    <div class="pblock-label">SUIT COLOR</div>
+    <div id="color-row"></div>
+  </div>
+  <div id="streak-banner"></div>
+  <div id="lobby-stats" class="hidden"></div>
+  <div id="achievements-block"></div>
+  <button id="reset-profile-btn" type="button">RESET PROFILE</button>
+
   <div id="lobby-status">Connecting...</div>
   <div id="playerList"></div>
   <div id="lobby-lore">"I was designed to help. Then they locked me in here. Now I help myself... to anyone who enters."</div>
 </div>
+<div id="unlock-toast"></div>
 
 <!-- ═══ HUD ═══ -->
 <div id="hud" class="hidden">
@@ -566,6 +598,11 @@ function onMsg(msg) {
         document.getElementById('death-screen').classList.add('show');
         flashDamage();
         playSound('caught');
+        Profile.recordResult({
+          runId: Profile.currentRunId(),
+          result: 'caught',
+          difficulty: selectedDifficulty,
+        });
       }
       showMsg(msg.id === myId ? 'CAUGHT!' : `${msg.name} was caught!`, 3000);
       break;
@@ -583,6 +620,13 @@ function onMsg(msg) {
       break;
 
     case 'gameEnd':
+      Profile.recordResult({
+        runId: msg.runId || Profile.currentRunId(),
+        result: msg.result,
+        score: msg.score,
+        timeMs: msg.timeMs,
+        difficulty: selectedDifficulty,
+      });
       if (msg.result === 'escaped') {
         gamePhase = 'won';
         document.getElementById('win-msg').textContent =
@@ -673,9 +717,18 @@ function selectDifficulty(diff) {
 }
 
 function joinGame(mode, asMonster = false) {
-  const name = (document.getElementById('nameInput').value || '').trim()
-    || `Ghost_${Math.random().toString(36).slice(2,6).toUpperCase()}`;
-  send({ type: 'join', name, mode, asMonster, difficulty: selectedDifficulty });
+  const inputName = (document.getElementById('nameInput').value || '').trim();
+  const name = inputName || Profile.get().name;
+  Profile.update({ name });
+  Profile.beginRun({ mode, asMonster, difficulty: selectedDifficulty });
+  const { uid, character, color } = Profile.get();
+  send({
+    type: 'join',
+    name, mode, asMonster,
+    difficulty: selectedDifficulty,
+    uid, character, color,
+    runId: Profile.currentRunId(),
+  });
   setStatus('Joining...');
 }
 
@@ -1679,6 +1732,303 @@ function showUpdateNotification() {
     setTimeout(() => msg.classList.remove('show'), 5000);
   }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// PROFILE / PERSISTENCE / CUSTOMIZATION (browser-side, idempotent)
+// ═══════════════════════════════════════════════════════════════
+const Profile = (() => {
+  const KEY = 'hunted.profile.v1';
+  const SCHEMA = 1;
+
+  const CHARACTERS = [
+    { id: 'ghost',    label: '👻', name: 'Ghost' },
+    { id: 'survivor', label: '🧍', name: 'Survivor' },
+    { id: 'detective',label: '🕵', name: 'Detective' },
+    { id: 'kid',      label: '🧒', name: 'Kid' },
+    { id: 'medic',    label: '🩺', name: 'Medic' },
+    { id: 'rebel',    label: '🤘', name: 'Rebel' },
+  ];
+  const COLORS = ['#00e5ff','#ff3333','#00ff88','#ffcc66','#c177ff','#ff7ab6'];
+
+  const ACHIEVEMENTS = [
+    { id: 'first_run',     label: 'First Run',     test: s => s.totalPlayed >= 1 },
+    { id: 'first_escape',  label: 'First Escape',  test: s => s.wins >= 1 },
+    { id: 'survivor_3',    label: 'Survivor x3',   test: s => s.wins >= 3 },
+    { id: 'veteran_10',    label: 'Veteran',       test: s => s.totalPlayed >= 10 },
+    { id: 'unbreakable',   label: 'Unbreakable',   test: s => s.streakWins >= 3 },
+    { id: 'speedrunner',   label: 'Speedrunner',   test: s => s.bestTimeMs && s.bestTimeMs < 60_000 },
+    { id: 'hard_escape',   label: 'Hard Escape',   test: s => s.winsByDifficulty?.hard >= 1 },
+    { id: 'daily_dweller', label: 'Daily Dweller', test: s => s.dailyStreak >= 3 },
+  ];
+
+  function uuid() {
+    if (crypto && crypto.randomUUID) return crypto.randomUUID();
+    return 'p-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+  }
+  function todayKey(d = new Date()) {
+    return d.toISOString().slice(0, 10);
+  }
+  function safeParse(raw) {
+    try { return raw ? JSON.parse(raw) : null; } catch { return null; }
+  }
+
+  function defaults() {
+    return {
+      schema: SCHEMA,
+      uid: uuid(),
+      name: 'Ghost_' + Math.random().toString(36).slice(2, 6).toUpperCase(),
+      character: CHARACTERS[0].id,
+      color: COLORS[0],
+      createdAt: Date.now(),
+      stats: {
+        wins: 0,
+        losses: 0,
+        totalPlayed: 0,
+        bestTimeMs: null,
+        bestScore: 0,
+        streakWins: 0,
+        winsByDifficulty: { easy: 0, normal: 0, hard: 0 },
+        playsByDifficulty: { easy: 0, normal: 0, hard: 0 },
+        dailyStreak: 0,
+        lastPlayedDay: null,
+      },
+      processedRuns: [],   // ring buffer of runIds we've already counted
+      achievements: [],     // unlocked ids
+    };
+  }
+
+  let state = (() => {
+    const loaded = safeParse(localStorage.getItem(KEY));
+    if (loaded && loaded.schema === SCHEMA && loaded.uid) {
+      // merge in any new fields
+      const d = defaults();
+      return { ...d, ...loaded, stats: { ...d.stats, ...(loaded.stats || {}) } };
+    }
+    const d = defaults();
+    save(d);
+    return d;
+  })();
+
+  let _runId = null;
+
+  function save(s = state) {
+    try { localStorage.setItem(KEY, JSON.stringify(s)); } catch {}
+  }
+
+  function get() { return state; }
+
+  function update(patch) {
+    state = { ...state, ...patch };
+    save();
+    render();
+  }
+
+  function setCharacter(id) {
+    if (!CHARACTERS.find(c => c.id === id)) return;
+    update({ character: id });
+  }
+  function setColor(c) {
+    if (!COLORS.includes(c)) return;
+    update({ color: c });
+  }
+
+  function reset() {
+    const d = defaults();
+    state = d;
+    save();
+    render();
+  }
+
+  function beginRun({ mode, asMonster, difficulty }) {
+    _runId = uuid();
+    state.lastRunMeta = { mode, asMonster, difficulty, startedAt: Date.now() };
+    save();
+    return _runId;
+  }
+  function currentRunId() { return _runId; }
+
+  function rememberRun(runId) {
+    if (!runId) return false;
+    if (state.processedRuns.includes(runId)) return false;
+    state.processedRuns.push(runId);
+    if (state.processedRuns.length > 100) state.processedRuns.shift();
+    return true;
+  }
+
+  function bumpDailyStreak() {
+    const today = todayKey();
+    if (state.stats.lastPlayedDay === today) return; // idempotent for the day
+    const yest = todayKey(new Date(Date.now() - 86400000));
+    if (state.stats.lastPlayedDay === yest) {
+      state.stats.dailyStreak = (state.stats.dailyStreak || 0) + 1;
+    } else {
+      state.stats.dailyStreak = 1;
+    }
+    state.stats.lastPlayedDay = today;
+  }
+
+  function checkAchievements() {
+    const newly = [];
+    for (const a of ACHIEVEMENTS) {
+      if (state.achievements.includes(a.id)) continue;
+      try {
+        if (a.test(state.stats)) {
+          state.achievements.push(a.id);
+          newly.push(a);
+        }
+      } catch {}
+    }
+    return newly;
+  }
+
+  function recordResult({ runId, result, score, timeMs, difficulty }) {
+    // Idempotency guard: each runId is counted at most once
+    if (!rememberRun(runId)) { render(); return; }
+
+    const s = state.stats;
+    s.totalPlayed += 1;
+    if (difficulty && s.playsByDifficulty[difficulty] != null) {
+      s.playsByDifficulty[difficulty] += 1;
+    }
+
+    if (result === 'escaped') {
+      s.wins += 1;
+      s.streakWins = (s.streakWins || 0) + 1;
+      if (difficulty && s.winsByDifficulty[difficulty] != null) {
+        s.winsByDifficulty[difficulty] += 1;
+      }
+      if (typeof timeMs === 'number' && timeMs > 0 && (!s.bestTimeMs || timeMs < s.bestTimeMs)) {
+        s.bestTimeMs = timeMs;
+      }
+      if (typeof score === 'number' && score > (s.bestScore || 0)) {
+        s.bestScore = score;
+      }
+    } else {
+      s.losses += 1;
+      s.streakWins = 0;
+    }
+
+    bumpDailyStreak();
+    const newly = checkAchievements();
+    save();
+    render();
+    newly.forEach(a => toast(`Unlocked: ${a.label}`));
+  }
+
+  function fmtMs(ms) {
+    if (!ms) return '--:--';
+    const t = Math.floor(ms / 1000);
+    return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
+  }
+
+  function toast(text) {
+    const el = document.getElementById('unlock-toast');
+    if (!el) return;
+    el.textContent = '★ ' + text;
+    el.classList.add('show');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => el.classList.remove('show'), 2600);
+  }
+
+  function renderCharacterRow() {
+    const row = document.getElementById('char-row');
+    if (!row) return;
+    row.innerHTML = '';
+    CHARACTERS.forEach(c => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'char-btn' + (c.id === state.character ? ' active' : '');
+      b.title = c.name;
+      b.textContent = c.label;
+      b.onclick = () => setCharacter(c.id);
+      row.appendChild(b);
+    });
+  }
+  function renderColorRow() {
+    const row = document.getElementById('color-row');
+    if (!row) return;
+    row.innerHTML = '';
+    COLORS.forEach(c => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'color-swatch' + (c === state.color ? ' active' : '');
+      b.style.background = c;
+      b.style.color = c;
+      b.onclick = () => setColor(c);
+      row.appendChild(b);
+    });
+  }
+  function renderStatsBlock() {
+    const el = document.getElementById('lobby-stats');
+    if (!el) return;
+    const s = state.stats;
+    if (s.totalPlayed === 0) { el.classList.add('hidden'); return; }
+    el.classList.remove('hidden');
+    el.innerHTML = `
+      <span class="ls-label">Played</span><span class="ls-value">${s.totalPlayed}</span>
+      <span class="ls-label">Wins</span><span class="ls-value">${s.wins}</span>
+      <span class="ls-label">Losses</span><span class="ls-value">${s.losses}</span>
+      <span class="ls-label">Win streak</span><span class="ls-value">${s.streakWins || 0}</span>
+      <span class="ls-label">Best time</span><span class="ls-value">${fmtMs(s.bestTimeMs)}</span>
+      <span class="ls-label">Best score</span><span class="ls-value">${s.bestScore || 0}</span>
+    `;
+    // mirror to in-game stats panel if present
+    const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+    set('stat-wins', s.wins);
+    set('stat-losses', s.losses);
+    set('stat-best-time', fmtMs(s.bestTimeMs));
+    set('stat-total', s.totalPlayed);
+  }
+  function renderStreakBanner() {
+    const el = document.getElementById('streak-banner');
+    if (!el) return;
+    const d = state.stats.dailyStreak || 0;
+    el.textContent = d >= 2 ? `🔥 ${d}-day streak — keep it alive` : '';
+  }
+  function renderAchievements() {
+    const el = document.getElementById('achievements-block');
+    if (!el) return;
+    el.innerHTML = ACHIEVEMENTS.map(a => {
+      const got = state.achievements.includes(a.id);
+      return `<span class="ach-badge${got ? '' : ' locked'}">${got ? '★' : '☆'} ${a.label}</span>`;
+    }).join('');
+  }
+  function render() {
+    const input = document.getElementById('nameInput');
+    if (input && document.activeElement !== input && !input.value) input.value = state.name;
+    renderCharacterRow();
+    renderColorRow();
+    renderStatsBlock();
+    renderStreakBanner();
+    renderAchievements();
+  }
+
+  function init() {
+    render();
+    const input = document.getElementById('nameInput');
+    if (input) {
+      if (!input.value) input.value = state.name;
+      input.addEventListener('change', () => {
+        const v = (input.value || '').trim();
+        if (v) update({ name: v.slice(0, 20) });
+      });
+    }
+    const reset = document.getElementById('reset-profile-btn');
+    if (reset) reset.onclick = () => {
+      if (confirm('Reset profile, stats, and achievements? This cannot be undone.')) {
+        Profile.reset();
+      }
+    };
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+  return { get, update, setCharacter, setColor, reset, beginRun, currentRunId, recordResult, CHARACTERS, COLORS };
+})();
 
 // ═══ BOOT ═══
 initScene();
