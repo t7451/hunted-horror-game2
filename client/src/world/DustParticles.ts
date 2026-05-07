@@ -31,6 +31,8 @@ export class DustParticles {
   private readonly halfVolume: THREE.Vector3;
   private readonly speed: number;
   private readonly velocities: Float32Array;
+  /** Reused per-frame Vector3 to avoid alloc churn at 60Hz. */
+  private readonly tmpCamPos = new THREE.Vector3();
 
   constructor(scene: THREE.Scene, opts: DustParticlesOptions = {}) {
     this.count = opts.count ?? 200;
@@ -72,7 +74,7 @@ export class DustParticles {
    * the AABB centered on the camera. Cheap — 200 particles × 3 axes.
    */
   update(dt: number, camera: THREE.Camera): void {
-    const camPos = camera.getWorldPosition(new THREE.Vector3());
+    const camPos = camera.getWorldPosition(this.tmpCamPos);
     this.points.position.copy(camPos);
 
     const arr = this.geom.attributes.position.array as Float32Array;

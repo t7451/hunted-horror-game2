@@ -27,6 +27,8 @@ export class Heartbeat {
   private phase = 0;
   /** Cached intensity factor in [0,1] for external systems (audio later). */
   private _intensity = 0;
+  /** Reused per-frame to avoid Vector3 allocation churn (60+ alloc/s otherwise). */
+  private readonly tmpCamPos = new THREE.Vector3();
 
   constructor(
     private readonly uniforms: SharedUniforms,
@@ -47,7 +49,7 @@ export class Heartbeat {
   update(dt: number, camera: THREE.Camera, threatPos: THREE.Vector3 | null): void {
     let intensity = 0;
     if (threatPos) {
-      const camPos = camera.getWorldPosition(new THREE.Vector3());
+      const camPos = camera.getWorldPosition(this.tmpCamPos);
       const d = camPos.distanceTo(threatPos);
       intensity = THREE.MathUtils.clamp(1 - d / this.proximity, 0, 1);
     }
