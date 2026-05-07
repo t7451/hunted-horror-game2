@@ -1,0 +1,63 @@
+# Perf gate for the client bundle.
+#
+# Spec §10 calls for a Puppeteer FPS run. Until the test infra and
+# headless GPU access are wired up in CI, this workflow at least
+# enforces:
+#
+# 1. The client builds without errors (vite build with no warnings
+#    becomes a hard requirement post-Phase-10).
+# 2. Bundle size hasn't ballooned past the §1 budget (≤2MB initial JS).
+#
+# Add a Puppeteer FPS step in a follow-up once a CI image with WebGL2
+# (e.g. browser-actions/setup-chrome with --use-gl=swiftshader) is
+# available; the boot path through `LoadingScreen` simulates the
+# real engine warm-up so a 10s sample after `status === "playing"`
+# is the natural measurement point.
+
+name: perf
+on:
+  pull_request:
+    paths:
+      - "client/**"
+      - "shared/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "vite.config.ts"
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 10
+      - name: Install dependencies
+        # Match the netlify.toml install flag so PRs that touch deps
+        # don't fail at this step before Phase 10 even runs.
+        run: pnpm install --no-frozen-lockfile
+        env:
+          NPM_CONFIG_FROZEN_LOCKFILE: "false"
+      - name: Build client
+        run: pnpm run build:client
+      - name: Bundle size budget
+        run: |
+          set -e
+          DIST=dist/public/assets
+          if [ ! -d "$DIST" ]; then
+            echo "no dist/public/assets/ — vite build may have changed output dir"
+            exit 1
+          fi
+          # Sum sizes of emitted JS chunks. Budget: 2MB per spec §1.
+          TOTAL=$(find "$DIST" -name "*.js" -type f -exec stat -c%s {} \; | awk '{s+=$1} END {print s+0}')
+          echo "client JS bytes: $TOTAL"
+          BUDGET=$((2 * 1024 * 1024))
+          if [ "$TOTAL" -gt "$BUDGET" ]; then
+            echo "::error::client JS bundle ($TOTAL bytes) exceeds 2MB budget"
+            exit 1
+          fi
