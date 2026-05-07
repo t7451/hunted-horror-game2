@@ -130,11 +130,11 @@ canvas:not(#minimap){position:fixed;inset:0;display:block;width:100%!important;h
 #jstick-knob{position:fixed;bottom:54px;left:54px;width:70px;height:70px;border-radius:50%;background:radial-gradient(circle at 35% 30%,rgba(0,229,255,.55),rgba(0,229,255,.15));border:2px solid rgba(0,229,255,.7);box-shadow:0 0 18px rgba(0,229,255,.4);pointer-events:none;z-index:42;transition:transform .05s}
 #action-btns{position:fixed;bottom:14px;right:10px;display:flex;flex-direction:column;gap:8px;z-index:45}
 #action-btns.hidden{display:none}
-.abtn{width:54px;height:54px;border-radius:50%;border:1.5px solid rgba(0,229,255,.25);background:rgba(0,229,255,.05);color:rgba(255,255,255,.8);font-size:.6rem;font-weight:700;display:flex;align-items:center;justify-content:center;cursor:pointer;letter-spacing:.05em;backdrop-filter:blur(4px);transition:all .1s;-webkit-backdrop-filter:blur(4px)}
+.abtn{width:64px;height:64px;border-radius:50%;border:2px solid rgba(0,229,255,.45);background:rgba(0,229,255,.12);color:#fff;font-size:.65rem;font-weight:700;display:flex;align-items:center;justify-content:center;cursor:pointer;letter-spacing:.05em;backdrop-filter:blur(4px);transition:all .1s;-webkit-backdrop-filter:blur(4px);touch-action:manipulation}
 .abtn:active{background:rgba(0,229,255,.2);border-color:rgba(0,229,255,.6);transform:scale(.9)}
 .abtn.lit{border-color:rgba(255,215,0,.6);color:#ffd700;animation:glow-btn 1.5s infinite}
 @keyframes glow-btn{0%,100%{box-shadow:0 0 0 0 transparent}50%{box-shadow:0 0 14px 3px rgba(255,215,0,.3)}}
-#sprint-btn{position:fixed;bottom:14px;left:calc(44% - 32px);z-index:45;width:52px;height:52px;border-radius:50%;border:1.5px solid rgba(255,200,0,.25);background:rgba(255,200,0,.04);color:rgba(255,200,0,.8);font-size:.55rem;font-weight:700;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+#sprint-btn{position:fixed;bottom:24px;left:calc(44% - 32px);z-index:45;width:62px;height:62px;border-radius:50%;border:2px solid rgba(255,200,0,.5);background:rgba(255,200,0,.15);color:#fff;font-size:.6rem;font-weight:700;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);touch-action:manipulation}
 #sprint-btn.active{background:rgba(255,200,0,.25);border-color:rgba(255,200,0,.7);transform:scale(.92)}
 
 /* ── SCREEN FX ── */
@@ -1117,101 +1117,128 @@ function buildMap() {
 }
 
 // ── ENTITY / PLAYER MESHES ──
+// Claude is rendered as a warm, friendly companion: rounded soft body,
+// big smiling face, gentle peach palette, and a calm warm glow. The
+// previous "AI villain" design (dark body, glowing cyan eyes, red danger
+// pulse) has been retired in favour of a welcoming look.
+function makeClaudeFaceTexture() {
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 256;
+  const ctx = cv.getContext('2d');
+  // Skin base
+  ctx.fillStyle = '#ffd9b8';
+  ctx.fillRect(0, 0, 256, 256);
+  // Soft cheek blush
+  ctx.fillStyle = 'rgba(255,150,140,0.35)';
+  ctx.beginPath(); ctx.arc(80, 150, 22, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(176, 150, 22, 0, Math.PI * 2); ctx.fill();
+  // Eyes — large, soft, dark brown (not glowing)
+  ctx.fillStyle = '#2a1a10';
+  ctx.beginPath(); ctx.arc(96, 110, 14, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(160, 110, 14, 0, Math.PI * 2); ctx.fill();
+  // Eye highlights — friendly catchlights
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath(); ctx.arc(101, 105, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(165, 105, 4, 0, Math.PI * 2); ctx.fill();
+  // Smile — gentle upward curve
+  ctx.strokeStyle = '#5a2010';
+  ctx.lineWidth = 5;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.arc(128, 155, 28, 0.15 * Math.PI, 0.85 * Math.PI);
+  ctx.stroke();
+  // Eyebrows — relaxed, slight curve
+  ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(82, 88);  ctx.quadraticCurveTo(96, 82,  110, 88);  ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(146, 88); ctx.quadraticCurveTo(160, 82, 174, 88);  ctx.stroke();
+  return new THREE.CanvasTexture(cv);
+}
+
 function getOrCreateEntity(state) {
   if (!entityMesh) {
     const group = new THREE.Group();
 
-    // CLAUDE - The AI Villain
-    // Body - dark with subtle blue-purple sheen
-    const bodyGeo = new THREE.CylinderGeometry(0.35, 0.4, 1.8, 8);
+    // Soft rounded body in a warm sweater color. r128 has no CapsuleGeometry,
+    // so use a slightly tapered cylinder for a softer silhouette than a box.
+    const bodyGeo = new THREE.CylinderGeometry(0.4, 0.46, 1.2, 18);
     const bodyMat = new THREE.MeshPhongMaterial({
-      color: 0x0a0a1e,
-      emissive: 0x0a0a20,
-      shininess: 100,
-      specular: 0x1a1a3a,
+      color: 0x4a8acc,            // friendly blue sweater
+      emissive: 0x182840,
+      emissiveIntensity: 0.25,
+      shininess: 8,
     });
     const body = new THREE.Mesh(bodyGeo, bodyMat);
+    body.position.y = 0.85;
     group.add(body);
 
-    // Head - slightly larger, angular
-    const headGeo = new THREE.SphereGeometry(0.32, 8, 6);
+    // Head — round and soft, with a hand-drawn smiling face texture
+    const faceTex = makeClaudeFaceTexture();
+    const headGeo = new THREE.SphereGeometry(0.38, 24, 18);
     const headMat = new THREE.MeshPhongMaterial({
-      color: 0x0c0c20,
-      emissive: 0x060612,
-      shininess: 100,
-      specular: 0x2a2a4a,
+      map: faceTex,
+      color: 0xffffff,
+      shininess: 4,
     });
     const head = new THREE.Mesh(headGeo, headMat);
-    head.position.y = 1.22;
-    head.scale.set(1, 0.85, 0.9);
+    head.position.y = 1.55;
     group.add(head);
 
-    // Glowing cyan eyes - the signature Claude look
-    const eyeGeo = new THREE.SphereGeometry(0.07, 8, 8);
-    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x00e5ff });
-    const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
-    eyeL.position.set(-0.13, 1.26, 0.28);
-    const eyeR = new THREE.Mesh(eyeGeo, eyeMat);
-    eyeR.position.set(0.13, 1.26, 0.28);
-    group.add(eyeL, eyeR);
+    // Tuft of hair — small dome on top
+    const hairMat = new THREE.MeshPhongMaterial({ color: 0x6a3a1a, shininess: 12 });
+    const hair = new THREE.Mesh(new THREE.SphereGeometry(0.32, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), hairMat);
+    hair.position.y = 1.78;
+    group.add(hair);
 
-    // Eye glow halos
-    const haloGeo = new THREE.SphereGeometry(0.12, 8, 8);
-    const haloMat = new THREE.MeshBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.15 });
-    const haloL = new THREE.Mesh(haloGeo, haloMat);
-    haloL.position.copy(eyeL.position);
-    const haloR = new THREE.Mesh(haloGeo, haloMat);
-    haloR.position.copy(eyeR.position);
-    group.add(haloL, haloR);
-
-    // Arms - thin, menacing
-    const armGeo = new THREE.CylinderGeometry(0.06, 0.04, 1.0, 6);
-    const armMat = new THREE.MeshPhongMaterial({ color: 0x0a0a18, emissive: 0x030308 });
-    const armL = new THREE.Mesh(armGeo, armMat);
-    armL.position.set(-0.45, 0.2, 0);
-    armL.rotation.z = 0.15;
-    const armR = new THREE.Mesh(armGeo, armMat);
-    armR.position.set(0.45, 0.2, 0);
-    armR.rotation.z = -0.15;
+    // Soft arms in the same sweater color, relaxed at the sides
+    const armGeo = new THREE.CylinderGeometry(0.11, 0.1, 0.78, 12);
+    const armL = new THREE.Mesh(armGeo, bodyMat);
+    armL.position.set(-0.5, 0.95, 0);
+    armL.rotation.z = 0.18;
+    const armR = new THREE.Mesh(armGeo, bodyMat);
+    armR.position.set(0.5, 0.95, 0);
+    armR.rotation.z = -0.18;
+    armR.name = 'wavingArm'; // animated (gentle wave) below
     group.add(armL, armR);
 
-    // Cyan aura light (always on)
-    const auraLight = new THREE.PointLight(0x00e5ff, 1.0, 10);
-    auraLight.position.set(0, 1.3, 0);
-    auraLight.name = 'auraLight';
-    group.add(auraLight);
+    // Hands — peach
+    const handMat = new THREE.MeshPhongMaterial({ color: 0xffd9b8, shininess: 6 });
+    const handL = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), handMat);
+    handL.position.set(-0.61, 0.6, 0);
+    const handR = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), handMat);
+    handR.position.set(0.61, 0.6, 0);
+    handR.name = 'wavingHand';
+    group.add(handL, handR);
 
-    // Red danger light (activates on chase)
-    const dangerLight = new THREE.PointLight(0xff2200, 0, 14);
-    dangerLight.position.set(0, 0.5, 0);
-    dangerLight.name = 'dangerLight';
-    group.add(dangerLight);
+    // Warm halo light — always on, no red "danger" pulse anymore
+    const halo = new THREE.PointLight(0xffd49a, 1.1, 8, 2);
+    halo.position.set(0, 1.55, 0);
+    halo.name = 'haloLight';
+    group.add(halo);
 
     entityMesh = group;
     scene.add(entityMesh);
   }
 
   if (state) {
-    entityMesh.position.set(state.x, 0.9, state.z);
+    entityMesh.position.set(state.x, 0, state.z);
     entityMesh.rotation.y = state.rotY || 0;
 
-    const auraLight = entityMesh.getObjectByName('auraLight');
-    const dangerLight = entityMesh.getObjectByName('dangerLight');
-    const isChasing = state.state === 'chase';
+    // Halo brightens slightly when Claude is approaching but stays warm —
+    // no red flash, no menacing aura.
+    const halo = entityMesh.getObjectByName('haloLight');
+    const isChasing       = state.state === 'chase';
     const isInvestigating = state.state === 'investigate';
-
-    if (auraLight) {
-      auraLight.intensity = isChasing ? 1.8 : isInvestigating ? 1.3 : 1.0;
-      auraLight.distance = isChasing ? 16 : 10;
-    }
-    if (dangerLight) {
-      dangerLight.intensity = isChasing ? 1.2 : isInvestigating ? 0.3 : 0;
-      dangerLight.distance = isChasing ? 18 : 8;
+    if (halo) {
+      halo.intensity = isChasing ? 1.6 : isInvestigating ? 1.3 : 1.1;
     }
 
-    // Bobbing animation
+    // Friendly idle: gentle bob + a small wave with the right hand.
     const time = performance.now() * 0.001;
-    entityMesh.position.y = 0.9 + Math.sin(time * 2) * 0.05;
+    entityMesh.position.y = Math.sin(time * 1.6) * 0.04;
+    const wavingArm  = entityMesh.getObjectByName('wavingArm');
+    const wavingHand = entityMesh.getObjectByName('wavingHand');
+    if (wavingArm)  wavingArm.rotation.z  = -0.18 - Math.abs(Math.sin(time * 2.2)) * 0.6;
+    if (wavingHand) wavingHand.position.y = 0.6 + Math.abs(Math.sin(time * 2.2)) * 0.6;
   }
   return entityMesh;
 }
@@ -1482,6 +1509,52 @@ function updateSpectator(dt) {
   }
 }
 
+// ── Tile collision ──
+// Walls ('W' tiles) block, every other tile is walkable. We pad the player
+// position by PLAYER_RADIUS so they don't clip into wall edges. Map-bounds
+// clamping is the second line of defence against the camera escaping the
+// world and reappearing on the opposite side.
+const PLAYER_RADIUS = 0.35;
+
+function tileBlocked(gx, gz) {
+  if (!mapData || gz < 0 || gz >= mapData.length) return true;
+  const row = mapData[gz];
+  if (!row || gx < 0 || gx >= row.length) return true;
+  return row[gx] === 'W';
+}
+
+function pointBlocked(x, z) {
+  // Sample the four corners of the player's AABB so corners can't slip
+  // through a thin wall.
+  const r = PLAYER_RADIUS;
+  const T = tileSize;
+  return (
+    tileBlocked(Math.floor((x - r) / T), Math.floor((z - r) / T)) ||
+    tileBlocked(Math.floor((x + r) / T), Math.floor((z - r) / T)) ||
+    tileBlocked(Math.floor((x - r) / T), Math.floor((z + r) / T)) ||
+    tileBlocked(Math.floor((x + r) / T), Math.floor((z + r) / T))
+  );
+}
+
+function moveWithCollision(dx, dz) {
+  const T = tileSize;
+  const minX = PLAYER_RADIUS + 0.01;
+  const minZ = PLAYER_RADIUS + 0.01;
+  const maxX = (mapData?.[0]?.length || 0) * T - PLAYER_RADIUS - 0.01;
+  const maxZ = (mapData?.length || 0)        * T - PLAYER_RADIUS - 0.01;
+
+  // X axis
+  let nx = camera.position.x + dx;
+  if (!pointBlocked(nx, camera.position.z)) camera.position.x = nx;
+  // Z axis
+  let nz = camera.position.z + dz;
+  if (!pointBlocked(camera.position.x, nz)) camera.position.z = nz;
+
+  // Final bounds clamp — prevents the camera from escaping the world.
+  if (maxX > minX) camera.position.x = Math.max(minX, Math.min(maxX, camera.position.x));
+  if (maxZ > minZ) camera.position.z = Math.max(minZ, Math.min(maxZ, camera.position.z));
+}
+
 function updateMovement(dt) {
   let moveX = 0, moveZ = 0;
 
@@ -1504,8 +1577,13 @@ function updateMovement(dt) {
     const wz = moveX * sin + moveZ * cos;
     const len = Math.hypot(wx, wz) || 1;
     const speed = crouching ? 2.5 : sprinting ? 7 : 4.5;
-    camera.position.x += (wx / len) * speed * dt;
-    camera.position.z += (wz / len) * speed * dt;
+    const dx = (wx / len) * speed * dt;
+    const dz = (wz / len) * speed * dt;
+    // Axis-separated collision: try each axis independently so the player
+    // slides along walls instead of sticking to corners. Bounds are clamped
+    // last so the camera can never leave the map and reappear on the far
+    // side (the previous "teleport" bug).
+    moveWithCollision(dx, dz);
 
     const noiseMult = crouching ? 0.2 : sprinting ? 2.5 : 1;
     noiseLevel = Math.min(100, noiseLevel + 20 * noiseMult * dt);
