@@ -843,14 +843,21 @@ async function startServer() {
     });
   });
 
-  // Static file serving (production)
+  // Static file serving (production). Skipped on backend-only deployments
+  // (e.g. Render) where the static client lives elsewhere (Netlify) and
+  // dist/public was never built.
   const isProduction = process.env.NODE_ENV === "production";
   if (isProduction) {
     const staticPath = path.resolve(__dirname, "public");
-    app.use(express.static(staticPath));
-    app.get("*", (_req, res) => {
-      res.sendFile(path.join(staticPath, "index.html"));
-    });
+    const indexHtml = path.join(staticPath, "index.html");
+    if (fs.existsSync(indexHtml)) {
+      app.use(express.static(staticPath));
+      app.get("*", (_req, res) => {
+        res.sendFile(indexHtml);
+      });
+    } else {
+      console.log("[server] dist/public not found — running websocket-only mode");
+    }
   }
 
   const PORT =

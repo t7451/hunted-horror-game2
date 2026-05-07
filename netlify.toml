@@ -10,7 +10,7 @@
 [build]
   base = "."
   publish = "dist/public"
-  command = "pnpm install --no-frozen-lockfile && pnpm run build"
+  command = "pnpm install --no-frozen-lockfile && pnpm run build:client"
 
 [build.environment]
   NODE_VERSION = "20"

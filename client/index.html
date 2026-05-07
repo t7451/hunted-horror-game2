@@ -459,9 +459,20 @@ const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_DELAY = 2000;
 
 function connect() {
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = location.host; // includes port (e.g. localhost:3000)
-  const wsUrl = `${proto}//${host}/ws`; // Use Vite proxy path
+  // Vite replaces %VITE_WS_URL% at build time so that the Netlify-hosted
+  // client can reach the Render-hosted websocket gateway. When unset
+  // (dev / self-hosted), fall back to same-origin /ws so the Vite dev
+  // proxy and the Express + ws server both keep working unchanged.
+  const buildTimeWsUrl = '%VITE_WS_URL%';
+  let wsUrl;
+  if (buildTimeWsUrl && !buildTimeWsUrl.includes('VITE_WS_URL')) {
+    wsUrl = buildTimeWsUrl;
+  } else {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    wsUrl = `${proto}//${location.host}/ws`;
+  }
+  const proto = wsUrl.startsWith('wss:') ? 'wss:' : 'ws:';
+  const host = wsUrl.replace(/^wss?:\/\//, '').replace(/\/.*$/, '');
   
   console.log('[App] Attempting WebSocket connection to:', wsUrl);
   console.log('[App] Protocol:', proto, 'Host:', host);
