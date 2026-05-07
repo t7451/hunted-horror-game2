@@ -11,6 +11,8 @@ export type FlashlightHandle = {
   toggle: () => void;
   isOn: () => boolean;
   dispose: () => void;
+  /** Underlying light — exposed so Phase 6 ShadowBudget can register it. */
+  light: THREE.Light;
 };
 
 export function createFlashlight(camera: THREE.Camera): FlashlightHandle {
@@ -26,6 +28,7 @@ export function createFlashlight(camera: THREE.Camera): FlashlightHandle {
         camera.remove(light);
         light.dispose();
       },
+      light,
     };
   }
 
@@ -52,5 +55,6 @@ export function createFlashlight(camera: THREE.Camera): FlashlightHandle {
       camera.remove(target);
       light.dispose();
     },
+    light,
   };
 }

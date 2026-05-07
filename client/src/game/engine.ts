@@ -21,6 +21,7 @@ import { createSharedUniforms } from "../render/uniforms";
 import { setupAtmosphere } from "../lighting/Atmosphere";
 import { createPractical } from "../lighting/Practical";
 import { FlickerGroup, LightFlicker } from "../lighting/Flicker";
+import { ShadowBudget } from "../lighting/ShadowBudget";
 import { createFlashlight } from "../player/Flashlight";
 import { getMaterial, resetMaterialCache } from "../materials/MaterialFactory";
 import { DecalSpawner } from "../materials/Decals";
@@ -161,6 +162,8 @@ export function startGame(
   scene.add(camera);
   const flashlight = createFlashlight(camera);
   const flickers = new FlickerGroup();
+  const shadowBudget = new ShadowBudget();
+  shadowBudget.register(flashlight.light);
 
   // ── Materials ──────────────────────────────────────────────────────────────
   // Walls/floor/ceiling go through MaterialFactory so the eventual KTX2
@@ -731,6 +734,7 @@ export function startGame(
       }
 
       flickers.update(dt);
+      shadowBudget.update(camera);
       checkPickups();
       if (!isContextLost()) {
         if (postfx) postfx.render(dt);
@@ -798,6 +802,7 @@ export function startGame(
       decals.dispose();
       props.dispose();
       cobwebs.dispose();
+      shadowBudget.dispose();
       postfx?.dispose();
       perf.dispose();
       renderer.dispose();
