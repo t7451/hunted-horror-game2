@@ -25,6 +25,7 @@ import { ShadowBudget } from "../lighting/ShadowBudget";
 import { createFlashlight } from "../player/Flashlight";
 import { CameraRig } from "../player/CameraRig";
 import { Heartbeat } from "../player/Heartbeat";
+import { AudioWorld } from "../audio/AudioWorld";
 import { getMaterial, resetMaterialCache } from "../materials/MaterialFactory";
 import { DecalSpawner } from "../materials/Decals";
 import { PropSpawner, type PropKind } from "../world/PropSpawner";
@@ -64,6 +65,12 @@ export type EngineHandle = {
   setRemotePlayers: (players: RemotePlayer[]) => void;
   setEnemy: (pos: { x: number; z: number } | null) => void;
   getPlayerState: () => { x: number; z: number; rotY: number };
+  /**
+   * Resume the audio context. Must be called from a user gesture (button
+   * click) on iOS Safari or autoplay-blocked Chrome. No-op if already
+   * unlocked.
+   */
+  unlockAudio: () => boolean;
 };
 
 // Tiny seedable PRNG so prop / cobweb placement is stable across mounts
@@ -172,6 +179,12 @@ export function startGame(
     crouchHeight: PLAYER_HEIGHT * 0.72,
   });
   const heartbeat = new Heartbeat(sharedUniforms);
+  const audio = new AudioWorld();
+  // Track distance walked so we step on a stride cadence rather than every
+  // tick — feels less "every frame thunk" without an asset library.
+  let stepDist = 0;
+  let lastCamX = 0;
+  let lastCamZ = 0;
 
   // ── Materials ──────────────────────────────────────────────────────────────
   // Walls/floor/ceiling go through MaterialFactory so the eventual KTX2
@@ -569,6 +582,9 @@ export function startGame(
   document.addEventListener("mousemove", onMouseMove);
 
   const onCanvasClick = () => {
+    // Doubles as the iOS / autoplay-policy gesture for unlocking the
+    // audio context. Idempotent.
+    audio.unlock();
     if (document.pointerLockElement !== renderer.domElement) {
       renderer.domElement.requestPointerLock?.();
     }
@@ -763,6 +779,19 @@ export function startGame(
         camera,
         enemyMesh.visible ? enemyMesh.position : null,
       );
+      audio.setHeartbeatIntensity(heartbeat.intensity());
+      audio.update(dt);
+      // Footstep cadence — fire one click every ~0.8m of horizontal travel.
+      const dxStep = camera.position.x - lastCamX;
+      const dzStep = camera.position.z - lastCamZ;
+      stepDist += Math.hypot(dxStep, dzStep);
+      lastCamX = camera.position.x;
+      lastCamZ = camera.position.z;
+      const stride = sprinting ? 1.0 : 0.8;
+      if (!isHiding && stepDist >= stride) {
+        stepDist -= stride;
+        audio.triggerFootstep();
+      }
       checkPickups();
       if (!isContextLost()) {
         if (postfx) postfx.render(dt);
@@ -831,6 +860,7 @@ export function startGame(
       props.dispose();
       cobwebs.dispose();
       shadowBudget.dispose();
+      audio.dispose();
       postfx?.dispose();
       perf.dispose();
       renderer.dispose();
@@ -858,5 +888,6 @@ export function startGame(
       z: camera.position.z,
       rotY: yaw,
     }),
+    unlockAudio: () => audio.unlock(),
   };
 }
