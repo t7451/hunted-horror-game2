@@ -23,6 +23,8 @@ import { createPractical } from "../lighting/Practical";
 import { FlickerGroup, LightFlicker } from "../lighting/Flicker";
 import { ShadowBudget } from "../lighting/ShadowBudget";
 import { createFlashlight } from "../player/Flashlight";
+import { CameraRig } from "../player/CameraRig";
+import { Heartbeat } from "../player/Heartbeat";
 import { getMaterial, resetMaterialCache } from "../materials/MaterialFactory";
 import { DecalSpawner } from "../materials/Decals";
 import { PropSpawner, type PropKind } from "../world/PropSpawner";
@@ -164,6 +166,12 @@ export function startGame(
   const flickers = new FlickerGroup();
   const shadowBudget = new ShadowBudget();
   shadowBudget.register(flashlight.light);
+  const cameraRig = new CameraRig(camera, {
+    baseFov: camera.fov,
+    baseHeight: PLAYER_HEIGHT,
+    crouchHeight: PLAYER_HEIGHT * 0.72,
+  });
+  const heartbeat = new Heartbeat(sharedUniforms);
 
   // ── Materials ──────────────────────────────────────────────────────────────
   // Walls/floor/ceiling go through MaterialFactory so the eventual KTX2
@@ -588,7 +596,8 @@ export function startGame(
       return;
     }
     isHiding = !isHiding;
-    camera.position.y = isHiding ? PLAYER_HEIGHT * 0.72 : PLAYER_HEIGHT;
+    // Camera height is owned by CameraRig.update() each frame — it smooths
+    // the crouch lerp so we don't snap.
     events.onHideChange?.(isHiding);
     events.onHint?.(
       isHiding
@@ -672,6 +681,12 @@ export function startGame(
       const nextDanger =
         distSq < 4 * 4 ? "critical" : distSq < 9 * 9 ? "near" : "safe";
       if (nextDanger !== dangerState) {
+        // Pulse the camera rig (FOV punch) when crossing into critical
+        // proximity — gives the visual "they're right behind you" cue
+        // before the fatal catch lands.
+        if (nextDanger === "critical" && dangerState !== "critical") {
+          cameraRig.pulseDamage(0.2);
+        }
         dangerState = nextDanger;
         events.onDangerChange?.(dangerState);
       }
@@ -708,17 +723,20 @@ export function startGame(
         return;
       }
 
-      const speed = calculateMoveSpeed(isHiding, keys.has("ShiftLeft"), dt);
+      const sprinting = keys.has("ShiftLeft");
+      const speed = calculateMoveSpeed(isHiding, sprinting, dt);
       let fx = 0;
       let fz = 0;
       if (keys.has("KeyW") || keys.has("ArrowUp")) fz -= 1;
       if (keys.has("KeyS") || keys.has("ArrowDown")) fz += 1;
       if (keys.has("KeyA") || keys.has("ArrowLeft")) fx -= 1;
       if (keys.has("KeyD") || keys.has("ArrowRight")) fx += 1;
+      let moveMagnitude = 0;
       if (fx !== 0 || fz !== 0) {
         const len = Math.hypot(fx, fz);
         fx /= len;
         fz /= len;
+        moveMagnitude = sprinting ? 1 : 0.6;
         const sin = Math.sin(yaw);
         const cos = Math.cos(yaw);
         const dx = (fx * cos + fz * sin) * speed;
@@ -735,6 +753,16 @@ export function startGame(
 
       flickers.update(dt);
       shadowBudget.update(camera);
+      cameraRig.update(
+        dt,
+        { moveMagnitude, sprinting, crouched: isHiding },
+        t,
+      );
+      heartbeat.update(
+        dt,
+        camera,
+        enemyMesh.visible ? enemyMesh.position : null,
+      );
       checkPickups();
       if (!isContextLost()) {
         if (postfx) postfx.render(dt);
