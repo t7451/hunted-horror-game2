@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { MAPS, MAP_KEYS, type MapKey } from "@shared/maps";
 import { supportsWebGL, type GraphicsQuality } from "../util/device";
 import { startGame, type EngineHandle, type RemotePlayer } from "./engine";
+import LoadingScreen from "../ui/LoadingScreen";
 
-type Status = "title" | "playing" | "caught" | "escaped";
+type Status = "title" | "loading" | "playing" | "caught" | "escaped";
 type Danger = "safe" | "near" | "critical";
 
 const DANGER_STYLES: Record<Danger, string> = {
@@ -226,7 +227,7 @@ export default function Game3D() {
             disabled={!webglSupported}
             onClick={() => {
               setEngineError(null);
-              setStatus("playing");
+              setStatus("loading");
             }}
             className="px-8 py-3 bg-red-700 hover:bg-red-600 disabled:opacity-40 disabled:hover:bg-red-700 transition-colors rounded font-semibold tracking-widest"
           >
@@ -238,6 +239,10 @@ export default function Game3D() {
             older browsers and mobile GPUs.
           </p>
         </Overlay>
+      )}
+
+      {status === "loading" && (
+        <LoadingScreen onReady={() => setStatus("playing")} />
       )}
 
       {status === "playing" && (
