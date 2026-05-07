@@ -6,6 +6,12 @@ import { startGame, type EngineHandle, type RemotePlayer } from "./engine";
 type Status = "title" | "playing" | "caught" | "escaped";
 type Danger = "safe" | "near" | "critical";
 
+const DANGER_STYLES: Record<Danger, string> = {
+  critical: "bg-red-950/75 border-red-400",
+  near: "bg-yellow-950/70 border-yellow-500/60",
+  safe: "bg-black/60 border-white/10",
+};
+
 export default function Game3D() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const engineRef = useRef<EngineHandle | null>(null);
@@ -237,13 +243,7 @@ export default function Game3D() {
       {status === "playing" && (
         <>
           <div
-            className={`absolute top-3 left-3 max-w-sm text-xs font-mono px-3 py-2 rounded border ${
-              danger === "critical"
-                ? "bg-red-950/75 border-red-400"
-                : danger === "near"
-                  ? "bg-yellow-950/70 border-yellow-500/60"
-                  : "bg-black/60 border-white/10"
-            }`}
+            className={`absolute top-3 left-3 max-w-sm text-xs font-mono px-3 py-2 rounded border ${DANGER_STYLES[danger]}`}
           >
             <div>
               Objective: {keysLeft === 0 ? "Reach the exit" : "Find every key"}

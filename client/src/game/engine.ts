@@ -63,6 +63,26 @@ const HIDE_INTERACTION_DISTANCE = 2.2;
 const REMOTE_ENEMY_TIMEOUT_MS = 1200;
 const INVESTIGATING_SPEED_FACTOR = 0.25;
 
+function calculateMoveSpeed(
+  isHidden: boolean,
+  isSprinting: boolean,
+  dt: number
+) {
+  if (isHidden) return 0;
+  return (isSprinting ? MOVE_SPEED * SPRINT_MULT : MOVE_SPEED) * dt;
+}
+
+function calculateEnemySpeed(
+  investigating: boolean,
+  baseSpeed: number,
+  dt: number
+) {
+  const speed = investigating
+    ? baseSpeed * INVESTIGATING_SPEED_FACTOR
+    : baseSpeed;
+  return speed * dt;
+}
+
 export function startGame(
   container: HTMLElement,
   options: {
@@ -489,10 +509,7 @@ export function startGame(
     const dz = camera.position.z - enemyMesh.position.z;
     const dist = Math.hypot(dx, dz) || 1;
     const investigating = isHiding && dist > 4;
-    const speed =
-      (investigating
-        ? mapDef.claudeSpeed * INVESTIGATING_SPEED_FACTOR
-        : mapDef.claudeSpeed) * dt;
+    const speed = calculateEnemySpeed(investigating, mapDef.claudeSpeed, dt);
     const wobble = Math.sin(elapsed * 0.9) * 0.4;
     const tx = investigating ? Math.sin(elapsed * 0.35) + wobble : dx / dist;
     const tz = investigating ? Math.cos(elapsed * 0.31) - wobble : dz / dist;
@@ -575,12 +592,7 @@ export function startGame(
         return;
       }
 
-      const speed =
-        (isHiding
-          ? 0
-          : keys.has("ShiftLeft")
-            ? MOVE_SPEED * SPRINT_MULT
-            : MOVE_SPEED) * dt;
+      const speed = calculateMoveSpeed(isHiding, keys.has("ShiftLeft"), dt);
       let fx = 0;
       let fz = 0;
       if (keys.has("KeyW") || keys.has("ArrowUp")) fz -= 1;
