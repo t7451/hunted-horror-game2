@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { MAPS, MAP_KEYS, type MapKey } from "@shared/maps";
 import { supportsWebGL, type GraphicsQuality } from "../util/device";
 import { startGame, type EngineHandle, type RemotePlayer } from "./engine";
+import type { DirectorUpdate } from "./aiDirector";
 import LoadingScreen from "../ui/LoadingScreen";
 
 type Status = "title" | "loading" | "playing" | "caught" | "escaped";
@@ -11,6 +12,12 @@ const DANGER_STYLES: Record<Danger, string> = {
   critical: "bg-red-950/75 border-red-400",
   near: "bg-yellow-950/70 border-yellow-500/60",
   safe: "bg-black/60 border-white/10",
+};
+
+const INITIAL_DIRECTOR: DirectorUpdate = {
+  tension: 0.35,
+  enemySpeedMultiplier: 1,
+  reason: "calibrating",
 };
 
 export default function Game3D() {
@@ -25,6 +32,7 @@ export default function Game3D() {
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [danger, setDanger] = useState<Danger>("safe");
   const [hidden, setHidden] = useState(false);
+  const [director, setDirector] = useState<DirectorUpdate>(INITIAL_DIRECTOR);
   const [hint, setHint] = useState(
     "Click to lock pointer · WASD to move · Shift to sprint"
   );
@@ -47,6 +55,7 @@ export default function Game3D() {
     setTimeLeft(selectedMap.timer);
     setDanger("safe");
     setHidden(false);
+    setDirector(INITIAL_DIRECTOR);
     setHint(
       "Click to lock pointer · WASD/Arrows move · Shift sprint · E hides near closets"
     );
@@ -83,6 +92,7 @@ export default function Game3D() {
           onTimer: setTimeLeft,
           onDangerChange: setDanger,
           onHideChange: setHidden,
+          onAIDirector: setDirector,
         },
       });
     } catch (err) {
@@ -235,8 +245,8 @@ export default function Game3D() {
           </button>
           <p className="mt-6 text-xs opacity-60 max-w-xl text-center">
             Find glowing keys, hide in closets with E, then reach the green exit
-            before the timer expires. Low graphics skips costly effects for
-            older browsers and mobile GPUs.
+            before the timer expires. A local AI director adapts pursuit pace
+            and hints without requiring a paid cloud API.
           </p>
         </Overlay>
       )}
@@ -265,6 +275,11 @@ export default function Game3D() {
                   ? "clear"
                   : "Claude is close"}
             </div>
+            <div>
+              AI Director: {Math.round(director.tension * 100)}% tension · pace{" "}
+              {director.enemySpeedMultiplier.toFixed(2)}x
+            </div>
+            <div className="opacity-60">Mode: {director.reason}</div>
             <div className="mt-1 opacity-70">{hint}</div>
           </div>
           <div className="pointer-events-none absolute bottom-3 left-1/2 w-[min(92vw,520px)] -translate-x-1/2 rounded bg-black/50 px-3 py-2 text-center text-xs opacity-80">

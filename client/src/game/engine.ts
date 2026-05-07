@@ -31,6 +31,7 @@ import { DecalSpawner } from "../materials/Decals";
 import { PropSpawner, type PropKind } from "../world/PropSpawner";
 import { CobwebSet } from "../world/Cobwebs";
 import { DustParticles } from "../world/DustParticles";
+import { createAIDirector, type DirectorUpdate } from "./aiDirector";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rendering backend for HUNTED BY CLAUDE.
@@ -59,6 +60,7 @@ export type EngineEvents = {
   onTimer?: (remaining: number) => void;
   onDangerChange?: (danger: "safe" | "near" | "critical") => void;
   onHideChange?: (hidden: boolean) => void;
+  onAIDirector?: (update: DirectorUpdate) => void;
 };
 
 export type EngineHandle = {
@@ -425,7 +427,11 @@ export function startGame(
       const jitter = TILE_SIZE * 0.2;
       const px = cx + (propRng() - 0.5) * jitter;
       const pz = cz + (propRng() - 0.5) * jitter;
-      props.place(picked, new THREE.Vector3(px, 0, pz), propRng() * Math.PI * 2);
+      props.place(
+        picked,
+        new THREE.Vector3(px, 0, pz),
+        propRng() * Math.PI * 2
+      );
     }
   }
   props.commit();
@@ -531,6 +537,11 @@ export function startGame(
   let isHiding = false;
   let timeLeft = mapDef.timer;
   let lastTimerSecond = Math.ceil(timeLeft);
+  let isSprinting = false;
+  let isMoving = false;
+  let enemySpeedMultiplier = 1;
+  let lastDirectorTickSecond = lastTimerSecond;
+  const aiDirector = createAIDirector();
 
   function setEnemy(pos: { x: number; z: number } | null) {
     if (!pos) {
@@ -557,12 +568,40 @@ export function startGame(
     });
     lastRemoteEnemyAt = 0;
   }
+  const totalKeys = keyMeshes.length;
   events.onReady?.({
-    keys: keyMeshes.length,
+    keys: totalKeys,
     timer: mapDef.timer,
     mapName: mapDef.name,
   });
   events.onTimer?.(lastTimerSecond);
+
+  function emitDirector(event: Parameters<typeof aiDirector.trigger>[0]) {
+    const enemyDistance = enemyMesh.visible
+      ? Math.hypot(
+          enemyMesh.position.x - camera.position.x,
+          enemyMesh.position.z - camera.position.z
+        )
+      : null;
+    const update = aiDirector.trigger(event, {
+      mapName: mapDef.name,
+      difficulty: mapDef.difficulty,
+      keysRemaining: keyMeshes.length,
+      totalKeys,
+      timeLeft,
+      maxTime: mapDef.timer,
+      danger: dangerState,
+      hidden: isHiding,
+      sprinting: isSprinting,
+      moving: isMoving,
+      enemyDistance,
+    });
+    enemySpeedMultiplier = update.enemySpeedMultiplier;
+    events.onAIDirector?.(update);
+    if (update.hint) events.onHint?.(update.hint);
+  }
+
+  emitDirector("ready");
 
   // ── Input: pointer-lock first-person look + WASD ──────────────────────────
   let yaw = 0;
@@ -624,6 +663,7 @@ export function startGame(
         ? "Hidden · press E to leave the closet"
         : "Out of hiding · keep moving"
     );
+    emitDirector("hideChange");
   }
 
   // Collision: prevents walking through wall tiles using axis-separated checks.
@@ -658,7 +698,11 @@ export function startGame(
     const dz = camera.position.z - enemyMesh.position.z;
     const dist = Math.hypot(dx, dz) || 1;
     const investigating = isHiding && dist > 4;
-    const speed = calculateEnemySpeed(investigating, mapDef.claudeSpeed, dt);
+    const speed = calculateEnemySpeed(
+      investigating,
+      mapDef.claudeSpeed * enemySpeedMultiplier,
+      dt
+    );
     const wobble = Math.sin(elapsed * 0.9) * 0.4;
     const tx = investigating ? Math.sin(elapsed * 0.35) + wobble : dx / dist;
     const tz = investigating ? Math.cos(elapsed * 0.31) - wobble : dz / dist;
@@ -685,6 +729,7 @@ export function startGame(
         }
         keyMeshes.splice(i, 1);
         events.onKeyPickup?.(keyMeshes.length);
+        emitDirector("keyPickup");
       }
     }
     if (parsed.exit && keyMeshes.length === 0) {
@@ -709,6 +754,7 @@ export function startGame(
         }
         dangerState = nextDanger;
         events.onDangerChange?.(dangerState);
+        emitDirector("dangerChange");
       }
       if (!isHiding && distSq < 1.5 * 1.5) events.onCaught?.();
     }
@@ -735,8 +781,13 @@ export function startGame(
       if (timerSecond !== lastTimerSecond) {
         lastTimerSecond = timerSecond;
         events.onTimer?.(timerSecond);
-        if (timerSecond === 30)
+        if (timerSecond === 30) {
           events.onHint?.("Thirty seconds left. Reach the exit.");
+          emitDirector("timerWarning");
+        } else if (Math.abs(timerSecond - lastDirectorTickSecond) >= 5) {
+          lastDirectorTickSecond = timerSecond;
+          emitDirector("tick");
+        }
       }
       if (timeLeft <= 0) {
         events.onCaught?.();
@@ -744,6 +795,7 @@ export function startGame(
       }
 
       const sprinting = keys.has("ShiftLeft");
+      isSprinting = sprinting;
       const speed = calculateMoveSpeed(isHiding, sprinting, dt);
       let fx = 0;
       let fz = 0;
@@ -764,6 +816,8 @@ export function startGame(
         tryMove(dx, dz);
       }
 
+      isMoving = moveMagnitude > 0;
+
       const t = clock.elapsedTime;
       updateLocalEnemy(dt, t, performance.now());
       for (const k of keyMeshes) {
@@ -773,15 +827,11 @@ export function startGame(
 
       flickers.update(dt);
       shadowBudget.update(camera);
-      cameraRig.update(
-        dt,
-        { moveMagnitude, sprinting, crouched: isHiding },
-        t,
-      );
+      cameraRig.update(dt, { moveMagnitude, sprinting, crouched: isHiding }, t);
       heartbeat.update(
         dt,
         camera,
-        enemyMesh.visible ? enemyMesh.position : null,
+        enemyMesh.visible ? enemyMesh.position : null
       );
       audio.setHeartbeatIntensity(heartbeat.intensity());
       audio.update(dt);
