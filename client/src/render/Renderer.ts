@@ -35,6 +35,8 @@ export function createRenderer(options: RendererOptions = {}): CreatedRenderer {
   renderer.setPixelRatio(pixelRatioForQuality(options.quality));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  // Low quality disables shadow depth and post FX, so slightly lower exposure
+  // preserves the darker horror read without paying for those effects.
   renderer.toneMappingExposure = quality === "low" ? 0.78 : 0.85;
   renderer.shadowMap.enabled = quality !== "low";
   // BasicShadowMap on mobile sidesteps the SpotLight+PCF crash class on

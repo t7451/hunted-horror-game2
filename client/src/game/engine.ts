@@ -59,6 +59,9 @@ const PLAYER_RADIUS = 0.6;
 const PLAYER_HEIGHT = 1.7;
 const MOVE_SPEED = 4.5;
 const SPRINT_MULT = 1.6;
+const HIDE_INTERACTION_DISTANCE = 2.2;
+const REMOTE_ENEMY_TIMEOUT_MS = 1200;
+const INVESTIGATING_SPEED_FACTOR = 0.25;
 
 export function startGame(
   container: HTMLElement,
@@ -434,7 +437,10 @@ export function startGame(
   }
 
   function toggleHide() {
-    if (nearestHideDistanceSq() > 2.2 * 2.2) {
+    if (
+      nearestHideDistanceSq() >
+      HIDE_INTERACTION_DISTANCE * HIDE_INTERACTION_DISTANCE
+    ) {
       events.onHint?.("Find a closet, then press E to hide.");
       return;
     }
@@ -474,14 +480,19 @@ export function startGame(
   }
 
   function updateLocalEnemy(dt: number, elapsed: number) {
-    if (!enemyMesh.visible || performance.now() - lastRemoteEnemyAt < 1200)
+    if (
+      !enemyMesh.visible ||
+      performance.now() - lastRemoteEnemyAt < REMOTE_ENEMY_TIMEOUT_MS
+    )
       return;
     const dx = camera.position.x - enemyMesh.position.x;
     const dz = camera.position.z - enemyMesh.position.z;
     const dist = Math.hypot(dx, dz) || 1;
     const investigating = isHiding && dist > 4;
     const speed =
-      (investigating ? mapDef.claudeSpeed * 0.25 : mapDef.claudeSpeed) * dt;
+      (investigating
+        ? mapDef.claudeSpeed * INVESTIGATING_SPEED_FACTOR
+        : mapDef.claudeSpeed) * dt;
     const wobble = Math.sin(elapsed * 0.9) * 0.4;
     const tx = investigating ? Math.sin(elapsed * 0.35) + wobble : dx / dist;
     const tz = investigating ? Math.cos(elapsed * 0.31) - wobble : dz / dist;

@@ -250,7 +250,7 @@ export default function Game3D() {
             </div>
             <div>Keys remaining: {keysLeft ?? "—"}</div>
             <div>
-              Time left: {timeLeft == null ? "—" : formatTime(timeLeft)}
+              Time left: {timeLeft === null ? "—" : formatTime(timeLeft)}
             </div>
             <div>
               Stealth:{" "}
