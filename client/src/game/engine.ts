@@ -730,9 +730,7 @@ export function startGame(
     const nx = camera.position.x + dx;
     const nz = camera.position.z + dz;
     if (canOccupy(nx, camera.position.z, radius)) camera.position.x = nx;
-    else velocityX = 0;
     if (canOccupy(camera.position.x, nz, radius)) camera.position.z = nz;
-    else velocityZ = 0;
   }
 
   function tryMoveEnemy(dx: number, dz: number) {

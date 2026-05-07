@@ -295,7 +295,7 @@ export default function Game3D() {
           </div>
           <div className="pointer-events-none absolute bottom-3 left-1/2 w-[min(92vw,520px)] -translate-x-1/2 rounded bg-black/50 px-3 py-2 text-center text-xs opacity-80">
             {isMobile
-              ? "Drag left pad to move · Swipe view to look · Sprint / Hide buttons"
+              ? "Drag left pad to move · swipe view to look · sprint / hide buttons"
               : "WASD/Arrows move · Mouse look · Shift sprint · E hide near closets"}
           </div>
           {isMobile && (
