@@ -13,6 +13,10 @@ import { createPerfMonitor } from "../util/perfMonitor";
 import { createRenderer } from "../render/Renderer";
 import { createPostFX, type PostFX } from "../render/PostFX";
 import { createSharedUniforms } from "../render/uniforms";
+import { setupAtmosphere } from "../lighting/Atmosphere";
+import { createPractical } from "../lighting/Practical";
+import { FlickerGroup, LightFlicker } from "../lighting/Flicker";
+import { createFlashlight } from "../player/Flashlight";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rendering backend for HUNTED BY CLAUDE.
@@ -81,8 +85,6 @@ export function startGame(
 
   // ── Scene & Camera ─────────────────────────────────────────────────────────
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x05050a);
-  scene.fog = new THREE.FogExp2(0x05050a, 0.07);
 
   const camera = new THREE.PerspectiveCamera(78, 1, 0.05, 200);
   camera.position.set(
@@ -91,22 +93,14 @@ export function startGame(
     parsed.spawn.z * TILE_SIZE + TILE_SIZE / 2,
   );
 
-  // ── Lighting (Granny-style: dim warm interior + flashlight) ────────────────
-  scene.add(new THREE.AmbientLight(0x1a1620, 0.35));
-  const moonlight = new THREE.DirectionalLight(0x4a5577, 0.25);
-  moonlight.position.set(20, 40, 10);
-  scene.add(moonlight);
-
-  const flashlight = new THREE.SpotLight(0xfff1c2, 6, 22, Math.PI / 6, 0.45, 1.6);
-  flashlight.castShadow = true;
-  flashlight.shadow.mapSize.set(1024, 1024);
-  flashlight.shadow.camera.near = 0.5;
-  flashlight.shadow.camera.far = 22;
-  camera.add(flashlight);
-  camera.add(flashlight.target);
-  flashlight.position.set(0.25, -0.15, 0);
-  flashlight.target.position.set(0, 0, -1);
+  // ── Lighting ───────────────────────────────────────────────────────────────
+  // Atmosphere sets near-zero ambient + hemisphere + fog so practicals
+  // dominate. Flashlight is mobile-gated: PointLight on Android (avoids the
+  // SpotLight+shadow WebGL crash class), SpotLight on desktop.
+  setupAtmosphere(scene);
   scene.add(camera);
+  const flashlight = createFlashlight(camera);
+  const flickers = new FlickerGroup();
 
   // ── Materials ──────────────────────────────────────────────────────────────
   const wallMat = new THREE.MeshStandardMaterial({
@@ -210,11 +204,20 @@ export function startGame(
       0.9,
       k.z * TILE_SIZE + TILE_SIZE / 2,
     );
-    const light = new THREE.PointLight(0xffd24a, 0.6, 4, 2);
-    light.position.copy(key.position);
+    // Each key beacon is a warm-tungsten practical. ~30% of them flicker so
+    // the world doesn't read as static.
+    const light = createPractical({
+      position: key.position.clone(),
+      color: 0xffd24a,
+      intensity: 0.6,
+      distance: 4,
+    });
     keyGroup.add(key);
     keyGroup.add(light);
     keyMeshes.push(key);
+    if (Math.random() < 0.3) {
+      flickers.add(new LightFlicker(light, 0.6, 0.12, 7));
+    }
   });
   scene.add(keyGroup);
 
@@ -427,6 +430,7 @@ export function startGame(
         k.position.y = 0.9 + Math.sin(t * 2 + k.position.x) * 0.08;
       }
 
+      flickers.update(dt);
       checkPickups();
       if (!isContextLost()) {
         if (postfx) postfx.render(dt);
@@ -486,6 +490,7 @@ export function startGame(
       document.removeEventListener("mousemove", onMouseMove);
       renderer.domElement.removeEventListener("click", onCanvasClick);
       detachContextHandlers();
+      flashlight.dispose();
       postfx?.dispose();
       perf.dispose();
       renderer.dispose();
