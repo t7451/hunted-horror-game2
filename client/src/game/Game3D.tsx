@@ -8,8 +8,8 @@ type Status = "title" | "loading" | "playing" | "caught" | "escaped";
 type Danger = "safe" | "near" | "critical";
 
 const DANGER_STYLES: Record<Danger, string> = {
-  critical: "bg-red-950/75 border-red-400",
-  near: "bg-yellow-950/70 border-yellow-500/60",
+  critical: "bg-red-950/80 border-red-400 hunted-hud-critical",
+  near: "bg-yellow-950/70 border-yellow-500/60 hunted-hud-near",
   safe: "bg-black/60 border-white/10",
 };
 
@@ -248,6 +248,15 @@ export default function Game3D() {
       {status === "playing" && (
         <>
           <div
+            className={`pointer-events-none absolute inset-0 hunted-fear-vignette ${
+              danger === "critical"
+                ? "hunted-fear-critical"
+                : danger === "near"
+                  ? "hunted-fear-near"
+                  : ""
+            }`}
+          />
+          <div
             className={`absolute top-3 left-3 max-w-sm text-xs font-mono px-3 py-2 rounded border ${DANGER_STYLES[danger]}`}
           >
             <div>
@@ -270,6 +279,11 @@ export default function Game3D() {
           <div className="pointer-events-none absolute bottom-3 left-1/2 w-[min(92vw,520px)] -translate-x-1/2 rounded bg-black/50 px-3 py-2 text-center text-xs opacity-80">
             WASD/Arrows move · Mouse look · Shift sprint · E hide near closets
           </div>
+          {danger !== "safe" && (
+            <div className="pointer-events-none absolute top-1/2 right-4 -translate-y-1/2 text-[10px] uppercase tracking-[0.35em] text-red-200/50 [writing-mode:vertical-rl]">
+              {danger === "critical" ? "do not turn around" : "he heard you"}
+            </div>
+          )}
         </>
       )}
 

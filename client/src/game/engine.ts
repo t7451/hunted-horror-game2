@@ -143,6 +143,11 @@ export function startGame(
   container.appendChild(renderer.domElement);
 
   const sharedUniforms = createSharedUniforms();
+  const basePostFx = {
+    vignetteOffset: sharedUniforms.vignetteOffset.value,
+    noiseOpacity: sharedUniforms.noiseOpacity.value,
+    bloomIntensity: sharedUniforms.bloomIntensity.value,
+  };
   let postfx: PostFX | null = null;
 
   const resize = () => {
@@ -319,7 +324,8 @@ export function startGame(
       normal.set(0, 0, -1);
     }
     const r = Math.random();
-    const kind = r < 0.15 ? "blood" : r < 0.35 ? "water" : "grime";
+    const kind =
+      r < 0.18 ? "blood" : r < 0.34 ? "scratch" : r < 0.48 ? "water" : "grime";
     decals.spawn({
       kind,
       position: pos,
@@ -407,9 +413,9 @@ export function startGame(
   for (let gz = 0; gz < parsed.height; gz++) {
     for (let gx = 0; gx < parsed.width; gx++) {
       if (blocked.has(`${gx},${gz}`)) continue;
-      // ~10% of free tiles get a prop. Sparse so the world doesn't read
-      // as a furniture warehouse.
-      if (propRng() > 0.1) continue;
+      // ~14% of free tiles get a prop. Dense silhouettes make doorways and
+      // corners feel less readable without becoming a furniture warehouse.
+      if (propRng() > 0.14) continue;
       const r = propRng();
       let acc = 0;
       let picked: PropKind = "chair";
@@ -425,7 +431,11 @@ export function startGame(
       const jitter = TILE_SIZE * 0.2;
       const px = cx + (propRng() - 0.5) * jitter;
       const pz = cz + (propRng() - 0.5) * jitter;
-      props.place(picked, new THREE.Vector3(px, 0, pz), propRng() * Math.PI * 2);
+      props.place(
+        picked,
+        new THREE.Vector3(px, 0, pz),
+        propRng() * Math.PI * 2
+      );
     }
   }
   props.commit();
@@ -436,7 +446,10 @@ export function startGame(
   const cobwebs = new CobwebSet(scene);
   // Drifting dust motes — single Points draw call, wraps around the camera
   // so the 200-particle population always reads as ambient air.
-  const dust = new DustParticles(scene, { count: 200 });
+  const dust = new DustParticles(scene, {
+    count: quality === "low" ? 120 : quality === "high" ? 320 : 220,
+    size: quality === "high" ? 0.05 : 0.04,
+  });
   const cobwebRng = mulberry32(0xc0bea73);
   for (const w of parsed.walls) {
     if (cobwebRng() > 0.15) continue;
@@ -509,14 +522,22 @@ export function startGame(
   const enemyMesh = new THREE.Mesh(
     new THREE.CapsuleGeometry(0.5, 1.4, 8, 16),
     new THREE.MeshStandardMaterial({
-      color: 0x220a0a,
-      emissive: 0x550000,
-      emissiveIntensity: 0.4,
-      roughness: 0.5,
+      color: 0x060303,
+      emissive: 0x3a0000,
+      emissiveIntensity: 0.7,
+      roughness: 0.9,
     })
   );
+  enemyMesh.scale.set(0.82, 1.18, 0.82);
   enemyMesh.castShadow = shadowsEnabled;
   enemyMesh.visible = false;
+  const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff1f1f });
+  const eyeGeo = new THREE.SphereGeometry(0.055, 8, 8);
+  const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
+  const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
+  leftEye.position.set(-0.16, 0.62, -0.48);
+  rightEye.position.set(0.16, 0.62, -0.48);
+  enemyMesh.add(leftEye, rightEye);
   scene.add(enemyMesh);
   const enemyLight = new THREE.PointLight(
     0xff2222,
@@ -543,6 +564,24 @@ export function startGame(
     enemyLight.visible = quality !== "low";
     enemyMesh.position.set(pos.x, 1.0, pos.z);
     enemyLight.position.set(pos.x, 1.6, pos.z);
+  }
+
+  function updateAnxietyEffects(intensity: number, elapsed: number) {
+    const panic = THREE.MathUtils.clamp(intensity, 0, 1);
+    const jitter = (Math.sin(elapsed * 41.3) + Math.sin(elapsed * 67.9)) * 0.5;
+    sharedUniforms.vignetteOffset.value =
+      basePostFx.vignetteOffset - panic * 0.09;
+    sharedUniforms.noiseOpacity.value =
+      basePostFx.noiseOpacity +
+      panic * 0.12 +
+      Math.max(0, jitter) * panic * 0.025;
+    sharedUniforms.bloomIntensity.value =
+      basePostFx.bloomIntensity +
+      panic * 0.35 +
+      Math.max(0, jitter) * panic * 0.1;
+    flashlight.setAnxiety(panic, elapsed);
+    enemyLight.intensity =
+      quality === "low" ? 0 : 0.65 + panic * 1.45 + Math.max(0, jitter) * 0.25;
   }
   if (parsed.enemy) {
     setEnemy({
@@ -706,6 +745,9 @@ export function startGame(
         // before the fatal catch lands.
         if (nextDanger === "critical" && dangerState !== "critical") {
           cameraRig.pulseDamage(0.2);
+          events.onHint?.("Claude is here. Do not breathe.");
+        } else if (nextDanger === "near" && dangerState === "safe") {
+          events.onHint?.("The house is listening. Claude is close.");
         }
         dangerState = nextDanger;
         events.onDangerChange?.(dangerState);
@@ -773,16 +815,13 @@ export function startGame(
 
       flickers.update(dt);
       shadowBudget.update(camera);
-      cameraRig.update(
-        dt,
-        { moveMagnitude, sprinting, crouched: isHiding },
-        t,
-      );
+      cameraRig.update(dt, { moveMagnitude, sprinting, crouched: isHiding }, t);
       heartbeat.update(
         dt,
         camera,
-        enemyMesh.visible ? enemyMesh.position : null,
+        enemyMesh.visible ? enemyMesh.position : null
       );
+      updateAnxietyEffects(heartbeat.intensity(), t);
       audio.setHeartbeatIntensity(heartbeat.intensity());
       audio.update(dt);
       dust.update(dt, camera);
