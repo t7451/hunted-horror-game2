@@ -8,6 +8,8 @@ import {
   type MapDef,
   type ParsedMap,
 } from "@shared/maps";
+import { perfFlag } from "../util/device";
+import { createPerfMonitor } from "../util/perfMonitor";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rendering backend for HUNTED BY CLAUDE.
@@ -397,12 +399,14 @@ export function startGame(
 
   // ── Loop ──────────────────────────────────────────────────────────────────
   const clock = new THREE.Clock();
+  const perf = createPerfMonitor(perfFlag);
   let raf = 0;
   let disposed = false;
 
   function tick() {
     if (disposed) return;
     try {
+      perf.begin();
       const dt = Math.min(clock.getDelta(), 0.05);
 
       camera.rotation.order = "YXZ";
@@ -435,6 +439,7 @@ export function startGame(
 
       checkPickups();
       if (!contextLost) renderer.render(scene, camera);
+      perf.end(renderer);
     } catch (err) {
       // A throw inside the RAF callback would otherwise repeat every frame
       // (the next frame is already queued), spamming the console and
@@ -465,6 +470,7 @@ export function startGame(
       renderer.domElement.removeEventListener("click", onCanvasClick);
       renderer.domElement.removeEventListener("webglcontextlost", onContextLost);
       renderer.domElement.removeEventListener("webglcontextrestored", onContextRestored);
+      perf.dispose();
       renderer.dispose();
       if (renderer.domElement.parentNode === container) {
         container.removeChild(renderer.domElement);
