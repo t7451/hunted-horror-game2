@@ -19,6 +19,8 @@ import { FlickerGroup, LightFlicker } from "../lighting/Flicker";
 import { createFlashlight } from "../player/Flashlight";
 import { getMaterial, resetMaterialCache } from "../materials/MaterialFactory";
 import { DecalSpawner } from "../materials/Decals";
+import { PropSpawner, type PropKind } from "../world/PropSpawner";
+import { CobwebSet } from "../world/Cobwebs";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rendering backend for HUNTED BY CLAUDE.
@@ -50,6 +52,19 @@ export type EngineHandle = {
   setEnemy: (pos: { x: number; z: number } | null) => void;
   getPlayerState: () => { x: number; z: number; rotY: number };
 };
+
+// Tiny seedable PRNG so prop / cobweb placement is stable across mounts
+// of the same map (no popping when the user re-enters the house).
+function mulberry32(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 const PLAYER_RADIUS = 0.6;
 const PLAYER_HEIGHT = 1.7;
@@ -267,6 +282,73 @@ export function startGame(
     );
     scene.add(closet);
   });
+
+  // Prop dressing — chairs/tables/lamps/shelves dropped into floor tiles
+  // that aren't blocked, walls, doors, keys, hides, or the exit. One
+  // InstancedMesh per kind so total draw-call cost is O(kinds), not
+  // O(props). Seed is deterministic per map for a stable look.
+  const props = new PropSpawner(scene);
+  const blocked = new Set<string>();
+  for (const w of parsed.walls) blocked.add(`${w.x},${w.z}`);
+  for (const d of parsed.doors) blocked.add(`${d.x},${d.z}`);
+  for (const k of parsed.keys) blocked.add(`${k.x},${k.z}`);
+  for (const h of parsed.hides) blocked.add(`${h.x},${h.z}`);
+  if (parsed.exit) blocked.add(`${parsed.exit.x},${parsed.exit.z}`);
+  blocked.add(`${parsed.spawn.x},${parsed.spawn.z}`);
+
+  const propRng = mulberry32(0x484e54);
+  const propKinds: PropKind[] = ["chair", "table", "lamp", "shelf"];
+  const propWeights = [0.4, 0.2, 0.25, 0.15];
+  for (let gz = 0; gz < parsed.height; gz++) {
+    for (let gx = 0; gx < parsed.width; gx++) {
+      if (blocked.has(`${gx},${gz}`)) continue;
+      // ~10% of free tiles get a prop. Sparse so the world doesn't read
+      // as a furniture warehouse.
+      if (propRng() > 0.1) continue;
+      const r = propRng();
+      let acc = 0;
+      let picked: PropKind = "chair";
+      for (let i = 0; i < propKinds.length; i++) {
+        acc += propWeights[i];
+        if (r <= acc) {
+          picked = propKinds[i];
+          break;
+        }
+      }
+      const cx = gx * TILE_SIZE + TILE_SIZE / 2;
+      const cz = gz * TILE_SIZE + TILE_SIZE / 2;
+      const jitter = TILE_SIZE * 0.2;
+      const px = cx + (propRng() - 0.5) * jitter;
+      const pz = cz + (propRng() - 0.5) * jitter;
+      props.place(picked, new THREE.Vector3(px, 0, pz), propRng() * Math.PI * 2);
+    }
+  }
+  props.commit();
+
+  // Cobwebs in the upper corners of every wall tile that has a free
+  // neighbor — gives an "in the corner of the room" feel without needing
+  // proper room volumes (those land in Phase 6).
+  const cobwebs = new CobwebSet(scene);
+  const cobwebRng = mulberry32(0xc0bea73);
+  for (const w of parsed.walls) {
+    if (cobwebRng() > 0.15) continue;
+    const dirs: Array<[number, number]> = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ];
+    const [dx, dz] = dirs[Math.floor(cobwebRng() * dirs.length)];
+    const nx = w.x + dx;
+    const nz = w.z + dz;
+    if (blocked.has(`${nx},${nz}`)) continue;
+    const cx = w.x * TILE_SIZE + TILE_SIZE / 2 + dx * (TILE_SIZE / 2 + 0.02);
+    const cz = w.z * TILE_SIZE + TILE_SIZE / 2 + dz * (TILE_SIZE / 2 + 0.02);
+    cobwebs.add({
+      position: new THREE.Vector3(cx, WALL_HEIGHT - 0.25, cz),
+      outward: new THREE.Vector3(dx, 0, dz),
+    });
+  }
 
   // Exit
   if (parsed.exit) {
@@ -523,6 +605,8 @@ export function startGame(
       detachContextHandlers();
       flashlight.dispose();
       decals.dispose();
+      props.dispose();
+      cobwebs.dispose();
       postfx?.dispose();
       perf.dispose();
       renderer.dispose();
