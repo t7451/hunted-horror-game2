@@ -18,6 +18,12 @@ import { createPerfMonitor } from "../util/perfMonitor";
 import { createRenderer } from "../render/Renderer";
 import { createPostFX, type PostFX } from "../render/PostFX";
 import { createSharedUniforms } from "../render/uniforms";
+import { setupAtmosphere } from "../lighting/Atmosphere";
+import { createPractical } from "../lighting/Practical";
+import { FlickerGroup, LightFlicker } from "../lighting/Flicker";
+import { createFlashlight } from "../player/Flashlight";
+import { getMaterial, resetMaterialCache } from "../materials/MaterialFactory";
+import { DecalSpawner } from "../materials/Decals";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rendering backend for HUNTED BY CLAUDE.
@@ -124,8 +130,6 @@ export function startGame(
 
   // ── Scene & Camera ─────────────────────────────────────────────────────────
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x05050a);
-  scene.fog = new THREE.FogExp2(0x05050a, 0.07);
 
   const camera = new THREE.PerspectiveCamera(78, 1, 0.05, 200);
   camera.position.set(
@@ -134,49 +138,26 @@ export function startGame(
     parsed.spawn.z * TILE_SIZE + TILE_SIZE / 2
   );
 
-  // ── Lighting (Granny-style: dim warm interior + flashlight) ────────────────
-  scene.add(new THREE.AmbientLight(0x1a1620, quality === "low" ? 0.5 : 0.35));
-  const moonlight = new THREE.DirectionalLight(0x4a5577, 0.25);
-  moonlight.position.set(20, 40, 10);
-  scene.add(moonlight);
-
-  const flashlight = new THREE.SpotLight(
-    0xfff1c2,
-    6,
-    22,
-    Math.PI / 6,
-    0.45,
-    1.6
-  );
-  flashlight.castShadow = shadowsEnabled;
-  flashlight.shadow.mapSize.set(
-    quality === "high" ? 1024 : 512,
-    quality === "high" ? 1024 : 512
-  );
-  flashlight.shadow.camera.near = 0.5;
-  flashlight.shadow.camera.far = 22;
-  camera.add(flashlight);
-  camera.add(flashlight.target);
-  flashlight.position.set(0.25, -0.15, 0);
-  flashlight.target.position.set(0, 0, -1);
+  // ── Lighting ───────────────────────────────────────────────────────────────
+  // Atmosphere sets near-zero ambient + hemisphere + fog so practicals
+  // dominate. Flashlight is mobile-gated: PointLight on Android (avoids the
+  // SpotLight+shadow WebGL crash class), SpotLight on desktop.
+  setupAtmosphere(scene);
   scene.add(camera);
+  const flashlight = createFlashlight(camera);
+  const flickers = new FlickerGroup();
 
   // ── Materials ──────────────────────────────────────────────────────────────
-  const wallMat = new THREE.MeshStandardMaterial({
-    color: 0x6b4a32,
-    roughness: 0.95,
-    metalness: 0.02,
-  });
-  const floorMat = new THREE.MeshStandardMaterial({
-    color: 0x2a1f17,
-    roughness: 1,
-    metalness: 0,
-  });
-  const ceilingMat = new THREE.MeshStandardMaterial({
-    color: 0x14100c,
-    roughness: 1,
-    metalness: 0,
-  });
+  // Walls/floor/ceiling go through MaterialFactory so the eventual KTX2
+  // texture set drops in without touching the engine. Until those assets
+  // land the factory returns procedural-noise PBR fallbacks tinted to
+  // match the previous solid-color look.
+  const wallMat = getMaterial("wallpaper_dirty");
+  const floorMat = getMaterial("wood_floor_worn");
+  const ceilingMat = getMaterial("ceiling_plaster");
+  // Props remain hand-tuned MeshStandardMaterials: keys/exits are emissive
+  // gameplay markers, doors/closets are one-off shapes that don't justify
+  // a full texture set.
   const doorMat = new THREE.MeshStandardMaterial({
     color: 0x3a1f10,
     roughness: 0.7,
@@ -261,6 +242,52 @@ export function startGame(
     TILE_SIZE * 0.9
   );
 
+  // Seed grime/blood/water decals on random wall faces and floor patches
+  // so surfaces don't read as procedurally-clean. Density target from spec
+  // is 12–20 per room; we approximate by ratio to wall count until Phase 6
+  // brings room volumes online.
+  const decals = new DecalSpawner(scene);
+  const decalCount =
+    quality === "low"
+      ? Math.min(30, Math.max(8, Math.floor(parsed.walls.length * 0.15)))
+      : Math.min(80, Math.max(20, Math.floor(parsed.walls.length * 0.4)));
+  for (let i = 0; i < decalCount; i++) {
+    const w = parsed.walls[Math.floor(Math.random() * parsed.walls.length)];
+    const wx = w.x * TILE_SIZE + TILE_SIZE / 2;
+    const wz = w.z * TILE_SIZE + TILE_SIZE / 2;
+    // Pick one of four cardinal faces; nudge the decal just outside the
+    // wall cube so it doesn't z-fight with the wall geometry.
+    const face = Math.floor(Math.random() * 4);
+    const offset = TILE_SIZE / 2 + 0.01;
+    const normal = new THREE.Vector3();
+    const pos = new THREE.Vector3(
+      wx,
+      0.4 + Math.random() * (WALL_HEIGHT - 0.8),
+      wz
+    );
+    if (face === 0) {
+      pos.x += offset;
+      normal.set(1, 0, 0);
+    } else if (face === 1) {
+      pos.x -= offset;
+      normal.set(-1, 0, 0);
+    } else if (face === 2) {
+      pos.z += offset;
+      normal.set(0, 0, 1);
+    } else {
+      pos.z -= offset;
+      normal.set(0, 0, -1);
+    }
+    const r = Math.random();
+    const kind = r < 0.15 ? "blood" : r < 0.35 ? "water" : "grime";
+    decals.spawn({
+      kind,
+      position: pos,
+      normal,
+      size: 0.4 + Math.random() * 0.7,
+    });
+  }
+
   // Doors
   const doorGroup = new THREE.Group();
   parsed.doors.forEach(d => {
@@ -290,10 +317,19 @@ export function startGame(
     );
     keyGroup.add(key);
     if (quality !== "low") {
-      const light = new THREE.PointLight(0xffd24a, 0.6, 4, 2);
-      light.position.copy(key.position);
+      // Each key beacon is a warm-tungsten practical. ~30% of them flicker so
+      // the world doesn't read as static.
+      const light = createPractical({
+        position: key.position.clone(),
+        color: 0xffd24a,
+        intensity: 0.6,
+        distance: 4,
+      });
       keyGroup.add(light);
       keyLights.set(key, light);
+      if (Math.random() < 0.3) {
+        flickers.add(new LightFlicker(light, 0.6, 0.12, 7));
+      }
     }
     keyMeshes.push(key);
   });
@@ -612,6 +648,7 @@ export function startGame(
         k.position.y = 0.9 + Math.sin(t * 2 + k.position.x) * 0.08;
       }
 
+      flickers.update(dt);
       checkPickups();
       if (!isContextLost()) {
         if (postfx) postfx.render(dt);
@@ -675,6 +712,8 @@ export function startGame(
       document.removeEventListener("mousemove", onMouseMove);
       renderer.domElement.removeEventListener("click", onCanvasClick);
       detachContextHandlers();
+      flashlight.dispose();
+      decals.dispose();
       postfx?.dispose();
       perf.dispose();
       renderer.dispose();
@@ -691,6 +730,9 @@ export function startGame(
         if (Array.isArray(mat)) mat.forEach(m => m.dispose());
         else mat?.dispose?.();
       });
+      // The MaterialFactory cache holds the wall/floor/ceiling materials we
+      // just disposed; reset so the next engine instance gets fresh ones.
+      resetMaterialCache();
     },
     setRemotePlayers,
     setEnemy,
