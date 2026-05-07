@@ -30,6 +30,7 @@ import { getMaterial, resetMaterialCache } from "../materials/MaterialFactory";
 import { DecalSpawner } from "../materials/Decals";
 import { PropSpawner, type PropKind } from "../world/PropSpawner";
 import { CobwebSet } from "../world/Cobwebs";
+import { DustParticles } from "../world/DustParticles";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rendering backend for HUNTED BY CLAUDE.
@@ -433,6 +434,9 @@ export function startGame(
   // neighbor — gives an "in the corner of the room" feel without needing
   // proper room volumes (those land in Phase 6).
   const cobwebs = new CobwebSet(scene);
+  // Drifting dust motes — single Points draw call, wraps around the camera
+  // so the 200-particle population always reads as ambient air.
+  const dust = new DustParticles(scene, { count: 200 });
   const cobwebRng = mulberry32(0xc0bea73);
   for (const w of parsed.walls) {
     if (cobwebRng() > 0.15) continue;
@@ -781,6 +785,7 @@ export function startGame(
       );
       audio.setHeartbeatIntensity(heartbeat.intensity());
       audio.update(dt);
+      dust.update(dt, camera);
       // Footstep cadence — fire one click every ~0.8m of horizontal travel.
       const dxStep = camera.position.x - lastCamX;
       const dzStep = camera.position.z - lastCamZ;
@@ -859,6 +864,7 @@ export function startGame(
       decals.dispose();
       props.dispose();
       cobwebs.dispose();
+      dust.dispose();
       shadowBudget.dispose();
       audio.dispose();
       postfx?.dispose();
