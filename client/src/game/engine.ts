@@ -929,12 +929,16 @@ export function startGame(
         enemyMesh.lookAt(camera.position.x, enemyMesh.position.y, camera.position.z);
       }
     } else {
-      // Fallback direct move (no valid path found — shouldn't happen on well-formed maps)
-      const dx = camera.position.x - enemyMesh.position.x;
-      const dz = camera.position.z - enemyMesh.position.z;
+      // Fallback direct move (no valid path found — shouldn't happen on well-formed maps).
+      // While hiding, never aim at the live player position — drift toward the
+      // last-known location so a failed pathfind doesn't betray hiding intent.
+      const fx = isHiding ? lastKnownPlayerX : camera.position.x;
+      const fz = isHiding ? lastKnownPlayerZ : camera.position.z;
+      const dx = fx - enemyMesh.position.x;
+      const dz = fz - enemyMesh.position.z;
       const dist = Math.hypot(dx, dz) || 1;
       tryMoveEnemy((dx / dist) * speed, (dz / dist) * speed);
-      enemyMesh.lookAt(camera.position.x, enemyMesh.position.y, camera.position.z);
+      enemyMesh.lookAt(fx, enemyMesh.position.y, fz);
     }
 
     // Proximity audio

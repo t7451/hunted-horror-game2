@@ -103,7 +103,7 @@ export default function LoadingScreen({
           className="text-4xl sm:text-5xl font-bold tracking-[0.4em] text-red-300 drop-shadow-[0_0_24px_rgba(255,0,0,0.4)]"
           style={{ fontFamily: '"Special Elite", "Courier New", monospace' }}
         >
-          HUNTED BY CLAUDE
+          HUNTED BY THE OBSERVER
         </h1>
         <div className="mt-3 text-xs uppercase tracking-[0.3em] opacity-60">
           {phase}
