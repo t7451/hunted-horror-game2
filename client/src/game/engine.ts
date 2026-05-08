@@ -30,6 +30,7 @@ import { createFlashlight } from "../player/Flashlight";
 import { CameraRig } from "../player/CameraRig";
 import { Heartbeat } from "../player/Heartbeat";
 import { AudioWorld } from "../audio/AudioWorld";
+import { FootstepSystem } from "../audio/FootstepSystem";
 import {
   getMaterial,
   resetMaterialCache,
@@ -274,11 +275,13 @@ export function startGame(
   const audio = new AudioWorld();
   // Audio occlusion needs to know wall layout to raymarch source→listener.
   audio.bindMap(parsed, TILE_SIZE);
-  // Track distance walked so we step on a stride cadence rather than every
-  // tick — feels less "every frame thunk" without an asset library.
-  let stepDist = 0;
-  let lastCamX = camera.position.x;
-  let lastCamZ = camera.position.z;
+  // Player footsteps: 2D (listener is the player). Enemy footsteps: spatial,
+  // emitted from enemyMesh.position so the player can locate the Observer
+  // by ear. Surface variant chosen from the tile char under each foot.
+  const footstepSystem = new FootstepSystem(audio, parsed, TILE_SIZE, false);
+  const enemyFootstepSystem = new FootstepSystem(audio, parsed, TILE_SIZE, true);
+  // (Footstep cadence now lives in FootstepSystem above, which keys off
+  // actual horizontal movement distance and picks surface variants.)
 
   // ── Materials ──────────────────────────────────────────────────────────────
   // Walls/floor/ceiling go through MaterialFactory so the eventual KTX2
@@ -1631,16 +1634,22 @@ export function startGame(
       audio.tickAmbient(dt);
       audio.update(dt);
       dust?.update(dt, camera);
-      // Footstep cadence — fire one click every ~0.8m of horizontal travel.
-      const dxStep = camera.position.x - lastCamX;
-      const dzStep = camera.position.z - lastCamZ;
-      stepDist += Math.hypot(dxStep, dzStep);
-      lastCamX = camera.position.x;
-      lastCamZ = camera.position.z;
-      const stride = sprinting ? 1.0 : 0.8;
-      if (!isHiding && stepDist >= stride) {
-        stepDist -= stride;
-        audio.triggerFootstep();
+      // Footsteps — player + enemy. Both fire on actual horizontal movement
+      // distance, with surface variants picked from the tile char under each
+      // foot. Enemy steps spatialize from the Observer's position.
+      footstepSystem.tick(
+        camera.position.x,
+        camera.position.z,
+        sprinting,
+        isHiding,
+      );
+      if (enemyMesh.visible) {
+        enemyFootstepSystem.tick(
+          enemyMesh.position.x,
+          enemyMesh.position.z,
+          observerChasing,
+          false,
+        );
       }
       checkPickups();
       if (!isContextLost()) {
