@@ -18,6 +18,7 @@ export type PostFX = {
   render: (dt: number) => void;
   setSize: (w: number, h: number) => void;
   dispose: () => void;
+  setEnabled: (enabled: boolean) => void;
   /** True if the composer is fully wired (deps loaded, optional LUT applied or skipped). */
   ready: boolean;
 };
@@ -72,6 +73,7 @@ export async function createPostFX(
       render: () => renderer.render(scene, camera),
       setSize: () => {},
       dispose: () => {},
+      setEnabled: () => {},
       ready: false,
     };
   }
@@ -86,6 +88,7 @@ export async function createPostFX(
       render: () => renderer.render(scene, camera),
       setSize: () => {},
       dispose: () => {},
+      setEnabled: () => {},
       ready: false,
     };
   }
@@ -155,8 +158,14 @@ export async function createPostFX(
     chromaticAberration,
   };
 
+  let postFxEnabled = true;
+
   return {
     render: (dt: number) => {
+      if (!postFxEnabled) {
+        renderer.render(scene, camera);
+        return;
+      }
       live.bloom.intensity = opts.uniforms.bloomIntensity.value;
       live.vignette.darkness = opts.uniforms.vignetteDarkness.value;
       live.vignette.offset = opts.uniforms.vignetteOffset.value;
@@ -169,6 +178,7 @@ export async function createPostFX(
     },
     setSize: (w, h) => composer.setSize(w, h),
     dispose: () => composer.dispose?.(),
+    setEnabled: (enabled: boolean) => { postFxEnabled = enabled; },
     ready: true,
   };
 }

@@ -25,6 +25,7 @@ import {
   shouldShowTutorial,
   markTutorialSeen,
 } from "../ui/Tutorial";
+import { loadJoystickPrefs, type JoystickPrefs } from "../util/joystickPrefs";
 
 type Status = "loading" | "playing" | "caught" | "escaped" | "time_up";
 type Danger = "safe" | "near" | "critical";
@@ -291,6 +292,17 @@ export default function Game3D({
   }, [status]);
 
   useEffect(() => {
+    if (status !== "playing") return;
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        setPaused(true);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [status]);
+
+  useEffect(() => {
     if (status !== "playing") {
       void releaseWakeLock();
       return;
@@ -541,14 +553,27 @@ function MobileControls({
   onHide: () => void;
 }) {
   const padRef = useRef<HTMLDivElement | null>(null);
-  const pointerIdRef = useRef<number | null>(null);
+  const activeJoystickPointer = useRef<number | null>(null);
+  const activeLookPointer = useRef<number | null>(null);
   const [knob, setKnob] = useState({ x: 0, y: 0, active: false });
+  const [prefs] = useState<JoystickPrefs>(() => loadJoystickPrefs());
 
-  // Scale joystick with viewport: 128px on a 375px phone, up to 176px on tablets.
-  const joystickSize =
-    typeof window === "undefined"
-      ? 128
-      : Math.round(Math.min(176, Math.max(128, window.innerWidth * 0.34)));
+  const baseSize = 128;
+  const joystickSize = Math.round(
+    Math.min(176, Math.max(baseSize, window.innerWidth * 0.34)) * prefs.size
+  );
+
+  // Reset all inputs on pointer cancel (system gesture, notification, etc.)
+  useEffect(() => {
+    const onCancel = () => {
+      activeJoystickPointer.current = null;
+      activeLookPointer.current = null;
+      onMove(0, 0);
+      onSprint(false);
+    };
+    window.addEventListener("pointercancel", onCancel);
+    return () => window.removeEventListener("pointercancel", onCancel);
+  }, [onMove, onSprint]);
 
   const updatePad = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -569,10 +594,13 @@ function MobileControls({
   );
 
   const releasePad = useCallback(() => {
-    pointerIdRef.current = null;
+    activeJoystickPointer.current = null;
     onMove(0, 0);
     setKnob({ x: 0, y: 0, active: false });
   }, [onMove]);
+
+  const joystickSide = prefs.swap ? "right" : "left";
+  const buttonSide = prefs.swap ? "left" : "right";
 
   return (
     <div
@@ -590,22 +618,32 @@ function MobileControls({
           width: joystickSize,
           height: joystickSize,
           bottom: "8px",
-          left: "12px",
+          [joystickSide]: "12px",
+          opacity: prefs.opacity,
         }}
       >
         <div
           ref={padRef}
           className="relative h-full w-full"
           onPointerDown={event => {
-            pointerIdRef.current = event.pointerId;
+            if (event.pointerType !== "touch") return;
+            if (activeJoystickPointer.current !== null) return;
+            activeJoystickPointer.current = event.pointerId;
             event.currentTarget.setPointerCapture(event.pointerId);
             updatePad(event);
           }}
           onPointerMove={event => {
-            if (pointerIdRef.current === event.pointerId) updatePad(event);
+            if (event.pointerId !== activeJoystickPointer.current) return;
+            updatePad(event);
           }}
-          onPointerUp={releasePad}
-          onPointerCancel={releasePad}
+          onPointerUp={event => {
+            if (event.pointerId !== activeJoystickPointer.current) return;
+            releasePad();
+          }}
+          onPointerCancel={event => {
+            if (event.pointerId !== activeJoystickPointer.current) return;
+            releasePad();
+          }}
         >
           <div
             className={`absolute left-1/2 top-1/2 rounded-full border transition-colors ${
@@ -625,11 +663,11 @@ function MobileControls({
         </div>
       </div>
 
-      {/* Right half: look-zone affordance + action buttons */}
+      {/* Opposite side: look-zone affordance + action buttons */}
       <div
         className="pointer-events-none absolute flex flex-col items-end justify-end gap-3"
         style={{
-          right: "12px",
+          [buttonSide]: "12px",
           bottom: "8px",
         }}
       >

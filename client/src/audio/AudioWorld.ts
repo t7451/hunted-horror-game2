@@ -63,6 +63,15 @@ export class AudioWorld {
     if (typeof opts.masterVolume === "number") {
       Howler.volume(opts.masterVolume);
     }
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") {
+          Howler.mute(true);
+        } else {
+          Howler.mute(false);
+        }
+      });
+    }
   }
 
   unlock(): boolean {
