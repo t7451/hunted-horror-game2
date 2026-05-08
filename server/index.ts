@@ -5,7 +5,14 @@ import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import Anthropic from "@anthropic-ai/sdk";
-import { MAPS, type MapDef, type MapKey } from "../shared/maps.ts";
+import {
+  MAPS,
+  MAP_KEYS,
+  parseMap as parseSharedMap,
+  validateParsedMap,
+  type MapDef,
+  type MapKey,
+} from "../shared/maps.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -40,63 +47,45 @@ const DIFFICULTY_BONUS: Record<string, number> = {
   normal: 200,
   hard: 500,
 };
-
-// ═══════════════════════════════════════════════════════════════
-// MAPS
-// ═══════════════════════════════════════════════════════════════
-
-// Shared with the client so single-player rendering and multiplayer simulation stay in sync.
-function getMapForDifficulty(difficulty: string): MapDef {
-  return MAPS[difficulty as MapKey] ?? MAPS.normal;
-}
+const VALID_MAP_KEYS = new Set<string>(MAP_KEYS);
 
 // ═══════════════════════════════════════════════════════════════
 // MAP PARSING
 // ═══════════════════════════════════════════════════════════════
 
-function tileCenter(r: number, c: number) {
-  return { x: c * TILE + TILE / 2, z: r * TILE + TILE / 2 };
+function tileCenter(row: number, col: number) {
+  return { x: col * TILE + TILE / 2, z: row * TILE + TILE / 2 };
+}
+
+function resolveMapKey(difficulty: string): MapKey {
+  return VALID_MAP_KEYS.has(difficulty) ? (difficulty as MapKey) : "normal";
 }
 
 function parseMap(mapData: MapDef) {
-  const raw = mapData.raw;
-  const H = raw.length;
-  const W = raw[0].length;
-
-  const keySpawns: { r: number; c: number }[] = [];
-  const hideSpots: { r: number; c: number }[] = [];
-  const doorTiles: { r: number; c: number }[] = [];
-  let exitTile: { r: number; c: number } | null = null;
-  let entitySpawn: { r: number; c: number } | null = null;
-  let playerSpawn: { r: number; c: number } | null = null;
-
-  for (let r = 0; r < H; r++) {
-    for (let c = 0; c < W; c++) {
-      const t = raw[r][c];
-      if (t === "K") keySpawns.push({ r, c });
-      if (t === "H") hideSpots.push({ r, c });
-      if (t === "D") doorTiles.push({ r, c });
-      if (t === "X") exitTile = { r, c };
-      if (t === "E") entitySpawn = { r, c };
-      if (t === "S") playerSpawn = { r, c };
-    }
+  const parsed = parseSharedMap(mapData);
+  const mapIssues = validateParsedMap(parsed);
+  if (mapIssues.length > 0) {
+    console.warn(`[map] ${mapData.name} integrity issues`, mapIssues);
   }
-
-  // Fallback spawns to a safe interior tile
-  if (!playerSpawn) playerSpawn = { r: 1, c: 1 };
-  if (!entitySpawn) entitySpawn = { r: Math.floor(H / 2), c: Math.floor(W / 2) };
-  if (!exitTile) exitTile = { r: H - 2, c: W - 2 };
+  const raw = parsed.tiles.map(row => row.join(""));
+  const H = parsed.height;
+  const W = parsed.width;
+  const exitTile = parsed.exit ?? { x: W - 2, z: H - 2 };
+  const entitySpawn = parsed.enemy ?? {
+    x: Math.floor(W / 2),
+    z: Math.floor(H / 2),
+  };
 
   return {
     raw,
     H,
     W,
-    keySpawns: keySpawns.map((p) => tileCenter(p.r, p.c)),
-    hideSpots: hideSpots.map((p) => tileCenter(p.r, p.c)),
-    doorTiles: doorTiles.map((p) => tileCenter(p.r, p.c)),
-    exitTile: tileCenter(exitTile.r, exitTile.c),
-    entitySpawn: tileCenter(entitySpawn.r, entitySpawn.c),
-    playerSpawn: tileCenter(playerSpawn.r, playerSpawn.c),
+    keySpawns: parsed.keys.map(p => tileCenter(p.z, p.x)),
+    hideSpots: parsed.hides.map(p => tileCenter(p.z, p.x)),
+    doorTiles: parsed.doors.map(p => tileCenter(p.z, p.x)),
+    exitTile: tileCenter(exitTile.z, exitTile.x),
+    entitySpawn: tileCenter(entitySpawn.z, entitySpawn.x),
+    playerSpawn: tileCenter(parsed.spawn.z, parsed.spawn.x),
   };
 }
 
@@ -244,7 +233,8 @@ const playerSession = new Map<WebSocket, string>();
 const playerIdMap = new Map<WebSocket, string>();
 
 function createGameState(mode: string, sessionId: string, difficulty = "normal"): GameState {
-  const mapData = getMapForDifficulty(difficulty);
+  const mapKey = resolveMapKey(difficulty);
+  const mapData = MAPS[mapKey];
   const parsed = parseMap(mapData);
 
   const items: Item[] = parsed.keySpawns.map((pos, i) => ({
@@ -259,7 +249,7 @@ function createGameState(mode: string, sessionId: string, difficulty = "normal")
   return {
     sessionId,
     mode,
-    difficulty,
+    difficulty: mapKey,
     mapName: mapData.name,
     phase: "lobby",
     time: 0,
@@ -275,7 +265,7 @@ function createGameState(mode: string, sessionId: string, difficulty = "normal")
       targetX: parsed.entitySpawn.x,
       targetZ: parsed.entitySpawn.z,
       speed: mapData.claudeSpeed,
-      aggression: CLAUDE_AGGRESSION[difficulty] ?? 0.8,
+      aggression: CLAUDE_AGGRESSION[mapKey] ?? 0.8,
     },
     items,
     exit: { x: parsed.exitTile.x, z: parsed.exitTile.z, open: false },
@@ -463,12 +453,12 @@ function handleJoin(ws: WebSocket, msg: Record<string, string>) {
   const playerId = `player_${Math.random().toString(36).slice(2, 9)}`;
   playerIdMap.set(ws, playerId);
 
-  const difficulty = msg.difficulty || "normal";
+  const difficulty = resolveMapKey(msg.difficulty || "normal");
   const gs = createGameState(msg.mode || "solo", `session_${Math.random().toString(36).slice(2, 9)}`, difficulty);
   sessions.set(gs.sessionId, gs);
   playerSession.set(ws, gs.sessionId);
 
-  const parsed = parseMap(getMapForDifficulty(difficulty));
+  const parsed = parseMap(MAPS[difficulty]);
 
   // Spawn player away from Claude
   let spawnX = parsed.playerSpawn.x;
