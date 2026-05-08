@@ -1,4 +1,5 @@
 import { useIsMobile } from "../hooks/useMobile";
+import { Haptics } from "../util/haptics";
 
 export function MobilePauseButton({ onPause }: { onPause: () => void }) {
   const isMobile = useIsMobile();
@@ -9,6 +10,7 @@ export function MobilePauseButton({ onPause }: { onPause: () => void }) {
       type="button"
       onClick={e => {
         e.stopPropagation();
+        Haptics.light();
         onPause();
       }}
       onTouchStart={e => e.stopPropagation()}

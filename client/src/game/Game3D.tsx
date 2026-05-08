@@ -291,11 +291,11 @@ export default function Game3D({
   }, [status]);
 
   useEffect(() => {
-    if (status === "playing") {
-      void acquireWakeLock();
-    } else {
+    if (status !== "playing") {
       void releaseWakeLock();
+      return;
     }
+    void acquireWakeLock();
     return () => {
       void releaseWakeLock();
     };

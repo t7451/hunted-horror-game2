@@ -22,7 +22,7 @@ const CORE_ASSETS = [
   '/icon-maskable.png',
 ];
 
-// CDN libraries to cache (none — Three.js is bundled by Vite)
+// CDN libraries to cache (none - Three.js is bundled by Vite)
 const CDN_ASSETS = [];
 
 // ═══════════════════════════════════════════════════════════════

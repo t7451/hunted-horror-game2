@@ -26,7 +26,11 @@ export async function acquireWakeLock(): Promise<boolean> {
     if (!visibilityHandlerBound) {
       visibilityHandlerBound = true;
       document.addEventListener("visibilitychange", () => {
-        if (document.visibilityState === "visible" && !sentinel) {
+        if (
+          document.visibilityState === "visible" &&
+          !sentinel &&
+          !acquireInFlight
+        ) {
           void acquireWakeLock();
         }
       });

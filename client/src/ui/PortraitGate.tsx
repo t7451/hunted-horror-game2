@@ -56,7 +56,8 @@ export function PortraitGate() {
         ROTATE YOUR DEVICE
       </h2>
       <p className="max-w-xs text-sm opacity-60">
-        HUNTED is built for landscape. Turn your phone sideways to continue.
+        HUNTED is built for landscape. Please rotate your device to landscape
+        orientation to continue.
       </p>
     </div>
   );

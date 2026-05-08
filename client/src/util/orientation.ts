@@ -33,10 +33,6 @@ export function isPortrait(): boolean {
 export function onOrientationChange(cb: (portrait: boolean) => void): () => void {
   const mq = window.matchMedia("(orientation: portrait)");
   const handler = (e: MediaQueryListEvent) => cb(e.matches);
-  if (mq.addEventListener) {
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }
-  mq.addListener(handler);
-  return () => mq.removeListener(handler);
+  mq.addEventListener("change", handler);
+  return () => mq.removeEventListener("change", handler);
 }
