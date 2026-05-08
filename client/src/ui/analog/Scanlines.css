@@ -1,0 +1,16 @@
+.ana-scanlines {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  background:
+    var(--ana-scan-default),
+    var(--ana-scan-thick);
+  mix-blend-mode: screen;
+  opacity: calc(0.12 + var(--ana-intensity) * 0.18);
+  transition: opacity 200ms linear;
+}
+
+.ana-scan-drift {
+  animation: ana-scan-drift 9s linear infinite;
+}
