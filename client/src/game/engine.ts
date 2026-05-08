@@ -5,6 +5,7 @@ import {
   TILE_SIZE,
   WALL_HEIGHT,
   isBlocked,
+  validateParsedMap,
   type MapKey,
   type MapDef,
   type ParsedMap,
@@ -319,6 +320,10 @@ export function startGame(
 ): EngineHandle {
   const mapDef: MapDef = MAPS[options.mapKey ?? "easy"];
   const parsed = parseMap(mapDef);
+  const mapIssues = validateParsedMap(parsed);
+  if (mapIssues.length > 0) {
+    console.warn(`[map] ${mapDef.name} integrity issues`, mapIssues);
+  }
   const events = options.events ?? {};
   const quality = resolveGraphicsQuality(options.quality);
   const shadowsEnabled = quality !== "low";
@@ -804,9 +809,10 @@ export function startGame(
   // Auto-open doors near the player. Slow swing speeds give a horror-house
   // feel; OPEN_SPEED < CLOSE_SPEED so doors close just a touch faster than
   // they open (creates a subtle "behind-you" pressure).
-  const DOOR_OPEN_RANGE = 2.4;
+  const DOOR_OPEN_RANGE = 3.4;
   const DOOR_OPEN_SPEED = 2.4; // rad/s
   const DOOR_CLOSE_SPEED = 1.6; // rad/s
+  const DOOR_PASSABLE_ROT = Math.PI * 0.35;
   function tickDoorSwings(dt: number): void {
     const now = performance.now();
     for (const door of doorStates) {
@@ -1696,7 +1702,13 @@ export function startGame(
     return samples.every(([sx, sz]) => {
       const gx = Math.floor(sx / TILE_SIZE);
       const gz = Math.floor(sz / TILE_SIZE);
-      return !isBlocked(parsed, gx, gz);
+      const closedDoor = doorStates.some(
+        door =>
+          door.tileX === gx &&
+          door.tileZ === gz &&
+          door.currentRot < DOOR_PASSABLE_ROT
+      );
+      return !isBlocked(parsed, gx, gz) && !closedDoor;
     });
   }
 

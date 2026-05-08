@@ -10,6 +10,10 @@ import { WALL_HEIGHT, type ParsedMap } from "@shared/maps";
 const FRAME_THICKNESS = 0.08;
 const FRAME_DEPTH = 0.22;
 const FRAME_WIDTH_OUTSET = 0.06;
+const COLUMN_WIDTH = 0.16;
+const COLUMN_DEPTH = 0.28;
+const PLINTH_HEIGHT = 0.22;
+const KEYSTONE_HEIGHT = 0.28;
 
 export type DoorFrameResult = {
   group: THREE.Group;
@@ -71,7 +75,45 @@ export function buildDoorFrames(
         mesh.receiveShadow = true;
         group.add(mesh);
         geometries.push(geo);
+
+        const columnGeo = new THREE.BoxGeometry(
+          horizontal ? COLUMN_DEPTH : COLUMN_WIDTH,
+          jambHeight,
+          horizontal ? COLUMN_WIDTH : COLUMN_DEPTH
+        );
+        const column = new THREE.Mesh(columnGeo, material);
+        column.position.copy(mesh.position);
+        column.castShadow = true;
+        column.receiveShadow = true;
+        group.add(column);
+        geometries.push(columnGeo);
+
+        const plinthGeo = new THREE.BoxGeometry(
+          horizontal ? COLUMN_DEPTH * 1.15 : COLUMN_WIDTH * 1.35,
+          PLINTH_HEIGHT,
+          horizontal ? COLUMN_WIDTH * 1.35 : COLUMN_DEPTH * 1.15
+        );
+        const plinth = new THREE.Mesh(plinthGeo, material);
+        plinth.position.set(mesh.position.x, PLINTH_HEIGHT / 2, mesh.position.z);
+        plinth.castShadow = true;
+        plinth.receiveShadow = true;
+        group.add(plinth);
+        geometries.push(plinthGeo);
       }
+
+      // A small center keystone turns the flat header into a readable arch
+      // without adding curved geometry or extra collision complexity.
+      const keystoneGeo = new THREE.BoxGeometry(
+        horizontal ? FRAME_DEPTH * 1.15 : COLUMN_WIDTH,
+        KEYSTONE_HEIGHT,
+        horizontal ? COLUMN_WIDTH : FRAME_DEPTH * 1.15
+      );
+      const keystone = new THREE.Mesh(keystoneGeo, material);
+      keystone.position.set(cx, WALL_HEIGHT - KEYSTONE_HEIGHT / 2, cz);
+      keystone.castShadow = true;
+      keystone.receiveShadow = true;
+      group.add(keystone);
+      geometries.push(keystoneGeo);
     }
   }
 

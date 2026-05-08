@@ -249,6 +249,13 @@ export type ParsedMap = {
   notes: { x: number; z: number }[];
 };
 
+export type MapValidationIssue = {
+  severity: "error" | "warning";
+  message: string;
+  x?: number;
+  z?: number;
+};
+
 export function parseMap(map: MapDef): ParsedMap {
   const rows: string[] = [];
   let width = 0;
@@ -318,4 +325,84 @@ export function tileAt(parsed: ParsedMap, gx: number, gz: number): string {
 export function isBlocked(parsed: ParsedMap, gx: number, gz: number): boolean {
   const t = tileAt(parsed, gx, gz);
   return t === "W";
+}
+
+export function validateParsedMap(parsed: ParsedMap): MapValidationIssue[] {
+  const issues: MapValidationIssue[] = [];
+  const isWalkable = (x: number, z: number) => !isBlocked(parsed, x, z);
+
+  if (!parsed.exit) {
+    issues.push({ severity: "error", message: "Map is missing an exit tile." });
+  }
+  if (!parsed.enemy) {
+    issues.push({
+      severity: "warning",
+      message: "Map is missing an enemy spawn; fallback spawn will be used.",
+    });
+  }
+
+  for (const door of parsed.doors) {
+    const northSouthClear =
+      isBlocked(parsed, door.x - 1, door.z) &&
+      isBlocked(parsed, door.x + 1, door.z) &&
+      isWalkable(door.x, door.z - 1) &&
+      isWalkable(door.x, door.z + 1);
+    const eastWestClear =
+      isBlocked(parsed, door.x, door.z - 1) &&
+      isBlocked(parsed, door.x, door.z + 1) &&
+      isWalkable(door.x - 1, door.z) &&
+      isWalkable(door.x + 1, door.z);
+    if (!northSouthClear && !eastWestClear) {
+      issues.push({
+        severity: "error",
+        message: "Doorway must connect two clear floor tiles and be framed by walls on the other axis.",
+        x: door.x,
+        z: door.z,
+      });
+    }
+  }
+
+  const reachable = new Set<string>();
+  const queue: { x: number; z: number }[] = [parsed.spawn];
+  reachable.add(`${parsed.spawn.x},${parsed.spawn.z}`);
+  for (let i = 0; i < queue.length; i++) {
+    const p = queue[i];
+    for (const [dx, dz] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ] as const) {
+      const next = { x: p.x + dx, z: p.z + dz };
+      const key = `${next.x},${next.z}`;
+      if (reachable.has(key) || !isWalkable(next.x, next.z)) continue;
+      reachable.add(key);
+      queue.push(next);
+    }
+  }
+
+  const requireReachable = (
+    label: string,
+    points: { x: number; z: number }[],
+    severity: MapValidationIssue["severity"] = "error"
+  ) => {
+    for (const p of points) {
+      if (!reachable.has(`${p.x},${p.z}`)) {
+        issues.push({
+          severity,
+          message: `${label} is not reachable from the player spawn.`,
+          x: p.x,
+          z: p.z,
+        });
+      }
+    }
+  };
+
+  if (parsed.exit) requireReachable("Exit", [parsed.exit]);
+  requireReachable("Key", parsed.keys);
+  requireReachable("Hiding spot", parsed.hides, "warning");
+  requireReachable("Battery", parsed.batteries, "warning");
+  requireReachable("Note", parsed.notes, "warning");
+
+  return issues;
 }

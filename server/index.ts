@@ -9,6 +9,7 @@ import {
   MAPS,
   MAP_KEYS,
   parseMap as parseSharedMap,
+  validateParsedMap,
   type MapDef,
   type MapKey,
 } from "../shared/maps.ts";
@@ -62,6 +63,10 @@ function resolveMapKey(difficulty: string): MapKey {
 
 function parseMap(mapData: MapDef) {
   const parsed = parseSharedMap(mapData);
+  const mapIssues = validateParsedMap(parsed);
+  if (mapIssues.length > 0) {
+    console.warn(`[map] ${mapData.name} integrity issues`, mapIssues);
+  }
   const raw = parsed.tiles.map(row => row.join(""));
   const H = parsed.height;
   const W = parsed.width;
