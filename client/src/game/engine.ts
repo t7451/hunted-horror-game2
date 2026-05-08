@@ -114,7 +114,8 @@ const MOVE_DECELERATION = 24;
 const HIDE_INTERACTION_DISTANCE = 2.2;
 const REMOTE_ENEMY_TIMEOUT_MS = 1200;
 const INVESTIGATING_SPEED_FACTOR = 0.25;
-const MOBILE_LOOK_SCALE = 0.005;
+const MOUSE_LOOK_SCALE = 0.0022; // pointer-lock — typical FPS feel
+const MOBILE_LOOK_SCALE = 0.0055; // touch drag — slightly faster for thumbs
 
 function calculateMoveSpeed(
   isHidden: boolean,
@@ -710,8 +711,8 @@ export function startGame(
   const onMouseMove = (e: MouseEvent) => {
     if (document.pointerLockElement !== renderer.domElement) return;
     const sensitivity = options.sensitivity ?? 1;
-    yaw -= e.movementX * 0.0022 * sensitivity;
-    pitch -= e.movementY * 0.0022 * sensitivity;
+    yaw -= e.movementX * MOUSE_LOOK_SCALE * sensitivity;
+    pitch -= e.movementY * MOUSE_LOOK_SCALE * sensitivity;
     pitch = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, pitch));
   };
   document.addEventListener("mousemove", onMouseMove);

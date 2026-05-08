@@ -58,6 +58,15 @@ export default function Game3D() {
   const [engineError, setEngineError] = useState<string | null>(null);
   const [webglSupported] = useState(() => supportsWebGL());
   const isMobile = useIsMobile();
+  const [pointerLocked, setPointerLocked] = useState(false);
+
+  useEffect(() => {
+    const onLockChange = () =>
+      setPointerLocked(document.pointerLockElement != null);
+    document.addEventListener("pointerlockchange", onLockChange);
+    return () =>
+      document.removeEventListener("pointerlockchange", onLockChange);
+  }, []);
 
   const selectedMap = MAPS[difficulty];
   const difficultyOptions = useMemo(
@@ -368,9 +377,20 @@ export default function Game3D() {
         </Overlay>
       )}
 
-      {status === "playing" && (
+      {status === "playing" && (isMobile || pointerLocked) && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div className="w-1 h-1 bg-white/80 rounded-full" />
+          <div className="h-1 w-1 rounded-full bg-white/80" />
+        </div>
+      )}
+
+      {status === "playing" && !isMobile && !pointerLocked && (
+        <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 transition-opacity duration-500">
+          <div className="rounded border border-white/20 bg-black/70 px-4 py-2 text-center text-xs text-white/70 backdrop-blur">
+            <div className="font-mono tracking-widest">CLICK TO AIM</div>
+            <div className="mt-0.5 text-[10px] opacity-60">
+              ESC to release · WASD move · Shift sprint · E hide
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -389,6 +409,12 @@ function MobileControls({
   const padRef = useRef<HTMLDivElement | null>(null);
   const pointerIdRef = useRef<number | null>(null);
   const [knob, setKnob] = useState({ x: 0, y: 0, active: false });
+
+  // Scale joystick with viewport: 128px on a 375px phone, up to 176px on tablets.
+  const joystickSize =
+    typeof window === "undefined"
+      ? 128
+      : Math.round(Math.min(176, Math.max(128, window.innerWidth * 0.34)));
 
   const updatePad = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -415,39 +441,61 @@ function MobileControls({
   }, [onMove]);
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between px-4 pb-16 sm:px-8">
-      <div
-        ref={padRef}
-        className="pointer-events-auto relative h-32 w-32 rounded-full border border-white/25 bg-black/45 backdrop-blur"
-        style={{ touchAction: "none" }}
-        onPointerDown={event => {
-          pointerIdRef.current = event.pointerId;
-          event.currentTarget.setPointerCapture(event.pointerId);
-          updatePad(event);
-        }}
-        onPointerMove={event => {
-          if (pointerIdRef.current === event.pointerId) updatePad(event);
-        }}
-        onPointerUp={releasePad}
-        onPointerCancel={releasePad}
-      >
+    <>
+      {/* Left half: joystick */}
+      <div className="pointer-events-none absolute inset-y-0 left-0 flex w-1/2 items-end pb-10 pl-6">
         <div
-          className={`absolute left-1/2 top-1/2 h-14 w-14 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/35 ${
-            knob.active ? "bg-red-500/70" : "bg-white/20"
-          }`}
+          ref={padRef}
+          className="pointer-events-auto relative rounded-full border border-white/20 bg-black/35 backdrop-blur"
           style={{
-            transform: `translate(calc(-50% + ${knob.x}px), calc(-50% + ${knob.y}px))`,
+            touchAction: "none",
+            width: joystickSize,
+            height: joystickSize,
           }}
-        />
-        <div className="absolute inset-x-0 bottom-3 text-center text-[10px] uppercase tracking-widest text-white/60">
-          Move
+          onPointerDown={event => {
+            pointerIdRef.current = event.pointerId;
+            event.currentTarget.setPointerCapture(event.pointerId);
+            updatePad(event);
+          }}
+          onPointerMove={event => {
+            if (pointerIdRef.current === event.pointerId) updatePad(event);
+          }}
+          onPointerUp={releasePad}
+          onPointerCancel={releasePad}
+        >
+          <div
+            className={`absolute left-1/2 top-1/2 rounded-full border transition-colors ${
+              knob.active
+                ? "border-red-400/60 bg-red-500/60"
+                : "border-white/30 bg-white/15"
+            }`}
+            style={{
+              width: joystickSize * 0.42,
+              height: joystickSize * 0.42,
+              transform: `translate(calc(-50% + ${knob.x}px), calc(-50% + ${knob.y}px))`,
+            }}
+          />
+          <span className="absolute inset-x-0 bottom-2 select-none text-center text-[9px] uppercase tracking-widest text-white/40">
+            move
+          </span>
         </div>
       </div>
 
-      <div className="pointer-events-auto flex flex-col gap-3">
+      {/* Right half: look-zone affordance + action buttons */}
+      <div className="pointer-events-none absolute inset-y-0 right-0 flex w-1/2 flex-col items-end justify-end gap-3 pb-10 pr-5">
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-20">
+          <div
+            className="rounded-full border border-white/30"
+            style={{ width: 48, height: 48 }}
+          />
+          <span className="absolute mt-14 select-none text-[9px] uppercase tracking-widest text-white/60">
+            look
+          </span>
+        </div>
+
         <button
           type="button"
-          className="h-16 w-24 rounded-full border border-red-300/40 bg-red-900/65 text-xs font-bold uppercase tracking-widest shadow-lg backdrop-blur active:bg-red-600/80"
+          className="pointer-events-auto h-14 w-20 rounded-2xl border border-red-300/40 bg-red-900/60 text-[10px] font-bold uppercase tracking-widest shadow-lg backdrop-blur active:bg-red-600/80"
           style={{ touchAction: "none" }}
           onPointerDown={() => onSprint(true)}
           onPointerUp={() => onSprint(false)}
@@ -458,13 +506,14 @@ function MobileControls({
         </button>
         <button
           type="button"
-          className="h-16 w-24 rounded-full border border-white/30 bg-black/60 text-xs font-bold uppercase tracking-widest shadow-lg backdrop-blur active:bg-white/20"
+          className="pointer-events-auto h-14 w-20 rounded-2xl border border-white/25 bg-black/55 text-[10px] font-bold uppercase tracking-widest shadow-lg backdrop-blur active:bg-white/20"
+          style={{ touchAction: "none" }}
           onClick={onHide}
         >
-          Hide
+          Hide / E
         </button>
       </div>
-    </div>
+    </>
   );
 }
 
