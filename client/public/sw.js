@@ -1,9 +1,9 @@
 // ═══════════════════════════════════════════════════════════════
-// HUNTED BY CLAUDE - SERVICE WORKER
+// HUNTED BY THE OBSERVER - SERVICE WORKER
 // Advanced caching strategies for offline support and performance
 // ═══════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v3';
 const CACHE_NAMES = {
   static: `hunted-static-${CACHE_VERSION}`,
   dynamic: `hunted-dynamic-${CACHE_VERSION}`,
@@ -15,7 +15,6 @@ const CACHE_NAMES = {
 const CORE_ASSETS = [
   '/',
   '/index.html',
-  '/landing.html',
   '/manifest.json',
   '/icon-192.png',
   '/icon-512.png',
