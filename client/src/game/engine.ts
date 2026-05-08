@@ -33,6 +33,9 @@ import { createFlashlight } from "../player/Flashlight";
 import { CameraRig } from "../player/CameraRig";
 import { Heartbeat } from "../player/Heartbeat";
 import { AudioWorld } from "../audio/AudioWorld";
+import { FootstepSystem } from "../audio/FootstepSystem";
+import { PickupBurst } from "../effects/PickupBurst";
+import { FootstepDust } from "../effects/FootstepDust";
 import {
   getMaterial,
   resetMaterialCache,
@@ -99,6 +102,12 @@ export type EngineEvents = {
   onBatteryChange?: (charge: number) => void;
   /** Notes collected / total — refreshed when picked up. */
   onNotesChange?: (collected: number, total: number) => void;
+  /**
+   * Catch-sequence fade-to-black driver, 0..1. Drives a black overlay in
+   * the React layer (engine fires this every frame the catch sequence is
+   * active; it stays at 0 outside of it).
+   */
+  onCatchFade?: (v: number) => void;
 };
 
 export type EngineHandle = {
@@ -117,6 +126,15 @@ export type EngineHandle = {
   unlockAudio: () => boolean;
   setSensitivity: (s: number) => void;
   getMinimapState: () => MinimapState;
+  getObserverIndicatorState: () => ObserverIndicatorState;
+};
+
+export type ObserverIndicatorState = {
+  /** Yaw to the Observer relative to camera forward (0 = ahead, ±π = behind). */
+  angleRelative: number;
+  /** 0..1 visibility: 1 = full threat, 0 = invisible. Edge-of-screen UI only
+   *  shows when |angleRelative| > 0.9 rad (off-screen) and intensity > 0.05. */
+  intensity: number;
 };
 
 export type MinimapState = {
@@ -385,11 +403,32 @@ export function startGame(
   });
   const heartbeat = new Heartbeat(sharedUniforms);
   const audio = new AudioWorld();
-  // Track distance walked so we step on a stride cadence rather than every
-  // tick — feels less "every frame thunk" without an asset library.
-  let stepDist = 0;
-  let lastCamX = camera.position.x;
-  let lastCamZ = camera.position.z;
+  // Audio occlusion needs to know wall layout to raymarch source→listener.
+  audio.bindMap(parsed, TILE_SIZE);
+  // Player footsteps: 2D (listener is the player). Enemy footsteps: spatial,
+  // emitted from enemyMesh.position so the player can locate the Observer
+  // by ear. Surface variant chosen from the tile char under each foot.
+  // Dust kick spawns under the player on wood/creaky steps; battery-saver
+  // skips dust entirely.
+  const footstepDust = new FootstepDust(scene);
+  const footstepSystem = new FootstepSystem(
+    audio,
+    parsed,
+    TILE_SIZE,
+    false,
+    (x, z, surface) => {
+      if (batterySaver) return;
+      if (surface === "wood" || surface === "creaky") {
+        footstepDust.spawn(x, z);
+      }
+    },
+  );
+  const enemyFootstepSystem = new FootstepSystem(audio, parsed, TILE_SIZE, true);
+  // Active key-pickup particle bursts. Each entry self-reports completion
+  // via update() returning true; the engine then disposes its meshes.
+  const activeBursts: PickupBurst[] = [];
+  // (Footstep cadence now lives in FootstepSystem above, which keys off
+  // actual horizontal movement distance and picks surface variants.)
 
   // ── Materials ──────────────────────────────────────────────────────────────
   // Walls/floor/ceiling go through MaterialFactory so the eventual KTX2
@@ -633,16 +672,25 @@ export function startGame(
     });
   }
 
-  // Doors
-  const doorGroup = new THREE.Group();
+  // Doors — each door is a hinge group rotated around its open-edge so the
+  // door panel pivots realistically. Per-frame the engine sweeps each door's
+  // currentRot toward targetRot, where target is set by tickDoorSwings()
+  // based on player proximity. When the door starts opening or closing it
+  // fires a spatial door_creak from its world position.
   type DoorState = {
-    mesh: THREE.Mesh;
+    group: THREE.Group;
     tileX: number;
     tileZ: number;
-    openRotY: number;
-    closedUntil: number; // 0 means open
+    centerX: number;
+    centerZ: number;
+    opensNorthSouth: boolean;
+    currentRot: number; // 0 = closed (across opening), π/2 = open
+    targetRot: number;
+    creakUntil: number; // perf.now() < creakUntil suppresses re-creak
+    closedUntil: number; // 0 means free to auto-open
   };
   const doorStates: DoorState[] = [];
+  const doorGroup = new THREE.Group();
   parsed.doors.forEach(d => {
     const door = new THREE.Mesh(doorGeo, doorMat);
     door.castShadow = shadowsEnabled;
@@ -650,32 +698,88 @@ export function startGame(
     const wallWest = isBlocked(parsed, d.x - 1, d.z);
     const wallEast = isBlocked(parsed, d.x + 1, d.z);
     const opensNorthSouth = wallWest && wallEast;
-    door.position.set(
-      d.x * TILE_SIZE + TILE_SIZE / 2,
-      (WALL_HEIGHT * 0.92) / 2,
-      d.z * TILE_SIZE + TILE_SIZE / 2
-    );
+    const centerX = d.x * TILE_SIZE + TILE_SIZE / 2;
+    const centerZ = d.z * TILE_SIZE + TILE_SIZE / 2;
+
+    // Hinge group sits at the doorframe edge; the door panel is offset
+    // half its width in the open direction so rotation around Y pivots the
+    // door around the hinge rather than the panel center.
+    const hinge = new THREE.Group();
     if (opensNorthSouth) {
+      // Door panel runs along Z; hinge on the +X side of the opening.
+      hinge.position.set(centerX + TILE_SIZE / 2, 0, centerZ);
+      door.position.set(-TILE_SIZE / 2, (WALL_HEIGHT * 0.92) / 2, 0);
       door.rotation.y = Math.PI / 2;
-      door.position.x -= TILE_SIZE * 0.36;
     } else {
-      door.position.z -= TILE_SIZE * 0.36;
+      // Door panel runs along X; hinge on the +Z side of the opening.
+      hinge.position.set(centerX, 0, centerZ + TILE_SIZE / 2);
+      door.position.set(0, (WALL_HEIGHT * 0.92) / 2, -TILE_SIZE / 2);
     }
-    doorGroup.add(door);
+    hinge.add(door);
+    doorGroup.add(hinge);
+
     doorStates.push({
-      mesh: door,
+      group: hinge,
       tileX: d.x,
       tileZ: d.z,
-      openRotY: door.rotation.y,
+      centerX,
+      centerZ,
+      opensNorthSouth,
+      currentRot: 0,
+      targetRot: 0,
+      creakUntil: 0,
       closedUntil: 0,
     });
   });
   scene.add(doorGroup);
 
-  // Keys (with little point lights)
+  // Auto-open doors near the player. Slow swing speeds give a horror-house
+  // feel; OPEN_SPEED < CLOSE_SPEED so doors close just a touch faster than
+  // they open (creates a subtle "behind-you" pressure).
+  const DOOR_OPEN_RANGE = 2.4;
+  const DOOR_OPEN_SPEED = 2.4; // rad/s
+  const DOOR_CLOSE_SPEED = 1.6; // rad/s
+  function tickDoorSwings(dt: number): void {
+    const now = performance.now();
+    for (const door of doorStates) {
+      const dx = camera.position.x - door.centerX;
+      const dz = camera.position.z - door.centerZ;
+      const dist = Math.hypot(dx, dz);
+      const desired =
+        door.closedUntil > now
+          ? 0
+          : dist < DOOR_OPEN_RANGE
+            ? Math.PI / 2
+            : 0;
+      if (desired !== door.targetRot) {
+        door.targetRot = desired;
+        // Fire one creak when the target flips. Cooldown prevents the door
+        // from re-creaking if the player paces back and forth on the edge.
+        if (now > door.creakUntil) {
+          audio.playAt("door_creak", door.centerX, 1.2, door.centerZ);
+          door.creakUntil = now + 1500;
+        }
+      }
+      const delta = door.targetRot - door.currentRot;
+      if (Math.abs(delta) < 0.001) continue;
+      const speed = delta > 0 ? DOOR_OPEN_SPEED : DOOR_CLOSE_SPEED;
+      const step = Math.sign(delta) * Math.min(Math.abs(delta), speed * dt);
+      door.currentRot += step;
+      // North/south doors hinge on the +X side; rotating +Y opens "into"
+      // the room behind the hinge (negative direction works visually).
+      door.group.rotation.y = door.opensNorthSouth
+        ? door.currentRot
+        : -door.currentRot;
+    }
+  }
+
+  // Keys (with little point lights). Each uncollected key emits a faint
+  // looping spatial sparkle once audio is unlocked; the handle is tracked
+  // per-key so we can stop it on collect.
   const keyGroup = new THREE.Group();
   const keyMeshes: THREE.Mesh[] = [];
   const keyLights = new Map<THREE.Mesh, THREE.PointLight>();
+  const keyAudioHandles = new Map<THREE.Mesh, number>();
   parsed.keys.forEach(k => {
     const key = new THREE.Mesh(keyGeo, keyMat);
     key.castShadow = shadowsEnabled;
@@ -1263,6 +1367,22 @@ export function startGame(
     renderer.domElement
   );
 
+  function bindKeySparkleAfterUnlock(): void {
+    const keyHowl = audio.getHowl("key_sparkle");
+    if (!keyHowl) return;
+    for (const k of keyMeshes) {
+      if (keyAudioHandles.has(k)) continue;
+      const handle = audio.spatial.play(
+        "key_sparkle",
+        keyHowl,
+        k.position.x,
+        k.position.y,
+        k.position.z,
+      );
+      keyAudioHandles.set(k, handle);
+    }
+  }
+
   const onCanvasPointerDown = (e: PointerEvent) => {
     if (e.pointerType !== "touch" && e.pointerType !== "pen") return;
     // Don't claim the touch if it landed on a UI element overlaid on the
@@ -1278,6 +1398,7 @@ export function startGame(
     }
     if (activeLookPointer !== null) return;
     audio.unlock();
+    bindKeySparkleAfterUnlock();
     activeLookPointer = e.pointerId;
     lastLookX = e.clientX;
     lastLookY = e.clientY;
@@ -1308,6 +1429,7 @@ export function startGame(
     // Doubles as the iOS / autoplay-policy gesture for unlocking the
     // audio context. Idempotent.
     audio.unlock();
+    bindKeySparkleAfterUnlock();
     if (document.pointerLockElement !== renderer.domElement) {
       renderer.domElement.requestPointerLock?.();
     }
@@ -1394,13 +1516,14 @@ export function startGame(
       const md = Math.abs(door.tileX - px) + Math.abs(door.tileZ - pz);
       if (md > 1) continue;
       door.closedUntil = now + 3000;
-      // Rotate 90° so the door visually closes off the opening.
-      door.mesh.rotation.y = door.openRotY + Math.PI / 2;
+      door.targetRot = 0;
+      door.currentRot = 0;
+      door.group.rotation.y = 0;
       audio.triggerDoorSlam();
       // Slam = noise = Observer hears.
       observerDistractedUntil = now + 2500;
-      distractionX = door.mesh.position.x;
-      distractionZ = door.mesh.position.z;
+      distractionX = door.centerX;
+      distractionZ = door.centerZ;
       events.onHint?.("Door slammed — buys you a few seconds.");
       return true;
     }
@@ -1593,13 +1716,13 @@ export function startGame(
       enemyMesh.lookAt(fx, enemyMesh.position.y, fz);
     }
 
-    // Proximity audio
+    // Enemy light proximity (audio is driven from the main tick now via
+    // updateObserverPosition + tickOcclusion + setHeartbeatProximity).
     const distToPlayer = Math.hypot(
       enemyMesh.position.x - camera.position.x,
       enemyMesh.position.z - camera.position.z
     );
     const proximity = Math.max(0, 1 - distToPlayer / 14);
-    audio.setEntityProximity(proximity);
 
     enemyLight.position.set(enemyMesh.position.x, 1.6, enemyMesh.position.z);
     enemyLight.visible = quality !== "low" && enemyMesh.visible;
@@ -1622,8 +1745,21 @@ export function startGame(
           keyGroup.remove(light);
           keyLights.delete(k);
         }
-        keyMeshes.splice(i, 1);
+        const sparkleHandle = keyAudioHandles.get(k);
+        if (sparkleHandle !== undefined) {
+          audio.spatial.stop(sparkleHandle);
+          keyAudioHandles.delete(k);
+        }
+        // Spatial static burst from the key's location, plus the 2D
+        // pickup sting for the "got it" feedback.
+        audio.playAt("static_burst", k.position.x, k.position.y, k.position.z);
         audio.triggerKeyPickup();
+        // Particle burst — gold sparks + expanding ring at the key's
+        // position; the engine ticks/dispose this from the main loop.
+        activeBursts.push(
+          new PickupBurst(scene, k.position.x, k.position.y, k.position.z),
+        );
+        keyMeshes.splice(i, 1);
         events.onKeyPickup?.(keyMeshes.length);
         Haptics.pickup();
         emitDirector("keyPickup");
@@ -1706,6 +1842,16 @@ export function startGame(
         Haptics.catch();
         // Flash white then fade
         catchOverlay.style.opacity = "1";
+        // "Phasing out" audio bend: drop heartbeat + ambient rate so the
+        // mix audibly drags during the cinematic. Reset on completion.
+        const hbHowl = audio.getHowl("heartbeat_loop");
+        if (hbHowl) {
+          try { hbHowl.rate(0.6); } catch { /* ignore */ }
+        }
+        const ambHowl = audio.getHowl("ambient_loop");
+        if (ambHowl) {
+          try { ambHowl.rate(0.5); } catch { /* ignore */ }
+        }
       }
     }
   }
@@ -1768,10 +1914,26 @@ export function startGame(
         sharedUniforms.chromaticAberrationStrength.value =
           flashProgress * 0.012;
 
+        // Fade to black across the LAST 30% of the sequence. flashProgress
+        // counts down from 1 to 0; we want fade rising as flashProgress
+        // approaches 0 — i.e. once flashProgress < 0.3.
+        const fade = flashProgress > 0.3 ? 0 : (0.3 - flashProgress) / 0.3;
+        events.onCatchFade?.(fade);
+
         if (catchSequenceTimer <= 0) {
           catchSequenceActive = false;
           catchOverlay.style.opacity = "0";
           sharedUniforms.chromaticAberrationStrength.value = 0;
+          // Reset audio rates so they're not 0.6/0.5 forever after.
+          const hbHowl = audio.getHowl("heartbeat_loop");
+          if (hbHowl) {
+            try { hbHowl.rate(1.0); } catch { /* ignore */ }
+          }
+          const ambHowl = audio.getHowl("ambient_loop");
+          if (ambHowl) {
+            try { ambHowl.rate(1.0); } catch { /* ignore */ }
+          }
+          events.onCatchFade?.(1); // hold full black through onCaught hand-off
           events.onCaught?.();
           return;
         }
@@ -1920,7 +2082,6 @@ export function startGame(
       for (const door of doorStates) {
         if (door.closedUntil && tickNow >= door.closedUntil) {
           door.closedUntil = 0;
-          door.mesh.rotation.y = door.openRotY;
         }
       }
 
@@ -1964,19 +2125,60 @@ export function startGame(
         enemyMesh.visible ? enemyMesh.position : null
       );
       updateAnxietyEffects(heartbeat.intensity(), t, dt);
-      audio.setHeartbeatIntensity(heartbeat.intensity());
+
+      // Spatial-audio wiring. Listener tracks the camera; Observer voice
+      // (breath / stalk / footsteps / moans) follows enemyMesh; occlusion
+      // ticks at ~8Hz and lerps the per-source volume; heartbeat is
+      // distance-driven (not state-driven). Ambient mixer breathes the
+      // wind layer + holds the static drone constant.
+      audio.setListener(
+        camera.position.x,
+        camera.position.y,
+        camera.position.z,
+        yaw,
+      );
+      const enemyDx = enemyMesh.position.x - camera.position.x;
+      const enemyDz = enemyMesh.position.z - camera.position.z;
+      const enemyDist = Math.hypot(enemyDx, enemyDz);
+      const observerChasing = enemyMesh.visible && enemyDist < 9;
+      audio.updateObserverPosition(
+        enemyMesh.position.x,
+        enemyMesh.position.y,
+        enemyMesh.position.z,
+        observerChasing,
+      );
+      audio.tickSpatial(dt);
+      audio.tickOcclusion(camera.position.x, camera.position.z, performance.now());
+      audio.setHeartbeatProximity(enemyMesh.visible ? enemyDist : 999);
+      audio.tickAmbient(dt);
       audio.update(dt);
+      tickDoorSwings(dt);
+      // Tick active pickup bursts. update() returns true when a burst is
+      // done; we splice from the back so indices stay valid mid-loop.
+      for (let i = activeBursts.length - 1; i >= 0; i--) {
+        if (activeBursts[i].update(dt)) {
+          activeBursts[i].dispose(scene);
+          activeBursts.splice(i, 1);
+        }
+      }
+      footstepDust.update(dt);
       dust?.update(dt, camera);
-      // Footstep cadence — fire one click every ~0.8m of horizontal travel.
-      const dxStep = camera.position.x - lastCamX;
-      const dzStep = camera.position.z - lastCamZ;
-      stepDist += Math.hypot(dxStep, dzStep);
-      lastCamX = camera.position.x;
-      lastCamZ = camera.position.z;
-      const stride = sprinting ? 1.0 : 0.8;
-      if (!isHiding && stepDist >= stride) {
-        stepDist -= stride;
-        audio.triggerFootstep();
+      // Footsteps — player + enemy. Both fire on actual horizontal movement
+      // distance, with surface variants picked from the tile char under each
+      // foot. Enemy steps spatialize from the Observer's position.
+      footstepSystem.tick(
+        camera.position.x,
+        camera.position.z,
+        sprinting,
+        isHiding,
+      );
+      if (enemyMesh.visible) {
+        enemyFootstepSystem.tick(
+          enemyMesh.position.x,
+          enemyMesh.position.z,
+          observerChasing,
+          false,
+        );
       }
       checkPickups();
       if (!isContextLost()) {
@@ -2076,6 +2278,7 @@ export function startGame(
       props.dispose();
       cobwebs.dispose();
       dust?.dispose();
+      footstepDust.dispose(scene);
       shadowBudget.dispose();
       lightCuller.dispose();
       audio.dispose();
@@ -2137,5 +2340,26 @@ export function startGame(
       tileSize: TILE_SIZE,
       tiles: parsed.tiles,
     }),
+    getObserverIndicatorState: (): ObserverIndicatorState => {
+      if (!enemyMesh.visible) return { angleRelative: 0, intensity: 0 };
+      const dx = enemyMesh.position.x - camera.position.x;
+      const dz = enemyMesh.position.z - camera.position.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist > 16) return { angleRelative: 0, intensity: 0 };
+      // World-space yaw to Observer; camera looks down -Z when yaw=0, so
+      // forward = (-sin(yaw), -cos(yaw)). atan2(dx, -dz) gives the angle of
+      // the Observer measured from -Z, which we then offset by yaw to get
+      // the relative angle. Wrap to [-π, π].
+      const observerYaw = Math.atan2(dx, -dz);
+      let rel = observerYaw - yaw;
+      while (rel > Math.PI) rel -= Math.PI * 2;
+      while (rel < -Math.PI) rel += Math.PI * 2;
+      // Intensity rises sharply under 8m. Chasing (close enough that
+      // observer_stalk plays) bumps the indicator to full strength.
+      const distScalar = Math.max(0, Math.min(1, 1 - dist / 16));
+      const chasing = dist < 9;
+      const intensity = distScalar * (chasing ? 1 : 0.6);
+      return { angleRelative: rel, intensity };
+    },
   };
 }

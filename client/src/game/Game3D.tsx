@@ -15,6 +15,7 @@ import LoadingScreen from "../ui/LoadingScreen";
 import { recordRun } from "../hooks/useGameStats";
 import { getDailySeed, saveDailyResult } from "../hooks/useDailyChallenge";
 import { Minimap } from "../ui/Minimap";
+import { ObserverIndicator } from "../ui/ObserverIndicator";
 import { PauseMenu } from "../ui/PauseMenu";
 import { MobilePauseButton } from "../ui/MobilePauseButton";
 import { PortraitGate } from "../ui/PortraitGate";
@@ -116,6 +117,20 @@ export default function Game3D({
   const [isNewBest, setIsNewBest] = useState(false);
   const isMobile = useIsMobile();
   const [pointerLocked, setPointerLocked] = useState(false);
+  // Whether the gold key-pickup flash is currently visible. Set true on
+  // pickup and cleared 420ms later — opacity transitions over 500ms.
+  const [pickupFlashAt, setPickupFlashAt] = useState(0);
+  const [pickupFlashOn, setPickupFlashOn] = useState(false);
+  // Catch-sequence fade-to-black opacity (0..1). Driven by engine's
+  // onCatchFade callback every frame the catch is active; resets when
+  // status leaves "playing".
+  const [catchFade, setCatchFade] = useState(0);
+  useEffect(() => {
+    if (!pickupFlashAt) return;
+    setPickupFlashOn(true);
+    const t = window.setTimeout(() => setPickupFlashOn(false), 420);
+    return () => window.clearTimeout(t);
+  }, [pickupFlashAt]);
 
   useEffect(() => {
     const onLockChange = () => {
@@ -198,6 +213,7 @@ export default function Game3D({
           },
           onKeyPickup: remaining => {
             setKeysLeft(remaining);
+            setPickupFlashAt(performance.now());
             setHint(
               remaining === 0
                 ? "All keys found. The exit is open."
@@ -214,7 +230,11 @@ export default function Game3D({
             recordRun(difficulty, "caught", selectedMap.timer, tl);
             if (isDaily) saveDailyResult("caught", used);
             setStatus("caught");
+            // Snap fade off once we leave the playing screen — the caught
+            // status screen is its own backdrop.
+            setCatchFade(0);
           },
+          onCatchFade: (v: number) => setCatchFade(v),
           onTimeUp: () => {
             recordRun(difficulty, "caught", selectedMap.timer, 0);
             if (isDaily) saveDailyResult("caught", selectedMap.timer);
@@ -454,6 +474,25 @@ export default function Game3D({
             <MobilePauseButton onPause={() => setPaused(true)} />
           )}
           <Minimap engine={engineRef.current} />
+          <ObserverIndicator engine={engineRef.current} />
+          {/* Gold flash on key pickup. Fades opacity 1→0 over 500ms via
+              a CSS transition; the timer in pickupFlashOn flips off ~420ms
+              after pickup so the transition gets a full half-second runway. */}
+          <div
+            className="absolute inset-0 z-[15] pointer-events-none transition-opacity duration-500"
+            style={{
+              background:
+                "radial-gradient(circle, rgba(255,217,102,0.18) 0%, transparent 60%)",
+              opacity: pickupFlashOn ? 1 : 0,
+            }}
+          />
+          {/* Catch-sequence fade-to-black. Driven directly by engine each
+              frame (no transition — the engine's smooth ramp owns the
+              animation). z-25 sits above HUD but below pause/menus. */}
+          <div
+            className="absolute inset-0 z-[25] pointer-events-none bg-black"
+            style={{ opacity: catchFade }}
+          />
         </>
       )}
 

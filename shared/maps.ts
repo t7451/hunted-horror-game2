@@ -1,8 +1,27 @@
 // Shared map definitions used by client renderer and server simulation.
 // Tile legend:
 //   W = wall, D = door, S = player spawn, X = exit, K = key,
-//   H = hiding spot, E = enemy (Observer) spawn, '.' = floor,
-//   B = battery (refills flashlight charge), N = note (lore page collectible).
+//   H = hiding spot, E = enemy (Observer) spawn, '.' = floor (wood),
+//   B = battery (refills flashlight charge), N = note (lore page collectible),
+//   ',' = carpet floor, ':' = stone floor, ';' = creaky floor.
+// Surface chars are walkable like '.' — they only affect footstep audio
+// (see FootstepSystem + getSurface).
+
+export type SurfaceKind = "wood" | "carpet" | "stone" | "creaky";
+
+/** Return the FootstepSystem surface kind for a map tile char. */
+export function getSurface(tile: string): SurfaceKind {
+  switch (tile) {
+    case ",":
+      return "carpet";
+    case ":":
+      return "stone";
+    case ";":
+      return "creaky";
+    default:
+      return "wood";
+  }
+}
 
 export type ColorProfile = {
   fogColor: number;
