@@ -1151,21 +1151,23 @@ export function startGame(
     "sofa",
     "counter",
     "bathtub",
+    "candles",
+    "ritual",
     "clutter",
   ];
   const PROP_WEIGHTS_BY_THEME: Record<string, number[]> = {
-    // chair, table, lamp, shelf, crate, barrel, bookstack, painting, rug, bed, sofa, counter, bathtub, clutter
+    // chair, table, lamp, shelf, crate, barrel, bookstack, painting, rug, bed, sofa, counter, bathtub, candles, ritual, clutter
     kitchen: [
-      0.16, 0.12, 0.08, 0.08, 0.03, 0.02, 0.07, 0.07, 0.06, 0.04, 0.05,
-      0.12, 0.02, 0.08,
+      0.15, 0.11, 0.08, 0.07, 0.03, 0.02, 0.06, 0.06, 0.05, 0.04, 0.05,
+      0.12, 0.02, 0.07, 0.02, 0.05,
     ],
     house: [
-      0.09, 0.08, 0.09, 0.08, 0.13, 0.12, 0.04, 0.06, 0.04, 0.04, 0.04,
-      0.03, 0.02, 0.14,
+      0.08, 0.07, 0.08, 0.08, 0.12, 0.11, 0.04, 0.06, 0.04, 0.04, 0.04,
+      0.03, 0.02, 0.06, 0.05, 0.08,
     ],
     nightmare: [
-      0.05, 0.04, 0.05, 0.04, 0.16, 0.18, 0.03, 0.03, 0.02, 0.02, 0.02,
-      0.02, 0.01, 0.33,
+      0.04, 0.03, 0.04, 0.03, 0.15, 0.16, 0.02, 0.03, 0.02, 0.02, 0.01,
+      0.02, 0.01, 0.08, 0.1, 0.24,
     ],
   };
   const propWeights =
@@ -1236,9 +1238,11 @@ export function startGame(
     placeSignatureProp("sofa", 16, 13, N, 1.25);
     placeSignatureProp("table", 18, 12, Math.PI / 2, 1.15);
     placeSignatureProp("lamp", 21, 14, 0, 1.1);
+    placeSignatureProp("candles", 19, 14, Math.PI / 5, 1.2);
 
     placeSignatureProp("shelf", 8, 13, S, 1.2);
     placeSignatureProp("bed", 3, 17, E, 1.05);
+    placeSignatureProp("ritual", 7, 17, Math.PI / 7, 1.25);
     placeSignatureProp("counter", 32, 17, S, 1.2);
     placeSignatureProp("counter", 36, 17, S, 1.2);
     placeSignatureProp("sofa", 10, 21, S, 1.2);

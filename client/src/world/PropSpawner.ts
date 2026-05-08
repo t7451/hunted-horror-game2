@@ -27,6 +27,8 @@ export type PropKind =
   | "sofa"
   | "counter"
   | "bathtub"
+  | "candles"
+  | "ritual"
   | "clutter";
 
 type PropDef = {
@@ -55,6 +57,8 @@ const PROPS: Record<PropKind, PropDef> = {
   sofa: { maxInstances: 12, yOffset: 0, build: buildSofa },
   counter: { maxInstances: 36, yOffset: 0, build: buildCounter },
   bathtub: { maxInstances: 8, yOffset: 0, build: buildBathtub },
+  candles: { maxInstances: 48, yOffset: 0, build: buildCandles },
+  ritual: { maxInstances: 20, yOffset: 0, build: buildRitual },
   clutter: { maxInstances: 112, yOffset: 0, build: buildClutter },
 };
 
@@ -187,7 +191,13 @@ function mergeBoxes(
 
   for (const b of boxes) {
     const g = new THREE.BoxGeometry(b.w, b.h, b.d);
-    const matrix = new THREE.Matrix4().makeTranslation(b.x, b.y, b.z);
+    const matrix = new THREE.Matrix4().compose(
+      new THREE.Vector3(b.x, b.y, b.z),
+      new THREE.Quaternion().setFromEuler(
+        new THREE.Euler(b.rx ?? 0, b.ry ?? 0, b.rz ?? 0)
+      ),
+      new THREE.Vector3(1, 1, 1)
+    );
     g.applyMatrix4(matrix);
     const nonIndexed = g.toNonIndexed();
     const p = nonIndexed.attributes.position.array as Float32Array;
@@ -219,6 +229,9 @@ type BoxSpec = {
   w: number;
   h: number;
   d: number;
+  rx?: number;
+  ry?: number;
+  rz?: number;
 };
 
 function buildChair() {
@@ -556,6 +569,79 @@ function buildBathtub() {
     new THREE.MeshStandardMaterial({
       color: 0xb8b0a0,
       roughness: 0.5,
+      metalness: 0.02,
+    })
+  );
+}
+
+function buildCandles() {
+  // Clustered floor candles: three uneven wax pillars on a shallow dish with
+  // small upright flame slivers. Kept as one instanced geometry/material.
+  const boxes: BoxSpec[] = [
+    { x: 0, y: 0.015, z: 0, w: 0.54, h: 0.03, d: 0.34 },
+    { x: -0.18, y: 0.18, z: -0.04, w: 0.09, h: 0.32, d: 0.09 },
+    { x: 0.0, y: 0.25, z: 0.06, w: 0.1, h: 0.46, d: 0.1 },
+    { x: 0.18, y: 0.13, z: -0.02, w: 0.08, h: 0.24, d: 0.08 },
+    { x: -0.18, y: 0.36, z: -0.04, w: 0.045, h: 0.1, d: 0.025, ry: Math.PI / 4 },
+    { x: 0.0, y: 0.5, z: 0.06, w: 0.05, h: 0.12, d: 0.03, ry: Math.PI / 4 },
+    { x: 0.18, y: 0.27, z: -0.02, w: 0.04, h: 0.08, d: 0.025, ry: Math.PI / 4 },
+    // A few wax drips break up the columns so they don't read as posts.
+    { x: -0.22, y: 0.24, z: -0.04, w: 0.025, h: 0.12, d: 0.02 },
+    { x: 0.04, y: 0.34, z: 0.1, w: 0.025, h: 0.16, d: 0.02 },
+  ];
+  return mergeBoxes(
+    boxes,
+    new THREE.MeshStandardMaterial({
+      color: 0xffd6a0,
+      emissive: 0xff6a24,
+      emissiveIntensity: 0.16,
+      roughness: 0.62,
+      metalness: 0.02,
+    })
+  );
+}
+
+function buildRitual() {
+  // Low occult floor set-piece: a raised center stone, star strokes, and five
+  // short marker candles around it. Floor-only to avoid wall-placement rules.
+  const boxes: BoxSpec[] = [
+    { x: 0, y: 0.045, z: 0, w: 0.42, h: 0.09, d: 0.42 },
+    { x: 0, y: 0.03, z: 0, w: 1.24, h: 0.018, d: 0.04, ry: 0 },
+    { x: 0, y: 0.031, z: 0, w: 1.24, h: 0.018, d: 0.04, ry: Math.PI * 0.4 },
+    { x: 0, y: 0.032, z: 0, w: 1.24, h: 0.018, d: 0.04, ry: Math.PI * 0.8 },
+    { x: 0, y: 0.033, z: 0, w: 1.24, h: 0.018, d: 0.04, ry: Math.PI * 1.2 },
+    { x: 0, y: 0.034, z: 0, w: 1.24, h: 0.018, d: 0.04, ry: Math.PI * 1.6 },
+  ];
+
+  const markerRadius = 0.66;
+  for (let i = 0; i < 5; i++) {
+    const a = i * ((Math.PI * 2) / 5) + Math.PI / 10;
+    boxes.push({
+      x: Math.cos(a) * markerRadius,
+      y: 0.12,
+      z: Math.sin(a) * markerRadius,
+      w: 0.06,
+      h: 0.2,
+      d: 0.06,
+    });
+    boxes.push({
+      x: Math.cos(a) * markerRadius,
+      y: 0.25,
+      z: Math.sin(a) * markerRadius,
+      w: 0.035,
+      h: 0.06,
+      d: 0.025,
+      ry: Math.PI / 4,
+    });
+  }
+
+  return mergeBoxes(
+    boxes,
+    new THREE.MeshStandardMaterial({
+      color: 0x4a1014,
+      emissive: 0x2a0508,
+      emissiveIntensity: 0.08,
+      roughness: 0.9,
       metalness: 0.02,
     })
   );
