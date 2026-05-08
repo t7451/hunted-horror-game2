@@ -1,0 +1,82 @@
+/* client/src/ui/analog/tokens.css
+   Found-footage analog UI design tokens.
+   Live signals (--tension, --analog-strength) are written by signals.ts and AnalogShell.
+*/
+
+@property --tension {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0.35;
+}
+
+@property --analog-strength {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1;
+}
+
+:root {
+  /* Live signals (overwritten at runtime) */
+  --tension: 0.35;
+  --analog-strength: 1;
+
+  /* Effective intensity (read-only convenience) */
+  --ana-intensity: calc(var(--tension) * var(--analog-strength));
+
+  /* Palette */
+  --ana-fg: #f1f1f1;
+  --ana-fg-dim: #a89488;
+  --ana-bg: #060403;
+  --ana-rec: #ff3a3a;
+  --ana-cyan: #00d8ff;
+  --ana-magenta: #ff00aa;
+  --ana-rust: #6a3a2a;
+  --ana-bone: #d4c2b8;
+
+  /* Fonts */
+  --ana-font-mono: "Courier New", ui-monospace, monospace;
+  --ana-font-stencil: "Impact", "Arial Black", sans-serif;
+
+  /* Scanline patterns */
+  --ana-scan-default: repeating-linear-gradient(
+    0deg,
+    transparent 0 1px,
+    rgba(255, 80, 80, 0.06) 1px 2px
+  );
+  --ana-scan-thick: repeating-linear-gradient(
+    0deg,
+    transparent 0 3px,
+    rgba(255, 255, 255, 0.04) 3px 4px
+  );
+
+  /* Durations */
+  --ana-pulse-base-ms: 1100ms;
+  --ana-glitch-min-gap-ms: 4500ms;
+}
+
+@keyframes ana-rec-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.55; transform: scale(0.85); }
+}
+
+@keyframes ana-scan-drift {
+  0%   { background-position: 0 0, 0 0; }
+  100% { background-position: 0 12px, 0 -8px; }
+}
+
+@keyframes ana-glitch-sweep {
+  0%   { transform: translateY(-100%); opacity: 0; }
+  10%  { opacity: 0.7; }
+  60%  { opacity: 0.4; }
+  100% { transform: translateY(120vh); opacity: 0; }
+}
+
+html[data-paused="true"] .ana-scan-drift {
+  animation-play-state: paused !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ana-scan-drift { animation: none; }
+  .ana-glitch-sweep { display: none; }
+  .ana-rec-pulse { animation: none; }
+}
