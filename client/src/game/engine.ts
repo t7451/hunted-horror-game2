@@ -139,6 +139,35 @@ function scalePlaneUVs(geo: THREE.PlaneGeometry, sx: number, sy: number): void {
   uv.needsUpdate = true;
 }
 
+// Deterministic per-tile hash. Seeded so two callers can pull two
+// uncorrelated variation streams from the same (x, z).
+function tileHash(x: number, z: number, seed: number): number {
+  const s = Math.sin(x * 12.9898 + z * 78.233 + seed * 37.719) * 43758.5453;
+  return s - Math.floor(s);
+}
+
+// Fill an InstancedMesh's per-instance color with subtle warm/cool brightness
+// variation tied to (x, z) so the same map looks identical between mounts.
+// The tint is multiplied into the material color, so values stay near 1.0 to
+// avoid washing out or darkening the underlying texture.
+function applyInstanceTint(
+  mesh: THREE.InstancedMesh,
+  positions: ArrayLike<{ x: number; z: number }>,
+  range: number = 0.16,
+  warmth: number = 0.06,
+): void {
+  const tint = new THREE.Color();
+  for (let i = 0; i < positions.length; i++) {
+    const p = positions[i];
+    const v = tileHash(p.x, p.z, 1) - 0.5; // -0.5..0.5
+    const w = (tileHash(p.x, p.z, 7) - 0.5) * warmth; // ±warmth/2
+    const k = 1 + v * range; // centered on 1.0, span = `range`
+    tint.setRGB(k + w, k, k - w);
+    mesh.setColorAt(i, tint);
+  }
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+}
+
 // Tiny seedable PRNG so prop / cobweb placement is stable across mounts
 // of the same map (no popping when the user re-enters the house).
 function mulberry32(seed: number): () => number {
@@ -365,6 +394,9 @@ export function startGame(
     wallMesh.setMatrixAt(i, tmp.matrix);
   });
   wallMesh.instanceMatrix.needsUpdate = true;
+  // Per-tile brightness/warmth so the wallpaper's vertical bands don't line up
+  // identically across every wall in a row.
+  applyInstanceTint(wallMesh, parsed.walls, 0.18, 0.06);
   scene.add(wallMesh);
 
   // Architectural trim — thin instanced strip at every wall→floor seam.
@@ -419,6 +451,14 @@ export function startGame(
         baseboardMesh.setMatrixAt(i, trimTmp.matrix);
       }
       baseboardMesh.instanceMatrix.needsUpdate = true;
+      // Smaller variation than walls — trim should still read as one
+      // continuous board strip, just not perfectly uniform.
+      applyInstanceTint(
+        baseboardMesh,
+        trimSegments.map(s => ({ x: s.x, z: s.z })),
+        0.10,
+        0.03,
+      );
       scene.add(baseboardMesh);
 
       // Crown molding — high quality only.
@@ -439,6 +479,12 @@ export function startGame(
           crownMesh.setMatrixAt(i, trimTmp.matrix);
         }
         crownMesh.instanceMatrix.needsUpdate = true;
+        applyInstanceTint(
+          crownMesh,
+          trimSegments.map(s => ({ x: s.x, z: s.z })),
+          0.10,
+          0.03,
+        );
         scene.add(crownMesh);
       }
     }
