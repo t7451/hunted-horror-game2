@@ -5,6 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import Anthropic from "@anthropic-ai/sdk";
+import { MAPS, type MapDef, type MapKey } from "../shared/maps.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -41,140 +42,13 @@ const DIFFICULTY_BONUS: Record<string, number> = {
 };
 
 // ═══════════════════════════════════════════════════════════════
-// MAPS (copied from server.js)
+// MAPS
 // ═══════════════════════════════════════════════════════════════
 
-const MAPS: Record<string, { name: string; difficulty: number; timer: number; claudeSpeed: number; theme: string; raw: string[] }> = {
-  easy: {
-    name: "Granny's Kitchen",
-    difficulty: 1,
-    timer: 240,
-    claudeSpeed: 3.0,
-    theme: "kitchen",
-    raw: [
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
-      "WS.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W...W",
-      "W.....D.....D.....D.....D...W",
-      "W.....W.....W.....W.....W...W",
-      "W..H..W..K..W..H..W..K..W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W...W",
-      "W..K..D.....D.....D.....D...W",
-      "W.....W.....W.....W.....W...W",
-      "W..H..W.....W..H..W.....W...W",
-      "WWWDWWWWWWWWWWWDWWWWWDWWWWWWWW",
-      "W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W...W",
-      "W.....D.....D.....D.....D...W",
-      "W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W..XW",
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
-    ],
-  },
-  normal: {
-    name: "Granny's House",
-    difficulty: 2,
-    timer: 180,
-    claudeSpeed: 4.5,
-    theme: "house",
-    raw: [
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
-      "WS.....W.....W.....W.....W.....W...W",
-      "W.D....W.D...W.D...W.D...W.D...W...W",
-      "W.W....W.W...W.W...W.W...W.W...W...W",
-      "W.W..K.W.W.K.W.W..KW.W..KW.W..KW...W",
-      "W.D....W.D...W.D...W.D...W.D...W...W",
-      "W.W....W.W...W.W...W.W...W.W...W...W",
-      "W.H....W.H...W.H...W.H...W.H...W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.....W...........W.....W.....W...W",
-      "W.H...D...........D.....D.....D...W",
-      "W.W...W...........W.....W.....W...W",
-      "W.W..KW.....E.....W..H..W..K..W...W",
-      "W.D...W...........W.....W.....W...W",
-      "W.W...W...........W.....W.....W...W",
-      "W.W...D.....P.....D.....D.....D...W",
-      "W.H...W...........W.....W.....W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.....W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W.....W...W",
-      "W.....D.....D.....D.....D.....D...W",
-      "W.....W.....W.....W.....W.....W...W",
-      "W..H..W.....W..H..W..K..W.....W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.....W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W.....W...W",
-      "W.....D.....D.....D.....D.....D...W",
-      "W.....W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W.....W..XW",
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
-    ],
-  },
-  hard: {
-    name: "Granny's Nightmare",
-    difficulty: 3,
-    timer: 120,
-    claudeSpeed: 6.0,
-    theme: "nightmare",
-    raw: [
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
-      "WS.D...W.D...W.D...W.D...W.D...W.D...W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.KW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.D.D..W.D.D.W.D.D.W.D.D.W.D.D.W.D.D.W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.HW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.D...W.D...W.D...W.D...W.D...W.D...W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.KW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.D.D..W.D.D.W.D.D.W.D.D.W.D.D.W.D.D.W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.HW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.D...W.D...W.D...W.D...W.D...W.D...W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.KW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.D.D..W.D.D.W.D.D.W.D.D.W.D.D.W.D.D.W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.HW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.D...W.D...W.D...W.D...W.D...W.D...W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.KW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.D.D..W.D.D.W.D.D.W.D.D.W.D.D.W.D.D.W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.HW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.D...W.D...W.D...W.D...W.D...W.D...W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.KW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.D.D..W.D.D.W.D.D.W.D.D.W.D.D.W.D.D.W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.HW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.D...W.D...W.D...W.D...W.D...W.D...W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.KW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.D.D..W.D.D.W.D.D.W.D.D.W.D.D.W.D.D.W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.HW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.....W.....W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W.....W.....W...W",
-      "W.....D.....D.....D.....D.....D.....D...W",
-      "W.....W.....W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W.....W.....W..XW",
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
-    ],
-  },
-};
+// Shared with the client so single-player rendering and multiplayer simulation stay in sync.
+function getMapForDifficulty(difficulty: string): MapDef {
+  return MAPS[difficulty as MapKey] ?? MAPS.normal;
+}
 
 // ═══════════════════════════════════════════════════════════════
 // MAP PARSING
@@ -184,7 +58,7 @@ function tileCenter(r: number, c: number) {
   return { x: c * TILE + TILE / 2, z: r * TILE + TILE / 2 };
 }
 
-function parseMap(mapData: typeof MAPS[string]) {
+function parseMap(mapData: MapDef) {
   const raw = mapData.raw;
   const H = raw.length;
   const W = raw[0].length;
@@ -370,7 +244,7 @@ const playerSession = new Map<WebSocket, string>();
 const playerIdMap = new Map<WebSocket, string>();
 
 function createGameState(mode: string, sessionId: string, difficulty = "normal"): GameState {
-  const mapData = MAPS[difficulty] || MAPS.normal;
+  const mapData = getMapForDifficulty(difficulty);
   const parsed = parseMap(mapData);
 
   const items: Item[] = parsed.keySpawns.map((pos, i) => ({
@@ -594,7 +468,7 @@ function handleJoin(ws: WebSocket, msg: Record<string, string>) {
   sessions.set(gs.sessionId, gs);
   playerSession.set(ws, gs.sessionId);
 
-  const parsed = parseMap(MAPS[difficulty] || MAPS.normal);
+  const parsed = parseMap(getMapForDifficulty(difficulty));
 
   // Spawn player away from Claude
   let spawnX = parsed.playerSpawn.x;
