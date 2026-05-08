@@ -32,6 +32,8 @@ import { PropSpawner, type PropKind } from "../world/PropSpawner";
 import { CobwebSet } from "../world/Cobwebs";
 import { DustParticles } from "../world/DustParticles";
 import { createAIDirector, type DirectorUpdate } from "./aiDirector";
+import { findPath } from "./pathfinding";
+import { TheObserver, disposeObserverCache } from "../world/TheObserver";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rendering backend for HUNTED BY CLAUDE.
@@ -99,6 +101,11 @@ function mulberry32(seed: number): () => number {
 
 const PLAYER_RADIUS = 0.6;
 const ENEMY_RADIUS = 0.45;
+// Catch sequence: player input freezes, PostFX spikes, caught fires after delay
+const CATCH_DIST = 1.5;
+const CATCH_SEQUENCE_DURATION = 1.6;
+// Pathfinding: recompute path every N seconds (not every frame)
+const PATH_RECOMPUTE_INTERVAL = 0.45;
 const PLAYER_HEIGHT = 1.7;
 const MOVE_SPEED = 4.5;
 const SPRINT_MULT = 1.6;
@@ -559,34 +566,48 @@ export function startGame(
     });
   }
 
-  const enemyMesh = new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.5, 1.4, 8, 16),
-    new THREE.MeshStandardMaterial({
-      color: 0x060303,
-      emissive: 0x3a0000,
-      emissiveIntensity: 0.7,
-      roughness: 0.9,
-    })
-  );
-  enemyMesh.scale.set(0.82, 1.18, 0.82);
-  enemyMesh.castShadow = shadowsEnabled;
-  enemyMesh.visible = false;
-  const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff1f1f });
-  const eyeGeo = new THREE.SphereGeometry(0.055, 8, 8);
-  const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
-  const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
-  leftEye.position.set(-0.16, 0.62, -0.48);
-  rightEye.position.set(0.16, 0.62, -0.48);
-  enemyMesh.add(leftEye, rightEye);
-  scene.add(enemyMesh);
-  const enemyLight = new THREE.PointLight(
-    0xff2222,
-    quality === "low" ? 0 : 0.8,
-    6,
-    2
-  );
+  // ── Observer (AI enemy) ───────────────────────────────────────────────────
+  // Replaces the old capsule + 2-eye construction. TheObserver owns its own
+  // geometry, materials, and eye lights. Engine only calls .update() each
+  // frame and .syncLights() after position changes.
+  const observer = new TheObserver(shadowsEnabled);
+  observer.visible = false;
+  scene.add(observer.group);
+  // Eye lights are parented inside the group; the scene also needs them for
+  // shadow casting (they're added inside TheObserver's constructor via group).
+
+  // Compatibility alias — remaining engine code that referenced enemyMesh now
+  // uses observerProxy which proxies the same position/visible interface.
+  const enemyMesh = {
+    get position() { return observer.group.position; },
+    get visible() { return observer.visible; },
+    set visible(v: boolean) { observer.visible = v; },
+    lookAt(x: number, y: number, z: number) { observer.lookAt(x, y, z); },
+    castShadow: shadowsEnabled,
+  };
+
+  const enemyLight = new THREE.PointLight(0x1a2a3a, quality === "low" ? 0 : 0.5, 8, 2);
   enemyLight.visible = false;
   scene.add(enemyLight);
+
+  // Catch sequence state
+  let catchSequenceActive = false;
+  let catchSequenceTimer = 0;
+
+  // Catch flash overlay — pure DOM, no React state needed
+  const catchOverlay = document.createElement("div");
+  catchOverlay.style.cssText =
+    "position:absolute;inset:0;background:#e8f4ff;opacity:0;pointer-events:none;z-index:50;";
+  container.appendChild(catchOverlay);
+
+  // Pathfinding state
+  let enemyPath: Array<{ x: number; z: number }> | null = null;
+  let pathRecomputeTimer = 0;
+
+  // last-known-position for investigate mode
+  let lastKnownPlayerX = 0;
+  let lastKnownPlayerZ = 0;
+  let isInvestigating = false;
   let lastRemoteEnemyAt = 0;
   let dangerState: "safe" | "near" | "critical" = "safe";
   let isHiding = false;
@@ -838,27 +859,91 @@ export function startGame(
   }
 
   function updateLocalEnemy(dt: number, elapsed: number, now: number) {
-    if (!enemyMesh.visible || now - lastRemoteEnemyAt < REMOTE_ENEMY_TIMEOUT_MS)
+    if (!enemyMesh.visible || now - lastRemoteEnemyAt < REMOTE_ENEMY_TIMEOUT_MS) return;
+
+    // Don't move enemy during catch sequence — it's already "there"
+    if (catchSequenceActive) {
+      observer.update(dt, elapsed, 0);
+      observer.syncLights();
       return;
-    const dx = camera.position.x - enemyMesh.position.x;
-    const dz = camera.position.z - enemyMesh.position.z;
-    const dist = Math.hypot(dx, dz) || 1;
-    const investigating = isHiding && dist > 4;
-    const speed = calculateEnemySpeed(
-      investigating,
-      mapDef.claudeSpeed * enemySpeedMultiplier,
-      dt
+    }
+
+    // Track last known player position (update only when not hiding)
+    if (!isHiding) {
+      lastKnownPlayerX = camera.position.x;
+      lastKnownPlayerZ = camera.position.z;
+      isInvestigating = false;
+    }
+
+    // Periodic A* recompute
+    pathRecomputeTimer -= dt;
+    if (pathRecomputeTimer <= 0 || !enemyPath) {
+      pathRecomputeTimer = PATH_RECOMPUTE_INTERVAL;
+
+      const targetX = isHiding ? lastKnownPlayerX : camera.position.x;
+      const targetZ = isHiding ? lastKnownPlayerZ : camera.position.z;
+
+      const newPath = findPath(
+        parsed,
+        enemyMesh.position.x,
+        enemyMesh.position.z,
+        targetX,
+        targetZ
+      );
+      if (newPath !== null) {
+        enemyPath = newPath;
+      }
+      // If hiding reached last-known-pos and no player there, investigate nearby
+      if (isHiding && (!enemyPath || enemyPath.length === 0)) {
+        isInvestigating = true;
+        const wander = {
+          x: lastKnownPlayerX + (Math.random() - 0.5) * 12,
+          z: lastKnownPlayerZ + (Math.random() - 0.5) * 12,
+        };
+        enemyPath = findPath(parsed, enemyMesh.position.x, enemyMesh.position.z, wander.x, wander.z) ?? [];
+      }
+    }
+
+    // Follow path
+    const baseSpeed = mapDef.claudeSpeed * enemySpeedMultiplier;
+    const speedMult = isInvestigating ? INVESTIGATING_SPEED_FACTOR : 1.0;
+    const speed = baseSpeed * speedMult * dt;
+
+    if (enemyPath && enemyPath.length > 0) {
+      const wp = enemyPath[0];
+      const dx = wp.x - enemyMesh.position.x;
+      const dz = wp.z - enemyMesh.position.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist < 0.5) {
+        enemyPath.shift();
+      } else {
+        tryMoveEnemy((dx / dist) * speed, (dz / dist) * speed);
+        enemyMesh.lookAt(camera.position.x, enemyMesh.position.y, camera.position.z);
+      }
+    } else {
+      // Fallback direct move (no valid path found — shouldn't happen on well-formed maps)
+      const dx = camera.position.x - enemyMesh.position.x;
+      const dz = camera.position.z - enemyMesh.position.z;
+      const dist = Math.hypot(dx, dz) || 1;
+      tryMoveEnemy((dx / dist) * speed, (dz / dist) * speed);
+      enemyMesh.lookAt(camera.position.x, enemyMesh.position.y, camera.position.z);
+    }
+
+    // Proximity audio
+    const distToPlayer = Math.hypot(
+      enemyMesh.position.x - camera.position.x,
+      enemyMesh.position.z - camera.position.z
     );
-    const wobble = Math.sin(elapsed * 0.9) * 0.4;
-    const tx = investigating ? Math.sin(elapsed * 0.35) + wobble : dx / dist;
-    const tz = investigating ? Math.cos(elapsed * 0.31) - wobble : dz / dist;
-    const len = Math.hypot(tx, tz) || 1;
-    tryMoveEnemy((tx / len) * speed, (tz / len) * speed);
-    enemyMesh.lookAt(
-      camera.position.x,
-      enemyMesh.position.y,
-      camera.position.z
-    );
+    const proximity = Math.max(0, 1 - distToPlayer / 14);
+    audio.setEntityProximity(proximity);
+
+    enemyLight.position.set(enemyMesh.position.x, 1.6, enemyMesh.position.z);
+    enemyLight.visible = quality !== "low" && enemyMesh.visible;
+    enemyLight.intensity = 0.3 + proximity * 0.5;
+
+    const distForAnim = distToPlayer;
+    observer.update(dt, elapsed, distForAnim);
+    observer.syncLights();
   }
 
   function checkPickups() {
@@ -874,6 +959,7 @@ export function startGame(
           keyLights.delete(k);
         }
         keyMeshes.splice(i, 1);
+        audio.triggerKeyPickup();
         events.onKeyPickup?.(keyMeshes.length);
         emitDirector("keyPickup");
       }
@@ -894,27 +980,31 @@ export function startGame(
         }
       }
     }
-    if (enemyMesh.visible) {
+    if (enemyMesh.visible && !catchSequenceActive) {
       const dx = enemyMesh.position.x - camera.position.x;
       const dz = enemyMesh.position.z - camera.position.z;
       const distSq = dx * dx + dz * dz;
       const nextDanger =
         distSq < 4 * 4 ? "critical" : distSq < 9 * 9 ? "near" : "safe";
       if (nextDanger !== dangerState) {
-        // Pulse the camera rig (FOV punch) when crossing into critical
-        // proximity — gives the visual "they're right behind you" cue
-        // before the fatal catch lands.
         if (nextDanger === "critical" && dangerState !== "critical") {
           cameraRig.pulseDamage(0.2);
-          events.onHint?.("Claude is here. Do not breathe.");
+          events.onHint?.("The Observer has found you.");
         } else if (nextDanger === "near" && dangerState === "safe") {
-          events.onHint?.("The house is listening. Claude is close.");
+          events.onHint?.("Something is close. Do not run.");
         }
         dangerState = nextDanger;
         events.onDangerChange?.(dangerState);
         emitDirector("dangerChange");
       }
-      if (!isHiding && distSq < 1.5 * 1.5) events.onCaught?.();
+      // Catch sequence — freeze input, flash screen, delay onCaught
+      if (!isHiding && distSq < CATCH_DIST * CATCH_DIST) {
+        catchSequenceActive = true;
+        catchSequenceTimer = CATCH_SEQUENCE_DURATION;
+        audio.triggerJumpScare();
+        // Flash white then fade
+        catchOverlay.style.opacity = "1";
+      }
     }
   }
 
@@ -929,6 +1019,30 @@ export function startGame(
     try {
       perf.begin();
       const dt = Math.min(clock.getDelta(), 0.05);
+
+      // ── Catch sequence ──────────────────────────────────────────────────
+      if (catchSequenceActive) {
+        catchSequenceTimer -= dt;
+        // Decay the flash overlay
+        const flashProgress = Math.max(0, catchSequenceTimer / CATCH_SEQUENCE_DURATION);
+        catchOverlay.style.opacity = String(flashProgress.toFixed(3));
+        // Spike then decay PostFX for the visual static burst
+        sharedUniforms.bloomIntensity.value = basePostFx.bloomIntensity + flashProgress * 2.8;
+        sharedUniforms.noiseOpacity.value = basePostFx.noiseOpacity + flashProgress * 0.9;
+        if (catchSequenceTimer <= 0) {
+          catchSequenceActive = false;
+          catchOverlay.style.opacity = "0";
+          events.onCaught?.();
+          return;
+        }
+        // Render only — skip input/movement during catch
+        if (!isContextLost()) {
+          if (postfx) postfx.render(dt);
+          else renderer.render(scene, camera);
+        }
+        raf = requestAnimationFrame(tick);
+        return;
+      }
 
       camera.rotation.order = "YXZ";
       camera.rotation.y = yaw;
@@ -1118,6 +1232,9 @@ export function startGame(
       postfx?.dispose();
       perf.dispose();
       renderer.dispose();
+      observer.dispose();
+      disposeObserverCache();
+      if (catchOverlay.parentNode === container) container.removeChild(catchOverlay);
       if (renderer.domElement.parentNode === container) {
         container.removeChild(renderer.domElement);
       }
