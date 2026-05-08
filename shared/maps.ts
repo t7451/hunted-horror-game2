@@ -1,7 +1,7 @@
 // Shared map definitions used by client renderer and server simulation.
 // Tile legend:
 //   W = wall, D = door, S = player spawn, X = exit, K = key,
-//   H = hiding spot, E = enemy (Claude) spawn, P = pickup, '.' = floor.
+//   H = hiding spot, E = enemy (Observer) spawn, P = pickup, '.' = floor.
 
 export type MapDef = {
   name: string;
@@ -11,6 +11,8 @@ export type MapDef = {
   claudeSpeed: number;
   theme: "kitchen" | "house" | "nightmare";
   raw: string[];
+  /** Tile-coord waypoints the Observer cycles through when not chasing. */
+  patrolWaypoints: { x: number; z: number }[];
 };
 
 export const TILE_SIZE = 4;
@@ -21,89 +23,120 @@ export type MapKey = (typeof MAP_KEYS)[number];
 
 export const MAPS: Record<MapKey, MapDef> = {
   easy: {
-    name: "Granny's Kitchen",
-    summary: "A shorter escape route with wide halls and slower pursuit.",
+    name: "The Farmhouse",
+    summary:
+      "Wood-floored rooms — bedroom, bathroom, kitchen — connected by a creaking hallway.",
     difficulty: 1,
     timer: 240,
     claudeSpeed: 3.0,
     theme: "kitchen",
     raw: [
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
-      "WS.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W...W",
-      "W.....D.....D.....D.....D...W",
-      "W.....W.....W.....W.....W...W",
-      "W..H..W..K..W..H..W..K..W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W...W",
-      "W..K..D.....D.....D.....D...W",
-      "W.....W.....W.....W.....W...W",
-      "W..H..W.....W..H..W.....W...W",
-      "WWWDWWWWWWWWWWWDWWWWWDWWWWWWWW",
-      "W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W...W",
-      "W.....D.....D.....D.....D...W",
-      "W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W..XW",
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
+      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW", // 0
+      "WS....W..H..W................W", // 1 bedroom | bathroom | living
+      "W.....W.....W..............W.W", // 2
+      "W.....D.....D..............W.W", // 3
+      "W..K..W.....W..............W.W", // 4
+      "WWDWWWWWWDWWWWWWWWWWDWWWWWWW.W", // 5
+      "W..H........W........W.....D.W", // 6 hallway
+      "W...........D........D.....W.W", // 7
+      "W...........W........W.....W.W", // 8
+      "WWWWWWWWWWWWW........WWWWWWW.W", // 9
+      "W.....W.....W........W.......W", // 10
+      "W..H..W..K..W........W.......W", // 11 pantry | dining | kitchen
+      "W.....D.....D........D...K...W", // 12
+      "W.....W.....W........W.......W", // 13
+      "WWWDWWWWWDWWWWWWDWWWWWWWWDWWWW", // 14
+      "W....W..W....W.E.....W..W....W", // 15 exit corridor (segmented)
+      "W....W..W....W.......W..W....W", // 16
+      "W....D..D....D.......D..D...XW", // 17
+      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW", // 18
+    ],
+    // Observer cycles through hallway and kitchen when player hides.
+    patrolWaypoints: [
+      { x: 6, z: 7 },
+      { x: 14, z: 7 },
+      { x: 22, z: 7 },
+      { x: 22, z: 12 },
+      { x: 14, z: 12 },
+      { x: 6, z: 12 },
     ],
   },
   normal: {
-    name: "Granny's House",
-    summary: "More keys, more closets, and Claude starts in the center hall.",
+    name: "The Mill",
+    summary:
+      "Tighter L-shaped halls and grain rooms. The Observer prowls the central spine.",
     difficulty: 2,
     timer: 180,
     claudeSpeed: 4.2,
     theme: "house",
     raw: [
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
-      "WS....W.....D.....W.....K....W",
-      "W.....W.....W.....W..........W",
-      "W..H..D..K..W..H..D....W.....W",
-      "W.....W.....W.....W....W.....W",
-      "WWWDWWWWWDWWWWWDWWWWDWWWWWDWWW",
-      "W.....W.....W.....W....W.....W",
-      "W..K..D.....D..E..D....D..H..W",
-      "W.....W.....W.....W....W.....W",
-      "WWWDWWWWWDWWWWWDWWWWDWWWWWDWWW",
-      "W..H..W.....W.....W....W.....W",
-      "W.....D..K..D.....D....D.....W",
-      "W.....W.....W.....W....W..K..W",
-      "WWWDWWWWWDWWWWWDWWWWDWWWWWDWWW",
-      "W.....W.....W.....W....W.....W",
-      "W..K..D.....D..H..D....D.....W",
-      "W.....W.....W.....W....W...X.W",
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
+      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW", // 0
+      "WS...W..K..W..H..W....W..K...W", // 1
+      "W....W.....W.....W....W......W", // 2
+      "W....D.....D.....D....W..H...W", // 3
+      "W....W.....W.....W....W......W", // 4
+      "WWDWWWWWDWWWWWDWWWWDWWWWWWWWWW", // 5
+      "W..H.....W........D..........W", // 6 spine hallway
+      "W........D...K....W..........W", // 7
+      "W........W........W..........W", // 8
+      "WWWWWWWWWW.WWWWWWWWWWWWWWWDWWW", // 9 narrow pinch
+      "W....W...........W....W......W", // 10
+      "W..H.W....E......D....W..H...W", // 11 main hall (Observer spawn)
+      "W....D...........W....D......W", // 12
+      "W....W...........W....W......W", // 13
+      "WWWWWWWWDWWWWWWWWWWDWWWWWWWWWW", // 14
+      "W....W..W....W....W..W....W..W", // 15 segmented south corridor
+      "W..K.D..D....D..K.D..D....D..W", // 16
+      "W....W..W....W....W..W....W.XW", // 17
+      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW", // 18
+    ],
+    patrolWaypoints: [
+      { x: 5, z: 6 },
+      { x: 14, z: 7 },
+      { x: 24, z: 6 },
+      { x: 24, z: 11 },
+      { x: 14, z: 11 },
+      { x: 5, z: 11 },
     ],
   },
   hard: {
-    name: "Granny's Nightmare",
+    name: "The Basement",
     summary:
-      "A tighter maze with less time, fewer safe closets, and faster Claude.",
+      "A boiler-room maze. Few hiding spots, blind corners, and a fast Observer.",
     difficulty: 3,
     timer: 120,
     claudeSpeed: 5.4,
     theme: "nightmare",
     raw: [
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
-      "WS.D...W.D...W.....D...W.K...W",
-      "W.W.W..W.W.W.W.WWW.W.W.W.W.W.W",
-      "W.W.K..D...W.W...W...W.D...W.W",
-      "W.W.WWWW.WWWDWWW.WWWWW.WWW.W.W",
-      "W...W....W.....W.....W.....W.W",
-      "WWW.W.WWWW.WWW.WWWWW.WWWWWDWWW",
-      "W...D...K..W...D...E..W......W",
-      "W.WWWWWWWWWW.WWWWWWW.WWWWWW.W",
-      "W...W.....H..W.....W.....K...W",
-      "WWW.W.WWWWWWWWDWWWWWDWWWWWWWWW",
-      "W.K.W.....W.....W.....W......W",
-      "W.W.WWWWW.W.WWW.W.WWW.W.WWW.W",
-      "W...D.....D...H.D.....D...W..W",
-      "WWW.WWWWWWWWWWWWWWW.WWWWWDWWW",
-      "W.....W.....K.....W.....W....W",
-      "W.WWW.W.WWWWWWWWW.WWW.W.WW.XW",
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
+      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW", // 0
+      "WS.W..K..W....W..K..W..H...W.W", // 1
+      "W..W.....W....W.....W......W.W", // 2
+      "W..D.....W....D.....W......D.W", // 3
+      "W..W.WWWWW....W.WWWWW.WWWW.W.W", // 4
+      "W..W.W...D....D...W...W..K.W.W", // 5
+      "W..W.W...W....W...W...W....W.W", // 6
+      "WWDWWW.WWWWDWWWWW.WWW.W.WWWWWW", // 7
+      "W..H...W....K....D....W......W", // 8
+      "W......D.....E...W....D..H...W", // 9 Observer chamber
+      "W......W.........W....W......W", // 10
+      "WWWWWW.WWWWWWWWWWWWWWWWWWWWWWW", // 11 spine pinch
+      "W....W.W....W....W....W..K...W", // 12
+      "W..H.D.D....D....D....D......W", // 13
+      "W....W.W....W....W....W......W", // 14
+      "WWDWWWWWDWWWWWDWWWWWDWWWWWWDWW", // 15
+      "W....W.....W.....W.....W.....W", // 16
+      "W..K.D.....D..H..D.....D....XW", // 17
+      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW", // 18
+    ],
+    patrolWaypoints: [
+      { x: 7, z: 9 },
+      { x: 16, z: 9 },
+      { x: 24, z: 9 },
+      { x: 24, z: 13 },
+      { x: 14, z: 13 },
+      { x: 5, z: 13 },
+      { x: 5, z: 17 },
+      { x: 24, z: 17 },
     ],
   },
 };

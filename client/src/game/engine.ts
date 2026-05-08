@@ -125,17 +125,6 @@ function calculateMoveSpeed(
   return (isSprinting ? MOVE_SPEED * SPRINT_MULT : MOVE_SPEED) * inputMagnitude;
 }
 
-function calculateEnemySpeed(
-  investigating: boolean,
-  baseSpeed: number,
-  dt: number
-) {
-  const speed = investigating
-    ? baseSpeed * INVESTIGATING_SPEED_FACTOR
-    : baseSpeed;
-  return speed * dt;
-}
-
 export function startGame(
   container: HTMLElement,
   options: {
@@ -603,6 +592,11 @@ export function startGame(
   // Pathfinding state
   let enemyPath: Array<{ x: number; z: number }> | null = null;
   let pathRecomputeTimer = 0;
+  let patrolIndex = 0;
+  const patrolWaypoints = (mapDef.patrolWaypoints ?? []).map(wp => ({
+    x: wp.x * TILE_SIZE + TILE_SIZE / 2,
+    z: wp.z * TILE_SIZE + TILE_SIZE / 2,
+  }));
 
   // last-known-position for investigate mode
   let lastKnownPlayerX = 0;
@@ -893,14 +887,28 @@ export function startGame(
       if (newPath !== null) {
         enemyPath = newPath;
       }
-      // If hiding reached last-known-pos and no player there, investigate nearby
+      // If hiding and reached last-known-pos, patrol named waypoints (or wander as fallback).
       if (isHiding && (!enemyPath || enemyPath.length === 0)) {
         isInvestigating = true;
-        const wander = {
-          x: lastKnownPlayerX + (Math.random() - 0.5) * 12,
-          z: lastKnownPlayerZ + (Math.random() - 0.5) * 12,
-        };
-        enemyPath = findPath(parsed, enemyMesh.position.x, enemyMesh.position.z, wander.x, wander.z) ?? [];
+        if (patrolWaypoints.length > 0) {
+          const wp = patrolWaypoints[patrolIndex % patrolWaypoints.length];
+          const dist = Math.hypot(
+            wp.x - enemyMesh.position.x,
+            wp.z - enemyMesh.position.z
+          );
+          if (dist < 1.0) patrolIndex = (patrolIndex + 1) % patrolWaypoints.length;
+          lastKnownPlayerX = wp.x;
+          lastKnownPlayerZ = wp.z;
+          enemyPath =
+            findPath(parsed, enemyMesh.position.x, enemyMesh.position.z, wp.x, wp.z) ?? [];
+        } else {
+          const wander = {
+            x: lastKnownPlayerX + (Math.random() - 0.5) * 12,
+            z: lastKnownPlayerZ + (Math.random() - 0.5) * 12,
+          };
+          enemyPath =
+            findPath(parsed, enemyMesh.position.x, enemyMesh.position.z, wander.x, wander.z) ?? [];
+        }
       }
     }
 
@@ -921,12 +929,16 @@ export function startGame(
         enemyMesh.lookAt(camera.position.x, enemyMesh.position.y, camera.position.z);
       }
     } else {
-      // Fallback direct move (no valid path found — shouldn't happen on well-formed maps)
-      const dx = camera.position.x - enemyMesh.position.x;
-      const dz = camera.position.z - enemyMesh.position.z;
+      // Fallback direct move (no valid path found — shouldn't happen on well-formed maps).
+      // While hiding, never aim at the live player position — drift toward the
+      // last-known location so a failed pathfind doesn't betray hiding intent.
+      const fx = isHiding ? lastKnownPlayerX : camera.position.x;
+      const fz = isHiding ? lastKnownPlayerZ : camera.position.z;
+      const dx = fx - enemyMesh.position.x;
+      const dz = fz - enemyMesh.position.z;
       const dist = Math.hypot(dx, dz) || 1;
       tryMoveEnemy((dx / dist) * speed, (dz / dist) * speed);
-      enemyMesh.lookAt(camera.position.x, enemyMesh.position.y, camera.position.z);
+      enemyMesh.lookAt(fx, enemyMesh.position.y, fz);
     }
 
     // Proximity audio

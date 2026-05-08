@@ -163,10 +163,10 @@ export default function Game3D() {
         }
       });
       ws.addEventListener("error", () =>
-        setHint("Multiplayer offline · local Claude enabled")
+        setHint("Multiplayer offline · local Observer enabled")
       );
     } catch {
-      setHint("Multiplayer offline · local Claude enabled");
+      setHint("Multiplayer offline · local Observer enabled");
     }
 
     return () => {
@@ -314,7 +314,7 @@ export default function Game3D() {
                 ? "hidden"
                 : danger === "safe"
                   ? "clear"
-                  : "Claude is close"}
+                  : "The Observer is close"}
             </div>
             <div>
               AI Director: {Math.round(director.tension * 100)}% tension · pace{" "}
@@ -344,8 +344,14 @@ export default function Game3D() {
       {status === "caught" && (
         <Overlay>
           <h2 className="text-4xl font-bold text-red-500 mb-4">CAUGHT</h2>
-          <p className="mb-6 max-w-md text-center text-sm opacity-70">
-            Claude found you before you completed the objective.
+          <p className="text-4xl font-mono text-white/20 tracking-widest mb-2">
+            PROCESS TERMINATED
+          </p>
+          <p className="text-sm font-mono text-white/30 mb-6">
+            {`0x${Math.floor(Math.random() * 0xffff)
+              .toString(16)
+              .toUpperCase()
+              .padStart(4, "0")}`}
           </p>
           <RestartButton onClick={() => setStatus("playing")} />
         </Overlay>

@@ -154,13 +154,13 @@ function selectHint(
   if (event === "hideChange") {
     return snapshot.hidden
       ? "The director dampens the chase while you hide. Wait for distance."
-      : "You left cover. Move before Claude reacquires your trail.";
+      : "You left cover. Move before The Observer reacquires your trail.";
   }
   if (event === "dangerChange") {
     if (snapshot.danger === "critical")
       return "Critical pursuit: break line, stop sprinting, or hide now.";
     if (snapshot.danger === "near")
-      return "Claude heard you nearby. Use turns and closets to lower pressure.";
+      return "The Observer heard you nearby. Use turns and closets to lower pressure.";
     return "The immediate danger faded. Search the next room.";
   }
   if (event === "timerWarning" || urgency > progress + 0.35) {
