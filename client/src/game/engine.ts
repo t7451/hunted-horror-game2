@@ -1166,15 +1166,46 @@ export function startGame(
       // ── Catch sequence ──────────────────────────────────────────────────
       if (catchSequenceActive) {
         catchSequenceTimer -= dt;
-        // Decay the flash overlay
-        const flashProgress = Math.max(0, catchSequenceTimer / CATCH_SEQUENCE_DURATION);
+        const flashProgress = Math.max(
+          0,
+          catchSequenceTimer / CATCH_SEQUENCE_DURATION
+        );
+        const inverseProgress = 1 - flashProgress;
+
+        // Lurch the camera toward the Observer so it feels like being pulled in.
+        const dxCatch = enemyMesh.position.x - camera.position.x;
+        const dzCatch = enemyMesh.position.z - camera.position.z;
+        const lurchT = Math.min(1, inverseProgress * 1.5);
+        camera.position.x += dxCatch * 0.04 * lurchT;
+        camera.position.z += dzCatch * 0.04 * lurchT;
+
+        // Force-look at the Observer's face — head height ≈ 1.6 above origin.
+        camera.lookAt(
+          enemyMesh.position.x,
+          enemyMesh.position.y + 1.4,
+          enemyMesh.position.z
+        );
+
+        // Camera shake intensifies as the sequence completes.
+        const shake = inverseProgress * 0.05;
+        camera.rotation.x += (Math.random() - 0.5) * shake;
+        camera.rotation.y += (Math.random() - 0.5) * shake;
+
+        // Flash overlay decay
         catchOverlay.style.opacity = String(flashProgress.toFixed(3));
-        // Spike then decay PostFX for the visual static burst
-        sharedUniforms.bloomIntensity.value = basePostFx.bloomIntensity + flashProgress * 2.8;
-        sharedUniforms.noiseOpacity.value = basePostFx.noiseOpacity + flashProgress * 0.9;
+
+        // PostFX spike — bloom, noise, and CA all push hard.
+        sharedUniforms.bloomIntensity.value =
+          basePostFx.bloomIntensity + flashProgress * 4.0;
+        sharedUniforms.noiseOpacity.value =
+          basePostFx.noiseOpacity + flashProgress * 1.2;
+        sharedUniforms.chromaticAberrationStrength.value =
+          flashProgress * 0.012;
+
         if (catchSequenceTimer <= 0) {
           catchSequenceActive = false;
           catchOverlay.style.opacity = "0";
+          sharedUniforms.chromaticAberrationStrength.value = 0;
           events.onCaught?.();
           return;
         }
@@ -1258,6 +1289,26 @@ export function startGame(
       }
 
       isMoving = moveMagnitude > 0;
+
+      // Chromatic aberration target: rises with Observer proximity (most of the
+      // signal) and a small constant while sprinting. Catch sequence overrides
+      // this from inside its own block.
+      const caProx = enemyMesh.visible
+        ? Math.max(
+            0,
+            1 -
+              Math.hypot(
+                enemyMesh.position.x - camera.position.x,
+                enemyMesh.position.z - camera.position.z
+              ) /
+                14
+          )
+        : 0;
+      const caSprint = sprinting && isMoving ? 0.0015 : 0;
+      sharedUniforms.chromaticAberrationStrength.value = Math.min(
+        0.006,
+        caSprint + caProx * 0.004
+      );
 
       const t = clock.elapsedTime;
       updateLocalEnemy(dt, t, performance.now());
