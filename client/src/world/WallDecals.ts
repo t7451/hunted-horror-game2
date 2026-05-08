@@ -83,9 +83,13 @@ export class WallDecals {
           if (parsed.tiles[nz][nx] !== "W") continue;
           if (rng() > DECAL_DENSITY) continue;
 
-          // Lath shows up at lower density than the other decal kinds —
-          // it's the strongest visual statement (a chunk of plaster has
-          // fallen away) and overuse breaks the Victorian read.
+          // Suppress lath to ~35% of its uniform rate — exposed lath is the
+          // strongest visual statement (a chunk of plaster has fallen away)
+          // and overuse would dominate the Victorian read. Effective lath
+          // density is ~(1/N) * 0.35 of DECAL_DENSITY (~1% of wall edges
+          // for N=5 kinds at DECAL_DENSITY=0.15); the rejected lath picks
+          // fall through to "stain" so the overall decal density is
+          // unchanged.
           let kind = DECAL_KINDS[Math.floor(rng() * DECAL_KINDS.length)];
           if (kind === "lath" && rng() > 0.35) {
             kind = "stain";

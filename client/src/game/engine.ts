@@ -506,7 +506,7 @@ export function startGame(
       opacity: 0.55,
       roughness: 0.95,
       metalness: 0,
-      side: THREE.DoubleSide,
+      side: THREE.FrontSide,
       depthWrite: false,
       polygonOffset: true,
       polygonOffsetFactor: -1,
