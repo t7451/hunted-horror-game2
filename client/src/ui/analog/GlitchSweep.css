@@ -1,0 +1,23 @@
+.ana-glitch-host {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 9998;
+}
+
+.ana-glitch-sweep {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 6px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(0, 216, 255, 0.4),
+    rgba(255, 0, 170, 0.4),
+    transparent
+  );
+  mix-blend-mode: screen;
+  animation: ana-glitch-sweep 1.4s linear forwards;
+}
