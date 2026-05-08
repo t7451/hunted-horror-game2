@@ -92,6 +92,68 @@ function buildFaceTexture(): THREE.CanvasTexture {
     ctx.fillText(line, 4, 12 + i * 7);
   });
 
+  // Evil smile — a wide, jagged grin carved across the lower half of the face.
+  // Drawn before the scanline overlay so the scanlines still cross the teeth,
+  // keeping it consistent with the "corrupted render" aesthetic.
+  const cx = size / 2;
+  const mouthY = size * 0.66;
+  const mouthHalfW = size * 0.4;
+  const mouthCurve = size * 0.18; // upward curve at the corners → evil grin
+
+  // Mouth gum/cavity — dark blood-tinged red glow
+  ctx.save();
+  ctx.beginPath();
+  // Top lip: upward-bowed line so corners pull up cruelly
+  ctx.moveTo(cx - mouthHalfW, mouthY);
+  ctx.quadraticCurveTo(cx, mouthY + mouthCurve * 0.55, cx + mouthHalfW, mouthY);
+  // Bottom lip: deeper downward curve to give the mouth height
+  ctx.quadraticCurveTo(cx, mouthY + mouthCurve * 1.9, cx - mouthHalfW, mouthY);
+  ctx.closePath();
+  ctx.fillStyle = "#3a0408";
+  ctx.fill();
+  // Faint inner glow
+  ctx.fillStyle = "rgba(140, 20, 30, 0.35)";
+  ctx.fill();
+  ctx.clip();
+
+  // Jagged teeth — uneven triangular shards, top and bottom rows
+  const toothCount = 11;
+  const toothW = (mouthHalfW * 2) / toothCount;
+  ctx.fillStyle = "#d8d4c4";
+  for (let i = 0; i < toothCount; i++) {
+    const x = cx - mouthHalfW + i * toothW;
+    // Top teeth point downward
+    const topH = toothW * (1.1 + (i % 3) * 0.25);
+    ctx.beginPath();
+    ctx.moveTo(x, mouthY - 1);
+    ctx.lineTo(x + toothW * 0.5, mouthY + topH);
+    ctx.lineTo(x + toothW, mouthY - 1);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.fillStyle = "#b8b2a0";
+  for (let i = 0; i < toothCount - 1; i++) {
+    const x = cx - mouthHalfW + (i + 0.5) * toothW;
+    // Bottom teeth point upward, smaller and more uneven
+    const botH = toothW * (0.7 + (i % 4) * 0.2);
+    const botBase = mouthY + mouthCurve * 1.7;
+    ctx.beginPath();
+    ctx.moveTo(x, botBase);
+    ctx.lineTo(x + toothW * 0.5, botBase - botH);
+    ctx.lineTo(x + toothW, botBase);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // Mouth outline — thin cold line so the grin reads at distance
+  ctx.strokeStyle = "#0a0204";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(cx - mouthHalfW, mouthY);
+  ctx.quadraticCurveTo(cx, mouthY + mouthCurve * 0.55, cx + mouthHalfW, mouthY);
+  ctx.stroke();
+
   // Scanline overlay
   for (let y = 0; y < size; y += 2) {
     ctx.fillStyle = "rgba(0,0,0,0.3)";
