@@ -17,7 +17,7 @@ const PHASES = [
 type Phase = (typeof PHASES)[number];
 
 const TIPS = [
-  "Don't run if Claude is near.",
+  "Don't run if The Observer is near.",
   "Hold E to hide near closets.",
   "Sprint with Shift, but the noise carries.",
   "The vignette pulses when you're being hunted.",
