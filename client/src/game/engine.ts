@@ -465,18 +465,21 @@ export function startGame(
   const doorFrameBuild = buildDoorFrames(parsed, TILE_SIZE, doorFrameMat);
   scene.add(doorFrameBuild.group);
 
-  // Wall decoration — sparse decals + fixtures keyed off the run seed so
+  // Wall decoration — sparse decals + fixtures keyed off the map seed so
   // placement is deterministic per map and independent from prop placement.
   // The per-tile InstancedMesh + applyInstanceTint/UvOffset variation that
   // main added are intentionally not used here: WallBuilder produces merged
   // run meshes, so per-tile attributes don't apply. Variation now comes
   // from per-run 90° UV rotation inside WallBuilder.
-  const wallDressRng = mulberry32(
-    ((options.seed ?? 0x484e54) ^ 0x57414c4c) >>> 0
-  );
-  const wallDecals = new WallDecals(parsed, TILE_SIZE, wallDressRng);
+  //
+  // Each constructor gets its own independent RNG stream so tweaking decal
+  // density doesn't shift every fixture's placement.
+  const baseSeed = options.seed ?? 0x484e54;
+  const decalRng = mulberry32((baseSeed ^ 0x57414c4c) >>> 0);
+  const fixtureRng = mulberry32((baseSeed ^ 0x46585452) >>> 0);
+  const wallDecals = new WallDecals(parsed, TILE_SIZE, decalRng);
   scene.add(wallDecals.object);
-  const wallFixtures = new WallFixtures(parsed, TILE_SIZE, wallDressRng);
+  const wallFixtures = new WallFixtures(parsed, TILE_SIZE, fixtureRng);
   scene.add(wallFixtures.object);
 
   // Architectural trim — thin instanced strip at every wall→floor seam.
@@ -1106,7 +1109,10 @@ export function startGame(
     lastRemoteEnemyAt = performance.now();
     enemyMesh.visible = true;
     enemyLight.visible = quality !== "low";
-    enemyMesh.position.set(pos.x, 1.0, pos.z);
+    // TheObserver builds with its origin at the floor (legs 0..1m, torso
+    // 1.4m, head 2.1m), so the group y MUST be 0 — anything higher floats
+    // the entire model off the ground.
+    enemyMesh.position.set(pos.x, 0, pos.z);
     enemyLight.position.set(pos.x, 1.6, pos.z);
   }
 
@@ -1235,7 +1241,15 @@ export function startGame(
 
   const onMouseMove = (e: MouseEvent) => {
     if (document.pointerLockElement !== renderer.domElement) return;
-    applyLookDelta(e.movementX, e.movementY, MOUSE_LOOK_SCALE * sensitivity);
+    // Pointer-lock mouse is a sub-millisecond per-pixel stream — applying
+    // the 22 Hz lerp would convert that into ~45 ms of feel-lag and break
+    // experienced FPS aim. Write the target *and* the live yaw/pitch so the
+    // tick lerp is a no-op for the mouse path.
+    targetYaw -= e.movementX * MOUSE_LOOK_SCALE * sensitivity;
+    targetPitch -= e.movementY * MOUSE_LOOK_SCALE * sensitivity;
+    targetPitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, targetPitch));
+    yaw = targetYaw;
+    pitch = targetPitch;
   };
   document.addEventListener("mousemove", onMouseMove);
 

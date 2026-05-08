@@ -5,12 +5,11 @@
 // wall pattern (walls north + south = horizontal door, else vertical).
 
 import * as THREE from "three";
-import type { ParsedMap } from "@shared/maps";
+import { WALL_HEIGHT, type ParsedMap } from "@shared/maps";
 
 const FRAME_THICKNESS = 0.08;
 const FRAME_DEPTH = 0.22;
 const FRAME_WIDTH_OUTSET = 0.06;
-const RUN_HEIGHT = 4.0;
 
 export type DoorFrameResult = {
   group: THREE.Group;
@@ -47,7 +46,7 @@ export function buildDoorFrames(
           horizontal ? span : FRAME_DEPTH
         );
         const mesh = new THREE.Mesh(geo, material);
-        mesh.position.set(cx, RUN_HEIGHT - FRAME_THICKNESS / 2, cz);
+        mesh.position.set(cx, WALL_HEIGHT - FRAME_THICKNESS / 2, cz);
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         group.add(mesh);
@@ -55,7 +54,7 @@ export function buildDoorFrames(
       }
 
       // Side jambs
-      const jambHeight = RUN_HEIGHT - FRAME_THICKNESS;
+      const jambHeight = WALL_HEIGHT - FRAME_THICKNESS;
       for (const side of [-1, 1]) {
         const geo = new THREE.BoxGeometry(
           horizontal ? FRAME_DEPTH : FRAME_THICKNESS,

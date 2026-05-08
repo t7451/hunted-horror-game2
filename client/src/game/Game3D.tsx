@@ -625,6 +625,10 @@ function MobileControls({
   const padRef = useRef<HTMLDivElement | null>(null);
   const activeJoystickPointer = useRef<number | null>(null);
   const [knob, setKnob] = useState({ x: 0, y: 0, active: false });
+  // Sprint visual state mirrors sprintActiveRef for rendering. The ref is
+  // still the source of truth for handlers (no closure capture issues), but
+  // the React state lets us tint the joystick knob when sprint engages.
+  const [sprintEngaged, setSprintEngaged] = useState(false);
   const [prefs] = useState<JoystickPrefs>(() => loadJoystickPrefs());
 
   // Raw stick input (post-shaping) — written by the pointer handler. The
@@ -657,8 +661,10 @@ function MobileControls({
 
   // Per-frame smoothing → engine. Runs only while mounted.
   useEffect(() => {
+    const EPS = 1e-3;
     let raf = 0;
     let last = performance.now();
+    let lastSentNonzero = false;
     const tick = () => {
       const now = performance.now();
       const dt = Math.min(0.05, (now - last) / 1000);
@@ -668,7 +674,18 @@ function MobileControls({
       const raw = rawInputRef.current;
       sm.x += (raw.x - sm.x) * k;
       sm.z += (raw.z - sm.z) * k;
-      onMoveRef.current(sm.x, sm.z);
+      // Skip the engine call when both raw and smoothed are effectively
+      // zero — but send one final zero so we don't strand the engine in a
+      // non-zero virtual input state.
+      const active =
+        Math.abs(raw.x) >= EPS ||
+        Math.abs(raw.z) >= EPS ||
+        Math.abs(sm.x) >= EPS ||
+        Math.abs(sm.z) >= EPS;
+      if (active || lastSentNonzero) {
+        onMoveRef.current(sm.x, sm.z);
+        lastSentNonzero = active;
+      }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -682,6 +699,7 @@ function MobileControls({
       rawInputRef.current = { x: 0, z: 0 };
       if (sprintActiveRef.current) {
         sprintActiveRef.current = false;
+        setSprintEngaged(false);
         onSprintRef.current(false);
       }
     };
@@ -755,6 +773,7 @@ function MobileControls({
             const now = performance.now();
             if (now - lastJoystickTapAtRef.current < SPRINT_DOUBLE_TAP_MS) {
               sprintActiveRef.current = true;
+              setSprintEngaged(true);
               onSprintRef.current(true);
             }
             lastJoystickTapAtRef.current = now;
@@ -775,9 +794,11 @@ function MobileControls({
         >
           <div
             className={`absolute left-1/2 top-1/2 rounded-full border transition-colors ${
-              knob.active
-                ? "border-red-400/60 bg-red-500/60"
-                : "border-white/30 bg-white/15"
+              sprintEngaged
+                ? "border-amber-300/80 bg-amber-400/60"
+                : knob.active
+                  ? "border-red-400/60 bg-red-500/60"
+                  : "border-white/30 bg-white/15"
             }`}
             style={{
               width: joystickSize * 0.42,

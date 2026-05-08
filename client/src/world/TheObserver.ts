@@ -187,8 +187,20 @@ export class TheObserver {
     }
   }
 
-  lookAt(x: number, y: number, z: number): void {
-    this.group.lookAt(x, y, z);
+  /**
+   * Orient the body so its FACE (+Z forward) points at the target.
+   *
+   * `THREE.Object3D.lookAt` aligns local -Z to the target, but TheObserver
+   * is built with its face on +Z (eyes/mouth at z = +0.21, head distortion
+   * flattens z < 0 as "back of skull"). Using lookAt would turn the
+   * Observer's back to the player. We compute yaw via atan2(dx, dz) so +Z
+   * points at the target — matching the head-tracking math in update().
+   */
+  lookAt(x: number, _y: number, z: number): void {
+    const dx = x - this.group.position.x;
+    const dz = z - this.group.position.z;
+    if (dx === 0 && dz === 0) return;
+    this.group.rotation.y = Math.atan2(dx, dz);
   }
 
   /**
@@ -248,8 +260,8 @@ export class TheObserver {
     if (this.elapsed < this.telegraphUntil) {
       this.bodyContainer.position.y = 0;
       this.bodyContainer.rotation.z = 0;
-      this.animateCloth(this.elapsed);
-      this._driveEyes(distToPlayer);
+      this.animateCloth(this.elapsed, dt);
+      this._driveEyes(distToPlayer, dt);
       return;
     }
 
@@ -304,8 +316,8 @@ export class TheObserver {
       );
     }
 
-    this.animateCloth(this.elapsed);
-    this._driveEyes(distToPlayer);
+    this.animateCloth(this.elapsed, dt);
+    this._driveEyes(distToPlayer, dt);
   }
 
   /** Sync world-space eye light positions to the (animated) head meshes. */
@@ -477,7 +489,9 @@ export class TheObserver {
     this.group.add(this.rightEyeLight);
   }
 
-  private animateCloth(t: number): void {
+  private clothNormalsFrame = 0;
+
+  private animateCloth(t: number, _dt: number): void {
     const geo = this.cloth.geometry as THREE.BufferGeometry;
     const pos = geo.attributes.position as THREE.BufferAttribute;
     const base = geo.userData.basePositions as Float32Array | undefined;
@@ -498,12 +512,25 @@ export class TheObserver {
       pos.setZ(i, bz + wave * 0.7);
     }
     pos.needsUpdate = true;
-    geo.computeVertexNormals();
+    // Recomputing vertex normals every frame is expensive (full vert
+    // iteration + cross products) and the cloth material is dark + low-spec
+    // so the lighting delta is barely visible. Throttle to every 4th frame.
+    if ((this.clothNormalsFrame++ & 3) === 0) {
+      geo.computeVertexNormals();
+    }
   }
 
-  private _driveEyes(distToPlayer: number): void {
+  /**
+   * Eye flicker + per-frame dropout, made frame-rate independent so the
+   * perceived rate stays the same on 60Hz vs 120Hz refresh rates.
+   * Dropout uses `1 - exp(-rate * dt)` to convert a per-second probability
+   * into the equivalent per-frame probability.
+   */
+  private _driveEyes(distToPlayer: number, dt: number): void {
     const baseIntensity = THREE.MathUtils.clamp(1 - distToPlayer / 12, 0, 1);
-    const dropout = Math.random() < 0.02 ? 0 : 1;
+    // ~1.2 dropouts per second when active, regardless of refresh rate.
+    const dropoutProb = 1 - Math.exp(-1.2 * dt);
+    const dropout = Math.random() < dropoutProb ? 0 : 1;
     const flicker = (0.5 + 0.5 * Math.sin(this.elapsed * 17)) * 0.3 + 0.7;
     const intensity = baseIntensity * flicker * dropout;
     const r = 0.6 + intensity * 0.4;

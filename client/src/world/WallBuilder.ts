@@ -93,7 +93,10 @@ function applyUvRepeatAndRotation(
 ): void {
   const uvAttr = geo.attributes.uv as THREE.BufferAttribute | undefined;
   if (!uvAttr) return;
-  const repeatU = axis === "x" ? lengthW / 2 : 1;
+  // Long-axis side faces span lengthW along their U axis for both x-runs
+  // (sides on +Z/-Z) and z-runs (sides on +X/-X). The end caps are
+  // overscaled here, but they sit inside corners and aren't visible.
+  const repeatU = lengthW / 2;
   const repeatV = RUN_HEIGHT / 2;
 
   // Face index = floor(vert / 4). BoxGeometry order: 0:+X, 1:-X, 2:+Y, 3:-Y,
