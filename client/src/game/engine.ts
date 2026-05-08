@@ -519,10 +519,13 @@ export function startGame(
   });
   scene.add(doorGroup);
 
-  // Keys (with little point lights)
+  // Keys (with little point lights). Each uncollected key emits a faint
+  // looping spatial sparkle once audio is unlocked; the handle is tracked
+  // per-key so we can stop it on collect.
   const keyGroup = new THREE.Group();
   const keyMeshes: THREE.Mesh[] = [];
   const keyLights = new Map<THREE.Mesh, THREE.PointLight>();
+  const keyAudioHandles = new Map<THREE.Mesh, number>();
   parsed.keys.forEach(k => {
     const key = new THREE.Mesh(keyGeo, keyMat);
     key.castShadow = shadowsEnabled;
@@ -1033,9 +1036,26 @@ export function startGame(
     renderer.domElement
   );
 
+  function bindKeySparkleAfterUnlock(): void {
+    const keyHowl = audio.getHowl("key_sparkle");
+    if (!keyHowl) return;
+    for (const k of keyMeshes) {
+      if (keyAudioHandles.has(k)) continue;
+      const handle = audio.spatial.play(
+        "key_sparkle",
+        keyHowl,
+        k.position.x,
+        k.position.y,
+        k.position.z,
+      );
+      keyAudioHandles.set(k, handle);
+    }
+  }
+
   const onCanvasPointerDown = (e: PointerEvent) => {
     if (e.pointerType !== "touch" && e.pointerType !== "pen") return;
     audio.unlock();
+    bindKeySparkleAfterUnlock();
     activeLookPointer = e.pointerId;
     lastLookX = e.clientX;
     lastLookY = e.clientY;
@@ -1064,6 +1084,7 @@ export function startGame(
     // Doubles as the iOS / autoplay-policy gesture for unlocking the
     // audio context. Idempotent.
     audio.unlock();
+    bindKeySparkleAfterUnlock();
     if (document.pointerLockElement !== renderer.domElement) {
       renderer.domElement.requestPointerLock?.();
     }
@@ -1278,8 +1299,16 @@ export function startGame(
           keyGroup.remove(light);
           keyLights.delete(k);
         }
-        keyMeshes.splice(i, 1);
+        const sparkleHandle = keyAudioHandles.get(k);
+        if (sparkleHandle !== undefined) {
+          audio.spatial.stop(sparkleHandle);
+          keyAudioHandles.delete(k);
+        }
+        // Spatial static burst from the key's location, plus the 2D
+        // pickup sting for the "got it" feedback.
+        audio.playAt("static_burst", k.position.x, k.position.y, k.position.z);
         audio.triggerKeyPickup();
+        keyMeshes.splice(i, 1);
         events.onKeyPickup?.(keyMeshes.length);
         Haptics.pickup();
         emitDirector("keyPickup");
