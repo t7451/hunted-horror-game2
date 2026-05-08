@@ -1307,15 +1307,58 @@ export function startGame(
 
   // Exit
   if (parsed.exit) {
+    const exitX = parsed.exit.x * TILE_SIZE + TILE_SIZE / 2;
+    const exitZ = parsed.exit.z * TILE_SIZE + TILE_SIZE / 2;
+
     const exitMesh = new THREE.Mesh(doorGeo, exitMat);
-    exitMesh.position.set(
-      parsed.exit.x * TILE_SIZE + TILE_SIZE / 2,
-      (WALL_HEIGHT * 0.92) / 2,
-      parsed.exit.z * TILE_SIZE + TILE_SIZE / 2
-    );
+    exitMesh.position.set(exitX, (WALL_HEIGHT * 0.92) / 2, exitZ);
+    exitMesh.castShadow = false;
+    exitMesh.receiveShadow = false;
     scene.add(exitMesh);
+
+    const exitOuterRing = new THREE.Mesh(new THREE.TorusGeometry(0.95, 0.07, 12, 32), exitMat);
+    exitOuterRing.position.set(exitX, 0.07, exitZ);
+    exitOuterRing.rotation.x = -Math.PI / 2;
+    exitOuterRing.castShadow = false;
+    exitOuterRing.receiveShadow = false;
+    scene.add(exitOuterRing);
+
+    const exitInnerRing = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.045, 10, 24), exitMat);
+    exitInnerRing.position.set(exitX, 0.05, exitZ);
+    exitInnerRing.rotation.x = -Math.PI / 2;
+    exitInnerRing.castShadow = false;
+    exitInnerRing.receiveShadow = false;
+    scene.add(exitInnerRing);
+
+    const exitLeftPillar = new THREE.Mesh(
+      new THREE.BoxGeometry(0.12, WALL_HEIGHT, 0.12),
+      exitMat
+    );
+    exitLeftPillar.position.set(exitX - TILE_SIZE * 0.51, WALL_HEIGHT / 2, exitZ);
+    exitLeftPillar.castShadow = false;
+    exitLeftPillar.receiveShadow = false;
+    scene.add(exitLeftPillar);
+
+    const exitRightPillar = new THREE.Mesh(
+      new THREE.BoxGeometry(0.12, WALL_HEIGHT, 0.12),
+      exitMat
+    );
+    exitRightPillar.position.set(exitX + TILE_SIZE * 0.51, WALL_HEIGHT / 2, exitZ);
+    exitRightPillar.castShadow = false;
+    exitRightPillar.receiveShadow = false;
+    scene.add(exitRightPillar);
+
+    const exitLintel = new THREE.Mesh(
+      new THREE.BoxGeometry(TILE_SIZE * 1.06, 0.14, 0.14),
+      exitMat
+    );
+    exitLintel.position.set(exitX, WALL_HEIGHT - 0.07, exitZ);
+    exitLintel.castShadow = false;
+    exitLintel.receiveShadow = false;
+    scene.add(exitLintel);
+
     if (quality !== "low") {
-      const exitLight = new THREE.PointLight(0x44ff66, 1.2, 8, 2);
+      const exitLight = new THREE.PointLight(0x44ff66, 2.0, 12, 2);
       exitLight.position.copy(exitMesh.position);
       scene.add(exitLight);
       lightCuller.register(exitLight);
