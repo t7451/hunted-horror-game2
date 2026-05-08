@@ -213,11 +213,7 @@ export function startGame(
   // Props remain hand-tuned MeshStandardMaterials: keys/exits are emissive
   // gameplay markers, doors/closets are one-off shapes that don't justify
   // a full texture set.
-  const doorMat = new THREE.MeshStandardMaterial({
-    color: 0x3a1f10,
-    roughness: 0.7,
-    metalness: 0.05,
-  });
+  const doorMat = getMaterial("door_wood");
   const keyMat = new THREE.MeshStandardMaterial({
     color: 0xffd24a,
     emissive: 0x2a1d00,

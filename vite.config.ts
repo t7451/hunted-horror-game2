@@ -172,6 +172,9 @@ export default defineConfig({
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
   },
+  optimizeDeps: {
+    include: ["howler"],
+  },
   server: {
     port: 3000,
     strictPort: false,
