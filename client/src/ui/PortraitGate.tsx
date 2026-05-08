@@ -15,7 +15,11 @@ export function PortraitGate() {
   if (!isMobile || !portrait) return null;
 
   return (
-    <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center bg-black px-6 text-center text-white">
+    <div
+      className="absolute inset-0 z-[60] flex flex-col items-center justify-center bg-black px-6 text-center text-white"
+      role="alert"
+      aria-live="polite"
+    >
       <svg
         width="80"
         height="80"

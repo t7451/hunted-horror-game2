@@ -577,7 +577,6 @@ function MobileControls({
   return (
     <div
       className="pointer-events-none absolute bottom-0 left-0 right-0"
-      aria-hidden="true"
       style={{
         paddingBottom: "calc(var(--safe-bottom) + 16px)",
         paddingLeft: "calc(var(--safe-left) + 12px)",
