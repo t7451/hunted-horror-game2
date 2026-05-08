@@ -1,0 +1,36 @@
+.ana-rec {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--ana-font-mono);
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--ana-rec);
+  text-transform: uppercase;
+}
+
+.ana-rec-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ana-rec);
+  box-shadow: 0 0 6px var(--ana-rec);
+  display: inline-block;
+}
+
+.ana-rec-square {
+  width: 8px;
+  height: 8px;
+  background: var(--ana-fg-dim);
+  display: inline-block;
+}
+
+.ana-rec-pulse {
+  animation: ana-rec-pulse
+    calc(var(--ana-pulse-base-ms) - var(--ana-intensity) * 600ms)
+    ease-in-out infinite;
+}
+
+.ana-rec-paused .ana-rec-label {
+  color: var(--ana-fg-dim);
+}
