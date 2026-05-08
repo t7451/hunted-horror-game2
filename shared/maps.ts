@@ -1,7 +1,8 @@
 // Shared map definitions used by client renderer and server simulation.
 // Tile legend:
 //   W = wall, D = door, S = player spawn, X = exit, K = key,
-//   H = hiding spot, E = enemy (Observer) spawn, P = pickup, '.' = floor.
+//   H = hiding spot, E = enemy (Observer) spawn, '.' = floor,
+//   B = battery (refills flashlight charge), N = note (lore page collectible).
 
 export type ColorProfile = {
   fogColor: number;
@@ -43,22 +44,22 @@ export const MAPS: Record<MapKey, MapDef> = {
     theme: "kitchen",
     raw: [
       "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW", // 0
-      "WS....W..H..W................W", // 1 bedroom | bathroom | living
+      "WS....W..H..W..........N.....W", // 1 bedroom | bathroom | living
       "W.....W.....W..............W.W", // 2
       "W.....D.....D..............W.W", // 3
-      "W..K..W.....W..............W.W", // 4
+      "W..K..W..B..W..............W.W", // 4
       "WWDWWWWWWDWWWWWWWWWWDWWWWWWW.W", // 5
       "W..H........W........W.....D.W", // 6 hallway
-      "W...........D........D.....W.W", // 7
+      "W...N.......D........D.....W.W", // 7
       "W...........W........W.....W.W", // 8
       "WWWWWWWWWWWWW........WWWWWWW.W", // 9
       "W.....W.....W........W.......W", // 10
-      "W..H..W..K..W........W.......W", // 11 pantry | dining | kitchen
+      "W..H..W..K..W........W..B....W", // 11 pantry | dining | kitchen
       "W.....D.....D........D...K...W", // 12
       "W.....W.....W........W.......W", // 13
       "WWWDWWWWWDWWWWWWDWWWWWWWWDWWWW", // 14
       "W....W..W....W.E.....W..W....W", // 15 exit corridor (segmented)
-      "W....W..W....W.......W..W....W", // 16
+      "W....W..W....W....N..W..W....W", // 16
       "W....D..D....D.......D..D...XW", // 17
       "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW", // 18
     ],
@@ -91,23 +92,23 @@ export const MAPS: Record<MapKey, MapDef> = {
     theme: "house",
     raw: [
       "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW", // 0
-      "WS...W..K..W..H..W....W..K...W", // 1
+      "WS...W..K..W..H..W..N.W..K...W", // 1
       "W....W.....W.....W....W......W", // 2
       "W....D.....D.....D....W..H...W", // 3
       "W....W.....W.....W....W......W", // 4
       "WWDWWWWWDWWWWWDWWWWDWWWWWWWWWW", // 5
       "W..H.....W........D..........W", // 6 spine hallway
-      "W........D...K....W..........W", // 7
+      "W........D...K....W......B...W", // 7
       "W........W........W..........W", // 8
       "WWWWWWWWWW.WWWWWWWWWWWWWWWDWWW", // 9 narrow pinch
       "W....W...........W....W......W", // 10
       "W..H.W....E......D....W..H...W", // 11 main hall (Observer spawn)
-      "W....D...........W....D......W", // 12
+      "W....D......N....W....D......W", // 12
       "W....W...........W....W......W", // 13
       "WWWWWWWWDWWWWWWWWWWDWWWWWWWWWW", // 14
       "W....W..W....W....W..W....W..W", // 15 segmented south corridor
-      "W..K.D..D....D..K.D..D....D..W", // 16
-      "W....W..W....W....W..W....W.XW", // 17
+      "W..K.D..D..B.D..K.D..D....D..W", // 16
+      "W....W..W..N.W....W..W....W.XW", // 17
       "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW", // 18
     ],
     patrolWaypoints: [
@@ -138,7 +139,7 @@ export const MAPS: Record<MapKey, MapDef> = {
     theme: "nightmare",
     raw: [
       "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW", // 0
-      "WS.W..K..W....W..K..W..H...W.W", // 1
+      "WS.WN.K..W....W..K..W..H...W.W", // 1
       "W..W.....W....W.....W......W.W", // 2
       "W..D.....W....D.....W......D.W", // 3
       "W..W.WWWWW....W.WWWWW.WWWW.W.W", // 4
@@ -147,13 +148,13 @@ export const MAPS: Record<MapKey, MapDef> = {
       "WWDWWW.WWWWDWWWWW.WWW.W.WWWWWW", // 7
       "W..H...W....K....D....W......W", // 8
       "W......D.....E...W....D..H...W", // 9 Observer chamber
-      "W......W.........W....W......W", // 10
+      "W..B...W.........W....W......W", // 10
       "WWWWWW.WWWWWWWWWWWWWWWWWWWWWWW", // 11 spine pinch
-      "W....W.W....W....W....W..K...W", // 12
+      "W....W.W..N.W....W....W..K...W", // 12
       "W..H.D.D....D....D....D......W", // 13
       "W....W.W....W....W....W......W", // 14
       "WWDWWWWWDWWWWWDWWWWWDWWWWWWDWW", // 15
-      "W....W.....W.....W.....W.....W", // 16
+      "W....W.....W..B..W..N..W.....W", // 16
       "W..K.D.....D..H..D.....D....XW", // 17
       "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW", // 18
     ],
@@ -190,6 +191,10 @@ export type ParsedMap = {
   doors: { x: number; z: number }[];
   walls: { x: number; z: number }[];
   enemy: { x: number; z: number } | null;
+  /** Battery pickups — refill flashlight charge. */
+  batteries: { x: number; z: number }[];
+  /** Note pickups — lore pages, count toward map total. */
+  notes: { x: number; z: number }[];
 };
 
 export function parseMap(map: MapDef): ParsedMap {
@@ -213,6 +218,8 @@ export function parseMap(map: MapDef): ParsedMap {
     doors: [],
     walls: [],
     enemy: null,
+    batteries: [],
+    notes: [],
   };
   for (let z = 0; z < height; z++) {
     for (let x = 0; x < width; x++) {
@@ -238,6 +245,12 @@ export function parseMap(map: MapDef): ParsedMap {
           break;
         case "E":
           result.enemy = { x, z };
+          break;
+        case "B":
+          result.batteries.push({ x, z });
+          break;
+        case "N":
+          result.notes.push({ x, z });
           break;
       }
     }
