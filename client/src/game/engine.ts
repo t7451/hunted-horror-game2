@@ -668,8 +668,8 @@ export function startGame(
     return null;
   };
   // Per-room budget: we don't have proper room volumes yet, so cap globally.
-  const PROP_DENSITY = 0.22; // up from 0.14
-  const MAX_LAMP_LIGHTS = 8;
+  const PROP_DENSITY = 0.30; // bumped up to fill the larger Phase-2 maps
+  const MAX_LAMP_LIGHTS = 12;
   let lampLightCount = 0;
   for (let gz = 0; gz < parsed.height; gz++) {
     for (let gx = 0; gx < parsed.width; gx++) {
