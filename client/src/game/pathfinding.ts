@@ -71,19 +71,31 @@ export function findPath(
   startX: number,
   startZ: number,
   goalX: number,
-  goalZ: number
+  goalZ: number,
+  closedTiles?: Set<string>
 ): { x: number; z: number }[] | null {
   const sx = tileOf(startX);
   const sz = tileOf(startZ);
   const gx = tileOf(goalX);
   const gz = tileOf(goalZ);
 
+  // Treat slammed doors as walls during the search.
+  const isClosed = (x: number, z: number) =>
+    isBlocked(parsed, x, z) || (closedTiles?.has(`${x},${z}`) ?? false);
+
   if (sx === gx && sz === gz) return [];
-  if (isBlocked(parsed, gx, gz)) {
-    // Goal is in a wall — try adjacent open tile closest to goal
-    const adj = findNearestOpen(parsed, gx, gz);
+  if (isClosed(gx, gz)) {
+    // Goal is in a wall or closed door — try adjacent open tile.
+    const adj = findNearestOpen(parsed, gx, gz, closedTiles);
     if (!adj) return null;
-    return findPath(parsed, startX, startZ, tileCenter(adj.x), tileCenter(adj.z));
+    return findPath(
+      parsed,
+      startX,
+      startZ,
+      tileCenter(adj.x),
+      tileCenter(adj.z),
+      closedTiles
+    );
   }
 
   // Open set as a flat array — small maps (<30×18) make this fast enough
@@ -124,13 +136,13 @@ export function findPath(
       const nkey = key(nx, nz);
 
       if (closedMap.has(nkey)) continue;
-      if (isBlocked(parsed, nx, nz)) continue;
+      if (isClosed(nx, nz)) continue;
 
       // Corner-cutting prevention: don't allow diagonal if either cardinal
       // neighbor is blocked — prevents sliding through wall junctions.
       if (dx !== 0 && dz !== 0) {
-        if (isBlocked(parsed, current.x + dx, current.z)) continue;
-        if (isBlocked(parsed, current.x, current.z + dz)) continue;
+        if (isClosed(current.x + dx, current.z)) continue;
+        if (isClosed(current.x, current.z + dz)) continue;
       }
 
       const g = current.g + cost;
@@ -172,9 +184,12 @@ function reconstructPath(end: Node): { x: number; z: number }[] {
 function findNearestOpen(
   parsed: ParsedMap,
   gx: number,
-  gz: number
+  gz: number,
+  closedTiles?: Set<string>
 ): { x: number; z: number } | null {
-  // BFS outward from blocked goal to find nearest open tile
+  // BFS outward from blocked goal to find nearest open tile.
+  // closedTiles must be respected here too, otherwise the goal-fallback
+  // can return a slammed-door tile and findPath will recurse on it.
   const visited = new Set<number>();
   const queue: [number, number][] = [[gx, gz]];
   visited.add(key(gx, gz));
@@ -189,7 +204,8 @@ function findNearestOpen(
       const nkey = key(nx, nz);
       if (visited.has(nkey)) continue;
       visited.add(nkey);
-      if (!isBlocked(parsed, nx, nz)) return { x: nx, z: nz };
+      const closed = closedTiles?.has(`${nx},${nz}`) ?? false;
+      if (!isBlocked(parsed, nx, nz) && !closed) return { x: nx, z: nz };
       queue.push([nx, nz]);
     }
   }

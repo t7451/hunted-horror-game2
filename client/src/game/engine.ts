@@ -94,6 +94,7 @@ export type EngineEvents = {
   onDangerChange?: (danger: "safe" | "near" | "critical") => void;
   onHideChange?: (hidden: boolean) => void;
   onAIDirector?: (update: DirectorUpdate) => void;
+  onThrowableCount?: (remaining: number) => void;
   /** Flashlight charge 0..1 (engine drains over time, batteries refill). */
   onBatteryChange?: (charge: number) => void;
   /** Notes collected / total — refreshed when picked up. */
@@ -106,6 +107,7 @@ export type EngineHandle = {
   setEnemy: (pos: { x: number; z: number } | null) => void;
   setVirtualInput: (input: Partial<VirtualInput>) => void;
   toggleHide: () => void;
+  throwObject: () => void;
   getPlayerState: () => { x: number; z: number; rotY: number };
   /**
    * Resume the audio context. Must be called from a user gesture (button
@@ -506,6 +508,14 @@ export function startGame(
 
   // Doors
   const doorGroup = new THREE.Group();
+  type DoorState = {
+    mesh: THREE.Mesh;
+    tileX: number;
+    tileZ: number;
+    openRotY: number;
+    closedUntil: number; // 0 means open
+  };
+  const doorStates: DoorState[] = [];
   parsed.doors.forEach(d => {
     const door = new THREE.Mesh(doorGeo, doorMat);
     door.castShadow = shadowsEnabled;
@@ -525,6 +535,13 @@ export function startGame(
       door.position.z -= TILE_SIZE * 0.36;
     }
     doorGroup.add(door);
+    doorStates.push({
+      mesh: door,
+      tileX: d.x,
+      tileZ: d.z,
+      openRotY: door.rotation.y,
+      closedUntil: 0,
+    });
   });
   scene.add(doorGroup);
 
@@ -905,6 +922,31 @@ export function startGame(
   // Tracks the prior "is the Observer in chase?" frame so we can fire the
   // lunge-telegraph exactly once on the investigating→chase transition.
   let wasChasingLastFrame = false;
+  // Distraction state — set by throwable impact or door slam.
+  let observerDistractedUntil = 0;
+  let distractionX = 0;
+  let distractionZ = 0;
+  // Throwables: physics state for in-flight cans.
+  const THROWABLE_INITIAL = 3;
+  const THROWABLE_SPEED = 12;
+  const THROWABLE_GRAVITY = 14;
+  const THROWABLE_INVESTIGATE_MS = 6000;
+  let throwablesRemaining = THROWABLE_INITIAL;
+  type ThrowState = {
+    mesh: THREE.Mesh;
+    vx: number;
+    vy: number;
+    vz: number;
+    bounced: boolean;
+    expireAt: number;
+  };
+  const activeThrows: ThrowState[] = [];
+  const throwGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.12, 8);
+  const throwMat = new THREE.MeshStandardMaterial({
+    color: 0xa0a0a0,
+    metalness: 0.7,
+    roughness: 0.3,
+  });
   let lastRemoteEnemyAt = 0;
   let dangerState: "safe" | "near" | "critical" = "safe";
   let isHiding = false;
@@ -1054,7 +1096,14 @@ export function startGame(
   const keys = new Set<string>();
   const onKeyDown = (e: KeyboardEvent) => {
     keys.add(e.code);
-    if (e.code === "KeyE") toggleHide();
+    if (e.code === "KeyE") {
+      // While hiding, E must always exit the closet — never try a door slam,
+      // since closets and doors are often within Manhattan-1 of each other
+      // and a slam would lock the player in.
+      if (isHiding || !tryDoorSlam()) toggleHide();
+    } else if (e.code === "KeyF") {
+      throwObject();
+    }
   };
   const onKeyUp = (e: KeyboardEvent) => keys.delete(e.code);
   window.addEventListener("keydown", onKeyDown);
@@ -1171,6 +1220,64 @@ export function startGame(
     emitDirector("hideChange");
   }
 
+  function throwObject(): void {
+    if (throwablesRemaining <= 0) return;
+    throwablesRemaining--;
+    events.onThrowableCount?.(throwablesRemaining);
+
+    const mesh = new THREE.Mesh(throwGeo, throwMat);
+    mesh.position.copy(camera.position);
+    mesh.castShadow = shadowsEnabled;
+    scene.add(mesh);
+
+    // Camera-forward in the engine's coord convention (negative-Z forward).
+    const cosP = Math.cos(pitch);
+    const fx = -Math.sin(yaw) * cosP;
+    const fy = Math.sin(pitch);
+    const fz = -Math.cos(yaw) * cosP;
+
+    activeThrows.push({
+      mesh,
+      vx: fx * THROWABLE_SPEED,
+      vy: fy * THROWABLE_SPEED + 2.5,
+      vz: fz * THROWABLE_SPEED,
+      bounced: false,
+      expireAt: 0,
+    });
+    audio.unlock();
+  }
+
+  function tryDoorSlam(): boolean {
+    const px = Math.floor(camera.position.x / TILE_SIZE);
+    const pz = Math.floor(camera.position.z / TILE_SIZE);
+    const now = performance.now();
+    for (const door of doorStates) {
+      if (door.closedUntil > now) continue;
+      const md = Math.abs(door.tileX - px) + Math.abs(door.tileZ - pz);
+      if (md > 1) continue;
+      door.closedUntil = now + 3000;
+      // Rotate 90° so the door visually closes off the opening.
+      door.mesh.rotation.y = door.openRotY + Math.PI / 2;
+      audio.triggerDoorSlam();
+      // Slam = noise = Observer hears.
+      observerDistractedUntil = now + 2500;
+      distractionX = door.mesh.position.x;
+      distractionZ = door.mesh.position.z;
+      events.onHint?.("Door slammed — buys you a few seconds.");
+      return true;
+    }
+    return false;
+  }
+
+  function buildClosedTiles(): Set<string> {
+    const now = performance.now();
+    const set = new Set<string>();
+    for (const door of doorStates) {
+      if (door.closedUntil > now) set.add(`${door.tileX},${door.tileZ}`);
+    }
+    return set;
+  }
+
   function setVirtualInput(input: Partial<VirtualInput>) {
     if (typeof input.moveX === "number") {
       virtualInput.moveX = Math.max(-1, Math.min(1, input.moveX));
@@ -1228,8 +1335,9 @@ export function startGame(
       return;
     }
 
-    // Track last known player position (update only when not hiding)
-    if (!isHiding) {
+    // Track last known player position (update only when not hiding/distracted)
+    const distracted = now < observerDistractedUntil;
+    if (!isHiding && !distracted) {
       lastKnownPlayerX = camera.position.x;
       lastKnownPlayerZ = camera.position.z;
       isInvestigating = false;
@@ -1248,21 +1356,34 @@ export function startGame(
     if (pathRecomputeTimer <= 0 || !enemyPath) {
       pathRecomputeTimer = PATH_RECOMPUTE_INTERVAL;
 
-      const targetX = isHiding ? lastKnownPlayerX : camera.position.x;
-      const targetZ = isHiding ? lastKnownPlayerZ : camera.position.z;
+      let targetX: number;
+      let targetZ: number;
+      if (distracted) {
+        targetX = distractionX;
+        targetZ = distractionZ;
+        isInvestigating = true;
+      } else if (isHiding) {
+        targetX = lastKnownPlayerX;
+        targetZ = lastKnownPlayerZ;
+      } else {
+        targetX = camera.position.x;
+        targetZ = camera.position.z;
+      }
 
+      const closed = buildClosedTiles();
       const newPath = findPath(
         parsed,
         enemyMesh.position.x,
         enemyMesh.position.z,
         targetX,
-        targetZ
+        targetZ,
+        closed
       );
       if (newPath !== null) {
         enemyPath = newPath;
       }
       // If hiding and reached last-known-pos, patrol named waypoints (or wander as fallback).
-      if (isHiding && (!enemyPath || enemyPath.length === 0)) {
+      if (isHiding && !distracted && (!enemyPath || enemyPath.length === 0)) {
         isInvestigating = true;
         if (patrolWaypoints.length > 0) {
           const wp = patrolWaypoints[patrolIndex % patrolWaypoints.length];
@@ -1280,7 +1401,8 @@ export function startGame(
               enemyMesh.position.x,
               enemyMesh.position.z,
               wp.x,
-              wp.z
+              wp.z,
+              closed
             ) ?? [];
         } else {
           const wander = {
@@ -1293,7 +1415,8 @@ export function startGame(
               enemyMesh.position.x,
               enemyMesh.position.z,
               wander.x,
-              wander.z
+              wander.z,
+              closed
             ) ?? [];
         }
       }
@@ -1623,7 +1746,46 @@ export function startGame(
       );
 
       const t = clock.elapsedTime;
-      updateLocalEnemy(dt, t, performance.now());
+      const tickNow = performance.now();
+      updateLocalEnemy(dt, t, tickNow);
+
+      // ── Throwable physics ─────────────────────────────────────────────
+      for (let i = activeThrows.length - 1; i >= 0; i--) {
+        const tw = activeThrows[i];
+        // Despawn cans that have been on the floor for 2s.
+        if (tw.expireAt && tickNow >= tw.expireAt) {
+          // Don't dispose throwGeo here — it's shared across all cans.
+          // Released once in dispose() below.
+          scene.remove(tw.mesh);
+          activeThrows.splice(i, 1);
+          continue;
+        }
+        if (tw.bounced) continue;
+        tw.vy -= THROWABLE_GRAVITY * dt;
+        tw.mesh.position.x += tw.vx * dt;
+        tw.mesh.position.y += tw.vy * dt;
+        tw.mesh.position.z += tw.vz * dt;
+        tw.mesh.rotation.x += dt * 8;
+        tw.mesh.rotation.z += dt * 6;
+        if (tw.mesh.position.y < 0.06) {
+          tw.mesh.position.y = 0.06;
+          tw.bounced = true;
+          tw.expireAt = tickNow + 2000;
+          distractionX = tw.mesh.position.x;
+          distractionZ = tw.mesh.position.z;
+          observerDistractedUntil = tickNow + THROWABLE_INVESTIGATE_MS;
+          audio.triggerThrowableImpact();
+        }
+      }
+
+      // ── Door reopen ───────────────────────────────────────────────────
+      for (const door of doorStates) {
+        if (door.closedUntil && tickNow >= door.closedUntil) {
+          door.closedUntil = 0;
+          door.mesh.rotation.y = door.openRotY;
+        }
+      }
+
       for (const k of keyMeshes) {
         k.rotation.y += dt * 2;
         k.position.y = 0.9 + Math.sin(t * 2 + k.position.x) * 0.08;
@@ -1784,6 +1946,11 @@ export function startGame(
       renderer.dispose();
       observer.dispose();
       disposeObserverCache();
+      // Release shared throwable resources before scene.traverse hits them.
+      for (const tw of activeThrows) scene.remove(tw.mesh);
+      activeThrows.length = 0;
+      throwGeo.dispose();
+      throwMat.dispose();
       if (catchOverlay.parentNode === container)
         container.removeChild(catchOverlay);
       if (renderer.domElement.parentNode === container) {
@@ -1807,6 +1974,7 @@ export function startGame(
     setEnemy,
     setVirtualInput,
     toggleHide,
+    throwObject,
     getPlayerState: () => ({
       x: camera.position.x,
       z: camera.position.z,
