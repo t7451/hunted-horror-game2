@@ -11,6 +11,8 @@ export type FlashlightHandle = {
   toggle: () => void;
   isOn: () => boolean;
   setAnxiety: (intensity: number, elapsed: number) => void;
+  /** Battery charge 0..1 — scales intensity & distance. */
+  setBattery: (charge: number) => void;
   dispose: () => void;
   /** Underlying light — exposed so Phase 6 ShadowBudget can register it. */
   light: THREE.Light;
@@ -21,7 +23,17 @@ export function createFlashlight(camera: THREE.Camera): FlashlightHandle {
     const light = new THREE.PointLight(0xfff0d0, 2.5, 12, 1.8);
     const baseIntensity = light.intensity;
     const baseDistance = light.distance;
+    let battery = 1;
+    let anxietyScale = 1;
+    let anxietyDist = 1;
     camera.add(light);
+    const apply = () => {
+      // Battery curve: 100% → 1.0, 25% → ~0.6, 5% → ~0.2 (deep cut at the end).
+      const b = THREE.MathUtils.clamp(battery, 0, 1);
+      const batteryScale = b < 0.05 ? 0 : 0.2 + b * 0.8;
+      light.intensity = baseIntensity * anxietyScale * batteryScale;
+      light.distance = baseDistance * anxietyDist * (0.6 + 0.4 * b);
+    };
     return {
       toggle: () => {
         light.visible = !light.visible;
@@ -32,8 +44,13 @@ export function createFlashlight(camera: THREE.Camera): FlashlightHandle {
         const panic = THREE.MathUtils.clamp(intensity, 0, 1);
         const tremor =
           Math.sin(elapsed * 37.1) * 0.08 + Math.sin(elapsed * 83.7) * 0.035;
-        light.intensity = baseIntensity * (1 - panic * 0.28 + tremor * panic);
-        light.distance = baseDistance * (1 - panic * 0.18);
+        anxietyScale = 1 - panic * 0.28 + tremor * panic;
+        anxietyDist = 1 - panic * 0.18;
+        apply();
+      },
+      setBattery: charge => {
+        battery = charge;
+        apply();
       },
       dispose: () => {
         camera.remove(light);
@@ -47,6 +64,10 @@ export function createFlashlight(camera: THREE.Camera): FlashlightHandle {
   const baseIntensity = light.intensity;
   const baseDistance = light.distance;
   const baseAngle = light.angle;
+  let battery = 1;
+  let anxietyScale = 1;
+  let anxietyDist = 1;
+  let anxietyAngle = 1;
   light.castShadow = true;
   light.shadow.mapSize.set(1024, 1024);
   light.shadow.bias = -0.0008;
@@ -59,6 +80,14 @@ export function createFlashlight(camera: THREE.Camera): FlashlightHandle {
   light.target = target;
   camera.add(light, target);
 
+  const apply = () => {
+    const b = THREE.MathUtils.clamp(battery, 0, 1);
+    const batteryScale = b < 0.05 ? 0 : 0.2 + b * 0.8;
+    light.intensity = baseIntensity * anxietyScale * batteryScale;
+    light.distance = baseDistance * anxietyDist * (0.6 + 0.4 * b);
+    light.angle = baseAngle * anxietyAngle * (0.85 + 0.15 * b);
+  };
+
   return {
     toggle: () => {
       light.visible = !light.visible;
@@ -69,9 +98,14 @@ export function createFlashlight(camera: THREE.Camera): FlashlightHandle {
       const panic = THREE.MathUtils.clamp(intensity, 0, 1);
       const tremor =
         Math.sin(elapsed * 31.7) * 0.1 + Math.sin(elapsed * 71.3) * 0.045;
-      light.intensity = baseIntensity * (1 - panic * 0.35 + tremor * panic);
-      light.distance = baseDistance * (1 - panic * 0.22);
-      light.angle = baseAngle * (1 - panic * 0.18);
+      anxietyScale = 1 - panic * 0.35 + tremor * panic;
+      anxietyDist = 1 - panic * 0.22;
+      anxietyAngle = 1 - panic * 0.18;
+      apply();
+    },
+    setBattery: charge => {
+      battery = charge;
+      apply();
     },
     dispose: () => {
       camera.remove(light);

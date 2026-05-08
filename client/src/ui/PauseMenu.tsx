@@ -1,3 +1,10 @@
+import { useState } from "react";
+import { Haptics, loadHapticsPref, setHapticsEnabled } from "../util/haptics";
+import {
+  isBatterySaverEnabled,
+  setBatterySaverEnabled,
+} from "../util/batterySaver";
+
 interface Props {
   volume: number;
   sensitivity: number;
@@ -15,6 +22,9 @@ export function PauseMenu({
   onResume,
   onQuit,
 }: Props) {
+  const [hapticsOn, setHapticsOn] = useState(() => loadHapticsPref());
+  const [batterySaver, setSaver] = useState(() => isBatterySaverEnabled());
+
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
       <div className="flex w-72 flex-col gap-4 rounded border border-white/20 bg-black/90 px-8 py-6">
@@ -50,6 +60,49 @@ export function PauseMenu({
             onChange={e => onSensitivity(Number(e.target.value))}
             className="accent-red-500"
           />
+        </label>
+
+        <label className="flex items-center justify-between text-sm tracking-widest uppercase">
+          <span>Haptics</span>
+          <button
+            type="button"
+            onClick={() => {
+              const next = !hapticsOn;
+              setHapticsOn(next);
+              setHapticsEnabled(next);
+              if (next) Haptics.light();
+            }}
+            className={`relative h-6 w-12 rounded-full transition-colors ${
+              hapticsOn ? "bg-red-700" : "bg-white/20"
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${
+                hapticsOn ? "left-6" : "left-0.5"
+              }`}
+            />
+          </button>
+        </label>
+
+        <label className="flex items-center justify-between text-sm tracking-widest uppercase">
+          <span>Battery saver</span>
+          <button
+            type="button"
+            onClick={() => {
+              const next = !batterySaver;
+              setSaver(next);
+              setBatterySaverEnabled(next);
+            }}
+            className={`w-12 h-6 rounded-full transition-colors ${
+              batterySaver ? "bg-amber-600" : "bg-white/20"
+            } relative`}
+          >
+            <span
+              className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${
+                batterySaver ? "left-6" : "left-0.5"
+              }`}
+            />
+          </button>
         </label>
 
         <div className="mt-2 flex flex-col gap-2">

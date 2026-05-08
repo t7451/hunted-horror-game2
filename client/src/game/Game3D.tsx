@@ -16,11 +16,16 @@ import { recordRun } from "../hooks/useGameStats";
 import { getDailySeed, saveDailyResult } from "../hooks/useDailyChallenge";
 import { Minimap } from "../ui/Minimap";
 import { PauseMenu } from "../ui/PauseMenu";
+import { MobilePauseButton } from "../ui/MobilePauseButton";
+import { PortraitGate } from "../ui/PortraitGate";
+import { lockLandscape } from "../util/orientation";
+import { acquireWakeLock, releaseWakeLock } from "../util/wakeLock";
 import {
   Tutorial,
   shouldShowTutorial,
   markTutorialSeen,
 } from "../ui/Tutorial";
+import { loadJoystickPrefs, type JoystickPrefs } from "../util/joystickPrefs";
 
 type Status = "loading" | "playing" | "caught" | "escaped" | "time_up";
 type Danger = "safe" | "near" | "critical";
@@ -81,6 +86,11 @@ export default function Game3D({
   const [throwables, setThrowables] = useState(3);
   const [keysLeft, setKeysLeft] = useState<number | null>(null);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const [batteryPct, setBatteryPct] = useState<number>(100);
+  const [notes, setNotes] = useState<{ collected: number; total: number }>({
+    collected: 0,
+    total: 0,
+  });
   const [danger, setDanger] = useState<Danger>("safe");
   const [hidden, setHidden] = useState(false);
   const [director, setDirector] = useState<DirectorUpdate>(INITIAL_DIRECTOR);
@@ -163,6 +173,8 @@ export default function Game3D({
           onReady: info => {
             setKeysLeft(info.keys);
             setTimeLeft(info.timer);
+            setNotes({ collected: 0, total: info.notesTotal });
+            setBatteryPct(100);
             setHint(
               isMobile
                 ? `${info.mapName}: collect keys, then reach the green exit. Drag to look.`
@@ -177,6 +189,9 @@ export default function Game3D({
                 : "Key collected."
             );
           },
+          onBatteryChange: charge =>
+            setBatteryPct(Math.max(0, Math.min(100, Math.round(charge * 100)))),
+          onNotesChange: (collected, total) => setNotes({ collected, total }),
           onCaught: () => {
             const tl = timeLeftRef.current ?? 0;
             const used = Math.round(selectedMap.timer - tl);
@@ -284,6 +299,33 @@ export default function Game3D({
     };
   }, [difficulty, isMobile, quality, selectedMap.timer, sensitivity, status]);
 
+  useEffect(() => {
+    if (status !== "playing") return;
+    void lockLandscape();
+  }, [status]);
+
+  useEffect(() => {
+    if (status !== "playing") return;
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        setPaused(true);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [status]);
+
+  useEffect(() => {
+    if (status !== "playing") {
+      void releaseWakeLock();
+      return;
+    }
+    void acquireWakeLock();
+    return () => {
+      void releaseWakeLock();
+    };
+  }, [status]);
+
   const setVirtualMove = useCallback((moveX: number, moveZ: number) => {
     engineRef.current?.setVirtualInput({ moveX, moveZ });
   }, []);
@@ -302,6 +344,7 @@ export default function Game3D({
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-black text-white select-none">
+      <PortraitGate />
       <div ref={containerRef} className="absolute inset-0" />
 
       {status === "loading" && (
@@ -330,6 +373,36 @@ export default function Game3D({
             <div>
               Time left: {timeLeft === null ? "—" : formatTime(timeLeft)}
             </div>
+            <div className="flex items-center gap-2">
+              <span>Battery:</span>
+              <span
+                className={`inline-block h-2 w-20 overflow-hidden rounded border ${
+                  batteryPct < 15
+                    ? "border-red-400/70"
+                    : batteryPct < 35
+                      ? "border-yellow-400/70"
+                      : "border-white/30"
+                }`}
+                aria-label={`Flashlight battery ${batteryPct}%`}
+              >
+                <span
+                  className={`block h-full ${
+                    batteryPct < 15
+                      ? "bg-red-500"
+                      : batteryPct < 35
+                        ? "bg-yellow-400"
+                        : "bg-emerald-400"
+                  }`}
+                  style={{ width: `${batteryPct}%` }}
+                />
+              </span>
+              <span className="opacity-70">{batteryPct}%</span>
+            </div>
+            {notes.total > 0 && (
+              <div>
+                Notes: {notes.collected}/{notes.total}
+              </div>
+            )}
             <div>
               Stealth:{" "}
               {hidden
@@ -362,6 +435,7 @@ export default function Game3D({
               throwsRemaining={throwables}
             />
           )}
+          {!showTutorial && <MobilePauseButton onPause={() => setPaused(true)} />}
           <Minimap engine={engineRef.current} />
         </>
       )}
@@ -533,14 +607,27 @@ function MobileControls({
   throwsRemaining: number;
 }) {
   const padRef = useRef<HTMLDivElement | null>(null);
-  const pointerIdRef = useRef<number | null>(null);
+  const activeJoystickPointer = useRef<number | null>(null);
+  const activeLookPointer = useRef<number | null>(null);
   const [knob, setKnob] = useState({ x: 0, y: 0, active: false });
+  const [prefs] = useState<JoystickPrefs>(() => loadJoystickPrefs());
 
-  // Scale joystick with viewport: 128px on a 375px phone, up to 176px on tablets.
-  const joystickSize =
-    typeof window === "undefined"
-      ? 128
-      : Math.round(Math.min(176, Math.max(128, window.innerWidth * 0.34)));
+  const baseSize = 128;
+  const joystickSize = Math.round(
+    Math.min(176, Math.max(baseSize, (typeof window !== "undefined" ? window.innerWidth : 375) * 0.34)) * prefs.size
+  );
+
+  // Reset all inputs on pointer cancel (system gesture, notification, etc.)
+  useEffect(() => {
+    const onCancel = () => {
+      activeJoystickPointer.current = null;
+      activeLookPointer.current = null;
+      onMove(0, 0);
+      onSprint(false);
+    };
+    window.addEventListener("pointercancel", onCancel);
+    return () => window.removeEventListener("pointercancel", onCancel);
+  }, [onMove, onSprint]);
 
   const updatePad = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -561,33 +648,56 @@ function MobileControls({
   );
 
   const releasePad = useCallback(() => {
-    pointerIdRef.current = null;
+    activeJoystickPointer.current = null;
     onMove(0, 0);
     setKnob({ x: 0, y: 0, active: false });
   }, [onMove]);
 
+  const joystickSide = prefs.swap ? "right" : "left";
+  const buttonSide = prefs.swap ? "left" : "right";
+
   return (
-    <>
-      {/* Left half: joystick */}
-      <div className="pointer-events-none absolute inset-y-0 left-0 flex w-1/2 items-end pb-10 pl-6">
+    <div
+      className="pointer-events-none absolute bottom-0 left-0 right-0"
+      style={{
+        paddingBottom: "calc(var(--safe-bottom) + 16px)",
+        paddingLeft: "calc(var(--safe-left) + 12px)",
+        paddingRight: "calc(var(--safe-right) + 12px)",
+      }}
+    >
+      <div
+        className="pointer-events-auto absolute rounded-full border border-white/20 bg-black/35 backdrop-blur"
+        style={{
+          touchAction: "none",
+          width: joystickSize,
+          height: joystickSize,
+          bottom: "8px",
+          [joystickSide]: "12px",
+          opacity: prefs.opacity,
+        }}
+      >
         <div
           ref={padRef}
-          className="pointer-events-auto relative rounded-full border border-white/20 bg-black/35 backdrop-blur"
-          style={{
-            touchAction: "none",
-            width: joystickSize,
-            height: joystickSize,
-          }}
+          className="relative h-full w-full"
           onPointerDown={event => {
-            pointerIdRef.current = event.pointerId;
+            if (event.pointerType !== "touch") return;
+            if (activeJoystickPointer.current !== null) return;
+            activeJoystickPointer.current = event.pointerId;
             event.currentTarget.setPointerCapture(event.pointerId);
             updatePad(event);
           }}
           onPointerMove={event => {
-            if (pointerIdRef.current === event.pointerId) updatePad(event);
+            if (event.pointerId !== activeJoystickPointer.current) return;
+            updatePad(event);
           }}
-          onPointerUp={releasePad}
-          onPointerCancel={releasePad}
+          onPointerUp={event => {
+            if (event.pointerId !== activeJoystickPointer.current) return;
+            releasePad();
+          }}
+          onPointerCancel={event => {
+            if (event.pointerId !== activeJoystickPointer.current) return;
+            releasePad();
+          }}
         >
           <div
             className={`absolute left-1/2 top-1/2 rounded-full border transition-colors ${
@@ -607,8 +717,14 @@ function MobileControls({
         </div>
       </div>
 
-      {/* Right half: look-zone affordance + action buttons */}
-      <div className="pointer-events-none absolute inset-y-0 right-0 flex w-1/2 flex-col items-end justify-end gap-3 pb-10 pr-5">
+      {/* Opposite side: look-zone affordance + action buttons */}
+      <div
+        className="pointer-events-none absolute flex flex-col items-end justify-end gap-3"
+        style={{
+          [buttonSide]: "12px",
+          bottom: "8px",
+        }}
+      >
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-20">
           <div
             className="rounded-full border border-white/30"
@@ -648,7 +764,7 @@ function MobileControls({
           Throw {throwsRemaining}
         </button>
       </div>
-    </>
+    </div>
   );
 }
 

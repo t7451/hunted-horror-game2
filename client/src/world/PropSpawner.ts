@@ -13,7 +13,17 @@ import * as THREE from "three";
 // callers `placeProp` repeatedly during world build, and we flush
 // `instanceMatrix.needsUpdate` once via `commit()`.
 
-export type PropKind = "chair" | "table" | "lamp" | "shelf";
+export type PropKind =
+  | "chair"
+  | "table"
+  | "lamp"
+  | "shelf"
+  | "crate"
+  | "barrel"
+  | "bookstack"
+  | "painting"
+  | "rug"
+  | "clutter";
 
 type PropDef = {
   /** Max instances reserved on the InstancedMesh. */
@@ -23,11 +33,21 @@ type PropDef = {
   build: () => { geometry: THREE.BufferGeometry; material: THREE.Material };
 };
 
+// Caps sized for the larger Phase-2 maps (40×23 → 44×27 floor plans).
+// One InstancedMesh per kind, so growing these costs only pre-allocated
+// matrix slots, not draw calls. Values are the realistic upper bound a
+// kind hits at PROP_DENSITY 0.30 across the biggest map.
 const PROPS: Record<PropKind, PropDef> = {
-  chair: { maxInstances: 32, yOffset: 0, build: buildChair },
-  table: { maxInstances: 12, yOffset: 0, build: buildTable },
-  lamp: { maxInstances: 16, yOffset: 0, build: buildLamp },
-  shelf: { maxInstances: 12, yOffset: 0, build: buildShelf },
+  chair: { maxInstances: 64, yOffset: 0, build: buildChair },
+  table: { maxInstances: 28, yOffset: 0, build: buildTable },
+  lamp: { maxInstances: 32, yOffset: 0, build: buildLamp },
+  shelf: { maxInstances: 28, yOffset: 0, build: buildShelf },
+  crate: { maxInstances: 72, yOffset: 0, build: buildCrate },
+  barrel: { maxInstances: 56, yOffset: 0, build: buildBarrel },
+  bookstack: { maxInstances: 48, yOffset: 0, build: buildBookstack },
+  painting: { maxInstances: 56, yOffset: 0, build: buildPainting },
+  rug: { maxInstances: 32, yOffset: 0, build: buildRug },
+  clutter: { maxInstances: 112, yOffset: 0, build: buildClutter },
 };
 
 type Slot = {
@@ -306,6 +326,132 @@ function buildShelf() {
     new THREE.MeshStandardMaterial({
       color: 0x2a1d10,
       roughness: 0.9,
+      metalness: 0.05,
+    })
+  );
+}
+
+function buildCrate() {
+  // Stackable wooden crate ~0.7m on a side. Slats give it silhouette.
+  const s = 0.7;
+  const t = 0.05;
+  const half = s / 2;
+  const boxes: BoxSpec[] = [
+    { x: 0, y: half, z: 0, w: s, h: s, d: s }, // body
+    // Slat overlays (thin proud strips for relief)
+    { x: 0, y: half, z: half + 0.005, w: s + 0.02, h: 0.06, d: t },
+    { x: 0, y: half + 0.18, z: half + 0.005, w: s + 0.02, h: 0.06, d: t },
+    { x: 0, y: half - 0.18, z: half + 0.005, w: s + 0.02, h: 0.06, d: t },
+    { x: 0, y: half, z: -half - 0.005, w: s + 0.02, h: 0.06, d: t },
+    { x: half + 0.005, y: half, z: 0, w: t, h: 0.06, d: s + 0.02 },
+    { x: -half - 0.005, y: half, z: 0, w: t, h: 0.06, d: s + 0.02 },
+  ];
+  return mergeBoxes(
+    boxes,
+    new THREE.MeshStandardMaterial({
+      color: 0x6b4a28,
+      roughness: 0.92,
+      metalness: 0.04,
+    })
+  );
+}
+
+function buildBarrel() {
+  // Faceted "barrel" — octagonal-ish via 3 stacked tapered boxes plus
+  // two metal hoops. Reads as a barrel under the flashlight cone.
+  const r = 0.36;
+  const h = 0.95;
+  const boxes: BoxSpec[] = [
+    { x: 0, y: h / 2, z: 0, w: r * 1.7, h, d: r * 1.7 }, // body
+    { x: 0, y: h * 0.22, z: 0, w: r * 1.85, h: 0.06, d: r * 1.85 }, // hoop low
+    { x: 0, y: h * 0.78, z: 0, w: r * 1.85, h: 0.06, d: r * 1.85 }, // hoop high
+    { x: 0, y: h - 0.02, z: 0, w: r * 1.55, h: 0.04, d: r * 1.55 }, // lid
+  ];
+  return mergeBoxes(
+    boxes,
+    new THREE.MeshStandardMaterial({
+      color: 0x4a2e18,
+      roughness: 0.78,
+      metalness: 0.18,
+    })
+  );
+}
+
+function buildBookstack() {
+  // Three messy stacked books on the floor.
+  const boxes: BoxSpec[] = [
+    { x: 0, y: 0.05, z: 0, w: 0.36, h: 0.08, d: 0.26 },
+    { x: 0.04, y: 0.13, z: -0.02, w: 0.32, h: 0.07, d: 0.24 },
+    { x: -0.05, y: 0.2, z: 0.03, w: 0.34, h: 0.06, d: 0.25 },
+  ];
+  return mergeBoxes(
+    boxes,
+    new THREE.MeshStandardMaterial({
+      color: 0x5a2a1c,
+      roughness: 0.9,
+      metalness: 0.02,
+    })
+  );
+}
+
+function buildPainting() {
+  // Wall painting silhouette — frame + canvas. Caller is expected to push
+  // these against walls (we orient + flush them via rotationY in engine).
+  // Geometry sits at z≈-0.02 so the local origin is the wall surface.
+  const w = 0.7;
+  const h = 0.5;
+  const t = 0.04;
+  const cy = 1.7;
+  const boxes: BoxSpec[] = [
+    // Frame (4 strips around the canvas)
+    { x: 0, y: cy + h / 2, z: -t / 2, w: w + 0.08, h: 0.06, d: t },
+    { x: 0, y: cy - h / 2, z: -t / 2, w: w + 0.08, h: 0.06, d: t },
+    { x: -w / 2, y: cy, z: -t / 2, w: 0.06, h: h + 0.06, d: t },
+    { x: w / 2, y: cy, z: -t / 2, w: 0.06, h: h + 0.06, d: t },
+    // Canvas
+    { x: 0, y: cy, z: -t / 2 - 0.005, w, h, d: 0.01 },
+  ];
+  return mergeBoxes(
+    boxes,
+    new THREE.MeshStandardMaterial({
+      color: 0x3a2820,
+      roughness: 0.85,
+      metalness: 0.04,
+    })
+  );
+}
+
+function buildRug() {
+  // Flat thin slab — reads as a floor rug. 0.02m thick, ~2m square,
+  // centered at floor. Color is dim claret so it doesn't fight the
+  // wood floor under flashlight.
+  const w = 1.9;
+  const d = 1.4;
+  const boxes: BoxSpec[] = [
+    { x: 0, y: 0.011, z: 0, w, h: 0.022, d },
+  ];
+  return mergeBoxes(
+    boxes,
+    new THREE.MeshStandardMaterial({
+      color: 0x3a1820,
+      roughness: 0.95,
+      metalness: 0.0,
+    })
+  );
+}
+
+function buildClutter() {
+  // A small tangle of debris — bottle + can + brick — for floor scatter.
+  const boxes: BoxSpec[] = [
+    { x: 0.0, y: 0.10, z: 0.0, w: 0.10, h: 0.20, d: 0.10 }, // bottle
+    { x: 0.18, y: 0.06, z: 0.05, w: 0.12, h: 0.12, d: 0.12 }, // can
+    { x: -0.12, y: 0.04, z: -0.10, w: 0.22, h: 0.08, d: 0.12 }, // brick
+  ];
+  return mergeBoxes(
+    boxes,
+    new THREE.MeshStandardMaterial({
+      color: 0x3a3028,
+      roughness: 0.95,
       metalness: 0.05,
     })
   );
