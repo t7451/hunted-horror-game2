@@ -146,6 +146,68 @@ function tileHash(x: number, z: number, seed: number): number {
   return s - Math.floor(s);
 }
 
+// Add a per-instance UV offset attribute to `geo` and patch `mat`'s vertex
+// shader to add the offset to every map UV. Effect: even though every
+// instance shares one texture, each tile samples a different region of it,
+// breaking the visual repeat (e.g. wallpaper bands that would otherwise
+// line up across rows of wall tiles).
+//
+// The patch survives async JPG/KTX2 swap-in: when MaterialFactory marks
+// `mat.needsUpdate = true` after a texture loads, Three recompiles the
+// shader and onBeforeCompile fires again with our same callback installed.
+//
+// Guarded by USE_INSTANCING in case the same material is later reused on a
+// non-instanced mesh — that path skips the offset cleanly.
+function applyInstanceUvOffset(
+  geo: THREE.BufferGeometry,
+  mat: THREE.MeshStandardMaterial,
+  positions: ArrayLike<{ x: number; z: number }>,
+): void {
+  const offsets = new Float32Array(positions.length * 2);
+  for (let i = 0; i < positions.length; i++) {
+    const p = positions[i];
+    offsets[i * 2 + 0] = tileHash(p.x, p.z, 23);
+    offsets[i * 2 + 1] = tileHash(p.x, p.z, 31);
+  }
+  geo.setAttribute(
+    "instanceUvOffset",
+    new THREE.InstancedBufferAttribute(offsets, 2),
+  );
+  // Idempotent: re-installing the same callback is a no-op.
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        "#include <uv_pars_vertex>",
+        `#include <uv_pars_vertex>
+#ifdef USE_INSTANCING
+attribute vec2 instanceUvOffset;
+#endif`,
+      )
+      .replace(
+        "#include <uv_vertex>",
+        `#include <uv_vertex>
+#ifdef USE_INSTANCING
+#ifdef USE_MAP
+vMapUv += instanceUvOffset;
+#endif
+#ifdef USE_NORMALMAP
+vNormalMapUv += instanceUvOffset;
+#endif
+#ifdef USE_AOMAP
+vAoMapUv += instanceUvOffset;
+#endif
+#ifdef USE_ROUGHNESSMAP
+vRoughnessMapUv += instanceUvOffset;
+#endif
+#ifdef USE_METALNESSMAP
+vMetalnessMapUv += instanceUvOffset;
+#endif
+#endif`,
+      );
+  };
+  mat.needsUpdate = true;
+}
+
 // Fill an InstancedMesh's per-instance color with subtle warm/cool brightness
 // variation tied to (x, z) so the same map looks identical between mounts.
 // The tint is multiplied into the material color, so values stay near 1.0 to
@@ -394,9 +456,11 @@ export function startGame(
     wallMesh.setMatrixAt(i, tmp.matrix);
   });
   wallMesh.instanceMatrix.needsUpdate = true;
-  // Per-tile brightness/warmth so the wallpaper's vertical bands don't line up
-  // identically across every wall in a row.
+  // Per-tile brightness/warmth so adjacent walls aren't perfectly identical
+  // shades; per-tile UV offset so the wallpaper's vertical bands don't line
+  // up identically across every wall in a row.
   applyInstanceTint(wallMesh, parsed.walls, 0.18, 0.06);
+  applyInstanceUvOffset(wallGeo, wallMat, parsed.walls);
   scene.add(wallMesh);
 
   // Architectural trim — thin instanced strip at every wall→floor seam.
