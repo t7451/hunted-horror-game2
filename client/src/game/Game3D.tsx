@@ -78,6 +78,7 @@ export default function Game3D({
   const [volume, setVolumeState] = useState(initialVolume);
   const [paused, setPaused] = useState(false);
   const [showTutorial, setShowTutorial] = useState(() => shouldShowTutorial());
+  const [throwables, setThrowables] = useState(3);
   const [keysLeft, setKeysLeft] = useState<number | null>(null);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [danger, setDanger] = useState<Danger>("safe");
@@ -145,6 +146,7 @@ export default function Game3D({
     timeLeftRef.current = selectedMap.timer;
     setRunTimeLeft(null);
     setIsNewBest(false);
+    setThrowables(3);
     setDanger("safe");
     setHidden(false);
     setDirector(INITIAL_DIRECTOR);
@@ -216,6 +218,7 @@ export default function Game3D({
           onDangerChange: setDanger,
           onHideChange: setHidden,
           onAIDirector: setDirector,
+          onThrowableCount: setThrowables,
         },
       });
     } catch (err) {
@@ -293,6 +296,10 @@ export default function Game3D({
     engineRef.current?.toggleHide();
   }, []);
 
+  const triggerThrow = useCallback(() => {
+    engineRef.current?.throwObject();
+  }, []);
+
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-black text-white select-none">
       <div ref={containerRef} className="absolute inset-0" />
@@ -319,6 +326,7 @@ export default function Game3D({
               Objective: {keysLeft === 0 ? "Reach the exit" : "Find every key"}
             </div>
             <div>Keys remaining: {keysLeft ?? "—"}</div>
+            <div>Cans: {throwables}/3 (F to throw)</div>
             <div>
               Time left: {timeLeft === null ? "—" : formatTime(timeLeft)}
             </div>
@@ -350,6 +358,8 @@ export default function Game3D({
               onMove={setVirtualMove}
               onSprint={setVirtualSprint}
               onHide={toggleVirtualHide}
+              onThrow={triggerThrow}
+              throwsRemaining={throwables}
             />
           )}
           <Minimap engine={engineRef.current} />
@@ -513,10 +523,14 @@ function MobileControls({
   onMove,
   onSprint,
   onHide,
+  onThrow,
+  throwsRemaining,
 }: {
   onMove: (moveX: number, moveZ: number) => void;
   onSprint: (sprinting: boolean) => void;
   onHide: () => void;
+  onThrow: () => void;
+  throwsRemaining: number;
 }) {
   const padRef = useRef<HTMLDivElement | null>(null);
   const pointerIdRef = useRef<number | null>(null);
@@ -623,6 +637,15 @@ function MobileControls({
           onClick={onHide}
         >
           Hide / E
+        </button>
+        <button
+          type="button"
+          disabled={throwsRemaining <= 0}
+          className="pointer-events-auto h-14 w-20 rounded-2xl border border-amber-300/40 bg-amber-900/55 text-[10px] font-bold uppercase tracking-widest shadow-lg backdrop-blur active:bg-amber-700/70 disabled:opacity-30"
+          style={{ touchAction: "none" }}
+          onClick={onThrow}
+        >
+          Throw {throwsRemaining}
         </button>
       </div>
     </>
