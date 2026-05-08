@@ -884,9 +884,14 @@ export function startGame(
   // ~3 batteries to keep the cone bright; running out doesn't kill, just
   // dims the world toward unplayable.
   let batteryCharge = 1;
-  // Drain rate: 100% → 0% over ~5 minutes of continuous "on" time.
-  // Mapped per-second (1/300) so dt-scaled in tick().
-  const BATTERY_DRAIN_PER_SEC = 1 / 300;
+  // 100% → 0% over ~5 minutes of continuous "on" time.
+  const BATTERY_FULL_DRAIN_SECONDS = 300;
+  const BATTERY_DRAIN_PER_SEC = 1 / BATTERY_FULL_DRAIN_SECONDS;
+  // Each picked-up battery restores 60% of full charge.
+  const BATTERY_PICKUP_RESTORE = 0.6;
+  // Trigger radius for non-key pickups (batteries, notes). Key pickups
+  // keep their own inline radius for backward compatibility.
+  const PICKUP_TRIGGER_RADIUS_SQ = 1.4 * 1.4;
   let lastBatteryReportPct = 100;
   let lastTimerSecond = Math.ceil(timeLeft);
   let isSprinting = false;
@@ -1283,10 +1288,10 @@ export function startGame(
       const b = batteryMeshes[i];
       const dx = b.position.x - camera.position.x;
       const dz = b.position.z - camera.position.z;
-      if (dx * dx + dz * dz < 1.4 * 1.4) {
+      if (dx * dx + dz * dz < PICKUP_TRIGGER_RADIUS_SQ) {
         batteryGroup.remove(b);
         batteryMeshes.splice(i, 1);
-        batteryCharge = Math.min(1, batteryCharge + 0.6);
+        batteryCharge = Math.min(1, batteryCharge + BATTERY_PICKUP_RESTORE);
         flashlight.setBattery(batteryCharge);
         events.onBatteryChange?.(batteryCharge);
         events.onHint?.("Battery picked up. Flashlight restored.");
@@ -1298,7 +1303,7 @@ export function startGame(
       const n = noteMeshes[i];
       const dx = n.position.x - camera.position.x;
       const dz = n.position.z - camera.position.z;
-      if (dx * dx + dz * dz < 1.4 * 1.4) {
+      if (dx * dx + dz * dz < PICKUP_TRIGGER_RADIUS_SQ) {
         noteGroup.remove(n);
         noteMeshes.splice(i, 1);
         notesCollected++;
