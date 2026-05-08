@@ -88,7 +88,8 @@ export const MAPS: Record<MapKey, MapDef> = {
       "W.........W.....W,,,,,,,,,,,,W;;;;;;;;;;;W",
       "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
     ],
-    // Enemy patrols the bedrooms, parlor, kitchen, cellar approach and porch run.
+    // The enemy patrols the bedrooms, parlor, kitchen, cellar approach and porch run.
+    // The enemy loops the foyer, dining wing, atrium, library, servant rooms and conservatory.
     patrolWaypoints: [
       { x: 6, z: 3 },
       { x: 18, z: 3 },
@@ -146,6 +147,7 @@ export const MAPS: Record<MapKey, MapDef> = {
       "W.......W......W,,,,,,,,,,,,,,W;;;;;;;W;;;;;;W",
       "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
     ],
+    // The enemy sweeps ward cells, operating rooms, service tunnels and the utility exit.
     patrolWaypoints: [
       { x: 8, z: 4 },
       { x: 23, z: 4 },
