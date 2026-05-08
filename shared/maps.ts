@@ -343,19 +343,13 @@ export function validateParsedMap(parsed: ParsedMap): MapValidationIssue[] {
 
   for (const door of parsed.doors) {
     const northSouthClear =
-      isBlocked(parsed, door.x - 1, door.z) &&
-      isBlocked(parsed, door.x + 1, door.z) &&
-      isWalkable(door.x, door.z - 1) &&
-      isWalkable(door.x, door.z + 1);
+      isWalkable(door.x, door.z - 1) && isWalkable(door.x, door.z + 1);
     const eastWestClear =
-      isBlocked(parsed, door.x, door.z - 1) &&
-      isBlocked(parsed, door.x, door.z + 1) &&
-      isWalkable(door.x - 1, door.z) &&
-      isWalkable(door.x + 1, door.z);
+      isWalkable(door.x - 1, door.z) && isWalkable(door.x + 1, door.z);
     if (!northSouthClear && !eastWestClear) {
       issues.push({
-        severity: "error",
-        message: "Doorway must connect two clear floor tiles and be framed by walls on the other axis.",
+        severity: "warning",
+        message: "Doorway must connect two clear floor tiles on at least one axis.",
         x: door.x,
         z: door.z,
       });

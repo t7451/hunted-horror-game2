@@ -1691,7 +1691,7 @@ export function startGame(
     }
   }
 
-  function canOccupy(x: number, z: number, radius: number) {
+  function canOccupy(x: number, z: number, radius: number, ignoreDoors = false) {
     const samples: Array<[number, number]> = [
       [x - radius, z - radius],
       [x + radius, z - radius],
@@ -1702,12 +1702,14 @@ export function startGame(
     return samples.every(([sx, sz]) => {
       const gx = Math.floor(sx / TILE_SIZE);
       const gz = Math.floor(sz / TILE_SIZE);
-      const closedDoor = doorStates.some(
-        door =>
-          door.tileX === gx &&
-          door.tileZ === gz &&
-          door.currentRot < DOOR_PASSABLE_ROT
-      );
+      const closedDoor =
+        !ignoreDoors &&
+        doorStates.some(
+          door =>
+            door.tileX === gx &&
+            door.tileZ === gz &&
+            door.currentRot < DOOR_PASSABLE_ROT
+        );
       return !isBlocked(parsed, gx, gz) && !closedDoor;
     });
   }
@@ -1724,9 +1726,9 @@ export function startGame(
   function tryMoveEnemy(dx: number, dz: number) {
     const nx = enemyMesh.position.x + dx;
     const nz = enemyMesh.position.z + dz;
-    if (canOccupy(nx, enemyMesh.position.z, ENEMY_RADIUS))
+    if (canOccupy(nx, enemyMesh.position.z, ENEMY_RADIUS, true))
       enemyMesh.position.x = nx;
-    if (canOccupy(enemyMesh.position.x, nz, ENEMY_RADIUS))
+    if (canOccupy(enemyMesh.position.x, nz, ENEMY_RADIUS, true))
       enemyMesh.position.z = nz;
     enemyLight.position.set(enemyMesh.position.x, 1.6, enemyMesh.position.z);
   }
