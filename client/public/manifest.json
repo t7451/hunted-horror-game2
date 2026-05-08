@@ -1,7 +1,7 @@
 {
-  "name": "HUNTED BY CLAUDE - Multiplayer AI Horror Escape Game",
+  "name": "HUNTED BY THE OBSERVER",
   "short_name": "HUNTED",
-  "description": "Escape from Claude, an AI-powered villain. Play solo or with friends in this intense multiplayer horror game.",
+  "description": "A browser-first 3D horror escape game. Collect keys, hide from The Observer, survive.",
   "start_url": "/",
   "scope": "/",
   "display": "fullscreen",
@@ -48,7 +48,7 @@
     {
       "name": "Play Game",
       "short_name": "Play",
-      "description": "Start playing HUNTED BY CLAUDE",
+      "description": "Start playing HUNTED BY THE OBSERVER",
       "url": "/?mode=play",
       "icons": [
         {

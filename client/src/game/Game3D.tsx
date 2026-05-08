@@ -1,20 +1,20 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { MAPS, MAP_KEYS, type MapKey } from "@shared/maps";
-import { supportsWebGL, type GraphicsQuality } from "../util/device";
+import { MAPS, type MapKey } from "@shared/maps";
+import { type GraphicsQuality } from "../util/device";
 import { startGame, type EngineHandle, type RemotePlayer } from "./engine";
 import type { DirectorUpdate } from "./aiDirector";
 import { useIsMobile } from "../hooks/useMobile";
 import LoadingScreen from "../ui/LoadingScreen";
+import { recordRun } from "../hooks/useGameStats";
 
-type Status = "title" | "loading" | "playing" | "caught" | "escaped";
+type Status = "loading" | "playing" | "caught" | "escaped";
 type Danger = "safe" | "near" | "critical";
 
 const DANGER_STYLES: Record<Danger, string> = {
@@ -39,14 +39,28 @@ const MOBILE_CONTROL_HINT =
   "Drag left pad to move · swipe view to look · sprint / hide buttons";
 const JOYSTICK_RADIUS_FACTOR = 0.36;
 
-export default function Game3D() {
+interface Props {
+  initialDifficulty: MapKey;
+  initialQuality: GraphicsQuality;
+  initialSensitivity: number;
+  onReturnToTitle: () => void;
+}
+
+export default function Game3D({
+  initialDifficulty,
+  initialQuality,
+  initialSensitivity,
+  onReturnToTitle,
+}: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const engineRef = useRef<EngineHandle | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const [status, setStatus] = useState<Status>("title");
-  const [difficulty, setDifficulty] = useState<MapKey>("easy");
-  const [quality, setQuality] = useState<GraphicsQuality>("auto");
-  const [sensitivity, setSensitivity] = useState(1);
+  // Read by onCaught/onEscape callbacks, which capture state at engine init.
+  const timeLeftRef = useRef<number | null>(null);
+  const [status, setStatus] = useState<Status>("loading");
+  const [difficulty] = useState<MapKey>(initialDifficulty);
+  const [quality] = useState<GraphicsQuality>(initialQuality);
+  const [sensitivity] = useState(initialSensitivity);
   const [keysLeft, setKeysLeft] = useState<number | null>(null);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [danger, setDanger] = useState<Danger>("safe");
@@ -55,24 +69,19 @@ export default function Game3D() {
   const [hint, setHint] = useState(
     "Click to lock pointer · WASD to move · Shift to sprint"
   );
-  const [engineError, setEngineError] = useState<string | null>(null);
-  const [webglSupported] = useState(() => supportsWebGL());
+  const [runTimeLeft, setRunTimeLeft] = useState<number | null>(null);
+  const [isNewBest, setIsNewBest] = useState(false);
   const isMobile = useIsMobile();
 
   const selectedMap = MAPS[difficulty];
-  const difficultyOptions = useMemo(
-    () =>
-      MAP_KEYS.map(key => ({
-        key,
-        ...MAPS[key],
-      })),
-    []
-  );
 
   useEffect(() => {
     if (status !== "playing" || !containerRef.current) return;
     setKeysLeft(null);
     setTimeLeft(selectedMap.timer);
+    timeLeftRef.current = selectedMap.timer;
+    setRunTimeLeft(null);
+    setIsNewBest(false);
     setDanger("safe");
     setHidden(false);
     setDirector(INITIAL_DIRECTOR);
@@ -102,23 +111,47 @@ export default function Game3D() {
                 : "Key collected."
             );
           },
-          onCaught: () => setStatus("caught"),
-          onEscape: () => setStatus("escaped"),
+          onCaught: () => {
+            setRunTimeLeft(timeLeftRef.current);
+            recordRun(
+              difficulty,
+              "caught",
+              selectedMap.timer,
+              timeLeftRef.current ?? 0
+            );
+            setStatus("caught");
+          },
+          onEscape: () => {
+            const tl = timeLeftRef.current;
+            const { isNewBest: nb } = recordRun(
+              difficulty,
+              "escaped",
+              selectedMap.timer,
+              tl ?? 0
+            );
+            setRunTimeLeft(tl);
+            setIsNewBest(nb);
+            setStatus("escaped");
+          },
           onError: err => {
-            setEngineError(err.message || "Render loop crashed");
-            setStatus("title");
+            // eslint-disable-next-line no-console
+            console.error("Render loop crashed:", err);
+            onReturnToTitle();
           },
           onHint: setHint,
-          onTimer: setTimeLeft,
+          onTimer: t => {
+            timeLeftRef.current = t;
+            setTimeLeft(t);
+          },
           onDangerChange: setDanger,
           onHideChange: setHidden,
           onAIDirector: setDirector,
         },
       });
     } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      setEngineError(error.message);
-      setStatus("title");
+      // eslint-disable-next-line no-console
+      console.error("Failed to start engine:", err);
+      onReturnToTitle();
       return;
     }
     engineRef.current = handle;
@@ -194,95 +227,6 @@ export default function Game3D() {
     <div className="relative w-screen h-screen overflow-hidden bg-black text-white select-none">
       <div ref={containerRef} className="absolute inset-0" />
 
-      {status === "title" && (
-        <Overlay>
-          <h1 className="text-5xl font-bold tracking-widest mb-2">HUNTED</h1>
-          <p className="opacity-70 mb-6">
-            A browser-first horror escape with adaptive graphics
-          </p>
-          {!webglSupported && (
-            <div className="mb-4 px-4 py-2 bg-red-900/70 border border-red-500 rounded text-sm text-red-100 max-w-md text-center">
-              WebGL is unavailable in this browser. Enable hardware acceleration
-              or try another browser.
-            </div>
-          )}
-          {engineError && (
-            <div className="mb-4 px-4 py-2 bg-red-900/70 border border-red-500 rounded text-sm text-red-100 max-w-md text-center">
-              Render loop crashed: {engineError}
-            </div>
-          )}
-
-          <div className="grid gap-3 w-[min(92vw,720px)] sm:grid-cols-3 mb-5">
-            {difficultyOptions.map(option => (
-              <button
-                key={option.key}
-                type="button"
-                onClick={() => setDifficulty(option.key)}
-                className={`rounded border px-4 py-3 text-left transition-colors ${
-                  difficulty === option.key
-                    ? "border-red-400 bg-red-950/70"
-                    : "border-white/20 bg-black/50 hover:border-white/50"
-                }`}
-              >
-                <div className="font-semibold tracking-wide">{option.name}</div>
-                <div className="mt-1 text-xs opacity-70">{option.summary}</div>
-                <div className="mt-2 text-[11px] opacity-60">
-                  {formatTime(option.timer)} · danger {option.difficulty}/3
-                </div>
-              </button>
-            ))}
-          </div>
-
-          <div className="mb-6 grid w-[min(92vw,520px)] gap-3 rounded border border-white/15 bg-black/40 p-4 text-sm sm:grid-cols-2">
-            <label className="flex flex-col gap-1">
-              <span className="text-xs uppercase tracking-widest opacity-60">
-                Graphics
-              </span>
-              <select
-                value={quality}
-                onChange={e => setQuality(e.target.value as GraphicsQuality)}
-                className="rounded bg-black/80 border border-white/20 px-2 py-2"
-              >
-                <option value="auto">Auto</option>
-                <option value="low">Low latency</option>
-                <option value="mid">Balanced</option>
-                <option value="high">High atmosphere</option>
-              </select>
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-xs uppercase tracking-widest opacity-60">
-                Look sensitivity
-              </span>
-              <input
-                type="range"
-                min="0.5"
-                max="1.6"
-                step="0.1"
-                value={sensitivity}
-                onChange={e => setSensitivity(Number(e.target.value))}
-              />
-            </label>
-          </div>
-
-          <button
-            type="button"
-            disabled={!webglSupported}
-            onClick={() => {
-              setEngineError(null);
-              setStatus("loading");
-            }}
-            className="px-8 py-3 bg-red-700 hover:bg-red-600 disabled:opacity-40 disabled:hover:bg-red-700 transition-colors rounded font-semibold tracking-widest"
-          >
-            ENTER THE HOUSE
-          </button>
-          <p className="mt-6 text-xs opacity-60 max-w-xl text-center">
-            Find glowing keys, hide in closets with E, then reach the green exit
-            before the timer expires. A local AI director adapts pursuit pace
-            and hints entirely in your browser.
-          </p>
-        </Overlay>
-      )}
-
       {status === "loading" && (
         <LoadingScreen onReady={() => setStatus("playing")} />
       )}
@@ -343,28 +287,77 @@ export default function Game3D() {
 
       {status === "caught" && (
         <Overlay>
-          <h2 className="text-4xl font-bold text-red-500 mb-4">CAUGHT</h2>
-          <p className="text-4xl font-mono text-white/20 tracking-widest mb-2">
+          <h2 className="mb-2 text-4xl font-bold text-red-500">CAUGHT</h2>
+          <p className="mb-1 font-mono text-2xl tracking-widest text-white/20">
             PROCESS TERMINATED
           </p>
-          <p className="text-sm font-mono text-white/30 mb-6">
+          <p className="mb-6 font-mono text-xs text-white/25">
             {`0x${Math.floor(Math.random() * 0xffff)
               .toString(16)
               .toUpperCase()
               .padStart(4, "0")}`}
           </p>
-          <RestartButton onClick={() => setStatus("playing")} />
+          {runTimeLeft !== null && (
+            <p className="mb-4 text-sm opacity-50">
+              Survived {formatTime(selectedMap.timer - runTimeLeft)} of{" "}
+              {formatTime(selectedMap.timer)}
+            </p>
+          )}
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => setStatus("loading")}
+              className="rounded border border-red-500/40 bg-red-900/60 px-6 py-2 text-sm font-semibold tracking-widest transition-colors hover:bg-red-800/70"
+            >
+              Try Again
+            </button>
+            <button
+              type="button"
+              onClick={onReturnToTitle}
+              className="rounded border border-white/20 bg-black/60 px-6 py-2 text-sm tracking-widest transition-colors hover:border-white/40"
+            >
+              Menu
+            </button>
+          </div>
         </Overlay>
       )}
       {status === "escaped" && (
         <Overlay>
-          <h2 className="text-4xl font-bold text-green-400 mb-4">
+          <h2 className="mb-2 text-4xl font-bold text-green-400">
             YOU ESCAPED
           </h2>
-          <p className="mb-6 max-w-md text-center text-sm opacity-70">
-            Every key recovered. The exit opened just in time.
-          </p>
-          <RestartButton onClick={() => setStatus("playing")} />
+          {isNewBest && (
+            <p className="mb-1 font-mono text-xs uppercase tracking-widest text-yellow-400/80">
+              ★ New Best Time
+            </p>
+          )}
+          {runTimeLeft !== null && (
+            <p className="mb-1 text-sm opacity-70">
+              Time remaining: {formatTime(runTimeLeft)}
+            </p>
+          )}
+          {runTimeLeft !== null && (
+            <p className="mb-5 font-mono text-2xl text-white/80">
+              Score:{" "}
+              {Math.round(runTimeLeft * selectedMap.difficulty * 10)}
+            </p>
+          )}
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => setStatus("loading")}
+              className="rounded border border-green-500/40 bg-green-900/60 px-6 py-2 text-sm font-semibold tracking-widest transition-colors hover:bg-green-800/70"
+            >
+              Play Again
+            </button>
+            <button
+              type="button"
+              onClick={onReturnToTitle}
+              className="rounded border border-white/20 bg-black/60 px-6 py-2 text-sm tracking-widest transition-colors hover:border-white/40"
+            >
+              Menu
+            </button>
+          </div>
         </Overlay>
       )}
 
@@ -473,18 +466,6 @@ function Overlay({ children }: { children: ReactNode }) {
     <div className="absolute inset-0 flex flex-col items-center justify-center overflow-y-auto bg-black/75 px-4 py-8 backdrop-blur-sm">
       {children}
     </div>
-  );
-}
-
-function RestartButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="px-6 py-2 bg-red-700 hover:bg-red-600 rounded font-semibold tracking-wider"
-    >
-      TRY AGAIN
-    </button>
   );
 }
 
