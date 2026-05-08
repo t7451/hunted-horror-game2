@@ -38,8 +38,15 @@ interface NavigatorWithBattery extends Navigator {
   getBattery?: () => Promise<BatteryManager>;
 }
 
+// Force-disable the auto-detect path while diagnosing rendering issues.
+// `?nosave=1` in the URL is the escape hatch — never persisted to storage.
+const NO_SAVE =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).has("nosave");
+
 /** Auto-enable when battery <20% and not charging. Doesn't override explicit pref. */
 export async function autoDetectBatterySaver(): Promise<void> {
+  if (NO_SAVE) return;
   // Skip if user already chose
   let userChose = false;
   try { userChose = localStorage.getItem(STORAGE_KEY) !== null; } catch { /* ignore */ }
@@ -50,8 +57,18 @@ export async function autoDetectBatterySaver(): Promise<void> {
   try {
     const battery = await nav.getBattery();
     const evaluate = () => {
+      // Battery API: `level` is a fraction in [0, 1], NOT a 0–100 percent.
+      // Comparing against 0.2 ≈ "below 20%". Comparing against 20 here
+      // would always be true and would falsely engage battery saver.
       const shouldSave = battery.level < 0.2 && !battery.charging;
       if (shouldSave !== enabled) {
+        // eslint-disable-next-line no-console
+        console.log("[BATTERY SAVER]", {
+          triggered: shouldSave,
+          level: battery.level,
+          levelPct: (battery.level * 100).toFixed(1) + "%",
+          charging: battery.charging,
+        });
         enabled = shouldSave;
         autoDetected = true;
         subscribers.forEach(cb => cb(enabled));

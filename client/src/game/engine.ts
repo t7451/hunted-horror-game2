@@ -55,6 +55,15 @@ import { createAIDirector, type DirectorUpdate } from "./aiDirector";
 import { findPath } from "./pathfinding";
 import { TheObserver, disposeObserverCache } from "../world/TheObserver";
 import { Haptics } from "../util/haptics";
+import { dumpLightingState } from "../util/lightingDebug";
+
+// Debug / safety URL flags — read once at module load. ?lightdebug=1 turns
+// on the per-2s lighting state dump (see lightingDebug.ts). ?nosave=1 force-
+// disables the battery-saver auto-detect path while we're verifying the
+// black-screen hotfix.
+const LIGHT_DEBUG =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).has("lightdebug");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rendering backend for HUNTED BY CLAUDE.
@@ -1862,6 +1871,62 @@ export function startGame(
   let raf = 0;
   let disposed = false;
 
+  // ── Scene canary ──────────────────────────────────────────────────────────
+  // Reads the center pixel ~1Hz. If we get five consecutive near-black
+  // samples (5 seconds of darkness), inject an emergency AmbientLight and
+  // force the flashlight on. Defends against future lighting regressions
+  // making the game permanently unplayable.
+  let blackFrameCount = 0;
+  let nextCanaryAt = 0;
+  let emergencyAmbientInjected = false;
+  const CANARY_PIXEL_BUFFER = new Uint8Array(4);
+
+  function checkSceneCanary(now: number): void {
+    if (now < nextCanaryAt) return;
+    nextCanaryAt = now + 1000;
+    if (emergencyAmbientInjected) return;
+    try {
+      const gl = renderer.getContext();
+      const w = renderer.domElement.width;
+      const h = renderer.domElement.height;
+      gl.readPixels(
+        Math.floor(w / 2),
+        Math.floor(h / 2),
+        1,
+        1,
+        gl.RGBA,
+        gl.UNSIGNED_BYTE,
+        CANARY_PIXEL_BUFFER
+      );
+    } catch {
+      // readPixels can throw mid-context-loss; treat as "skip this sample".
+      return;
+    }
+    const r = CANARY_PIXEL_BUFFER[0];
+    const g = CANARY_PIXEL_BUFFER[1];
+    const b = CANARY_PIXEL_BUFFER[2];
+    const luminance = r * 0.299 + g * 0.587 + b * 0.114;
+
+    if (luminance < 4) {
+      blackFrameCount++;
+      if (blackFrameCount >= 5) {
+        // 5 consecutive near-black samples — this is broken, bail us out.
+        // eslint-disable-next-line no-console
+        console.error(
+          "[CANARY] Scene rendering near-black for 5s. Injecting emergency ambient."
+        );
+        const emergency = new THREE.AmbientLight(0xffffff, 0.4);
+        emergency.name = "emergency_ambient";
+        scene.add(emergency);
+        flashlight.light.visible = true;
+        flashlight.light.intensity = Math.max(flashlight.light.intensity, 1.5);
+        emergencyAmbientInjected = true;
+      }
+    } else {
+      blackFrameCount = 0;
+    }
+  }
+
   function tick() {
     if (disposed) return;
     try {
@@ -1869,6 +1934,9 @@ export function startGame(
       adaptiveQuality.tick();
       const nowMs = performance.now();
       lightCuller.update(camera.position.x, camera.position.z, nowMs);
+      if (LIGHT_DEBUG) {
+        dumpLightingState(scene, camera, renderer);
+      }
       if (nowMs - lastPropCullAt > 500) {
         lastPropCullAt = nowMs;
         props.cullByDistance(camera.position.x, camera.position.z);
@@ -2193,6 +2261,7 @@ export function startGame(
         if (postfx) postfx.render(dt);
         else renderer.render(scene, camera);
       }
+      checkSceneCanary(performance.now());
       perf.end(renderer);
     } catch (err) {
       // A throw inside the RAF callback would otherwise repeat every frame
