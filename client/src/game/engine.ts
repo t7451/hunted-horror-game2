@@ -507,7 +507,21 @@ export function startGame(
     });
   }
 
-  // Doors
+  // Doors — each door is a hinge group rotated around its open-edge so the
+  // door panel pivots realistically. Per-frame the engine sweeps each door's
+  // currentRot toward targetRot, where target is set by tickDoorSwings()
+  // based on player proximity. When the door starts opening or closing it
+  // fires a spatial door_creak from its world position.
+  type DoorState = {
+    group: THREE.Group;
+    centerX: number;
+    centerZ: number;
+    opensNorthSouth: boolean;
+    currentRot: number; // 0 = closed (across opening), π/2 = open
+    targetRot: number;
+    creakUntil: number; // perf.now() < creakUntil suppresses re-creak
+  };
+  const doorStates: DoorState[] = [];
   const doorGroup = new THREE.Group();
   parsed.doors.forEach(d => {
     const door = new THREE.Mesh(doorGeo, doorMat);
@@ -516,20 +530,72 @@ export function startGame(
     const wallWest = isBlocked(parsed, d.x - 1, d.z);
     const wallEast = isBlocked(parsed, d.x + 1, d.z);
     const opensNorthSouth = wallWest && wallEast;
-    door.position.set(
-      d.x * TILE_SIZE + TILE_SIZE / 2,
-      (WALL_HEIGHT * 0.92) / 2,
-      d.z * TILE_SIZE + TILE_SIZE / 2
-    );
+    const centerX = d.x * TILE_SIZE + TILE_SIZE / 2;
+    const centerZ = d.z * TILE_SIZE + TILE_SIZE / 2;
+
+    // Hinge group sits at the doorframe edge; the door panel is offset
+    // half its width in the open direction so rotation around Y pivots the
+    // door around the hinge rather than the panel center.
+    const hinge = new THREE.Group();
     if (opensNorthSouth) {
+      // Door panel runs along Z; hinge on the +X side of the opening.
+      hinge.position.set(centerX + TILE_SIZE / 2, 0, centerZ);
+      door.position.set(-TILE_SIZE / 2, (WALL_HEIGHT * 0.92) / 2, 0);
       door.rotation.y = Math.PI / 2;
-      door.position.x -= TILE_SIZE * 0.36;
     } else {
-      door.position.z -= TILE_SIZE * 0.36;
+      // Door panel runs along X; hinge on the +Z side of the opening.
+      hinge.position.set(centerX, 0, centerZ + TILE_SIZE / 2);
+      door.position.set(0, (WALL_HEIGHT * 0.92) / 2, -TILE_SIZE / 2);
     }
-    doorGroup.add(door);
+    hinge.add(door);
+    doorGroup.add(hinge);
+
+    doorStates.push({
+      group: hinge,
+      centerX,
+      centerZ,
+      opensNorthSouth,
+      currentRot: 0,
+      targetRot: 0,
+      creakUntil: 0,
+    });
   });
   scene.add(doorGroup);
+
+  // Auto-open doors near the player. Slow swing speeds give a horror-house
+  // feel; OPEN_SPEED < CLOSE_SPEED so doors close just a touch faster than
+  // they open (creates a subtle "behind-you" pressure).
+  const DOOR_OPEN_RANGE = 2.4;
+  const DOOR_OPEN_SPEED = 2.4; // rad/s
+  const DOOR_CLOSE_SPEED = 1.6; // rad/s
+  function tickDoorSwings(dt: number): void {
+    const now = performance.now();
+    for (const door of doorStates) {
+      const dx = camera.position.x - door.centerX;
+      const dz = camera.position.z - door.centerZ;
+      const dist = Math.hypot(dx, dz);
+      const desired = dist < DOOR_OPEN_RANGE ? Math.PI / 2 : 0;
+      if (desired !== door.targetRot) {
+        door.targetRot = desired;
+        // Fire one creak when the target flips. Cooldown prevents the door
+        // from re-creaking if the player paces back and forth on the edge.
+        if (now > door.creakUntil) {
+          audio.playAt("door_creak", door.centerX, 1.2, door.centerZ);
+          door.creakUntil = now + 1500;
+        }
+      }
+      const delta = door.targetRot - door.currentRot;
+      if (Math.abs(delta) < 0.001) continue;
+      const speed = delta > 0 ? DOOR_OPEN_SPEED : DOOR_CLOSE_SPEED;
+      const step = Math.sign(delta) * Math.min(Math.abs(delta), speed * dt);
+      door.currentRot += step;
+      // North/south doors hinge on the +X side; rotating +Y opens "into"
+      // the room behind the hinge (negative direction works visually).
+      door.group.rotation.y = door.opensNorthSouth
+        ? door.currentRot
+        : -door.currentRot;
+    }
+  }
 
   // Keys (with little point lights). Each uncollected key emits a faint
   // looping spatial sparkle once audio is unlocked; the handle is tracked
@@ -1642,6 +1708,7 @@ export function startGame(
       audio.setHeartbeatProximity(enemyMesh.visible ? enemyDist : 999);
       audio.tickAmbient(dt);
       audio.update(dt);
+      tickDoorSwings(dt);
       dust?.update(dt, camera);
       // Footsteps — player + enemy. Both fire on actual horizontal movement
       // distance, with surface variants picked from the tile char under each
