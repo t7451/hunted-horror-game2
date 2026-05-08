@@ -37,8 +37,15 @@ type Slot = {
   yOffset: number;
 };
 
+const PROP_CULL_DIST = 32;
+
+type PlacedInstance = { x: number; z: number; matrix: THREE.Matrix4 };
+
 export class PropSpawner {
   private readonly slots = new Map<PropKind, Slot>();
+  // Per-kind list of placed instances; cullByDistance compacts the live
+  // matrix list to those within PROP_CULL_DIST every few hundred ms.
+  private readonly placed = new Map<PropKind, PlacedInstance[]>();
 
   constructor(private readonly scene: THREE.Scene) {}
 
@@ -81,6 +88,36 @@ export class PropSpawner {
     slot.mesh.setMatrixAt(slot.count, m);
     slot.count++;
     slot.mesh.count = slot.count;
+    let list = this.placed.get(kind);
+    if (!list) {
+      list = [];
+      this.placed.set(kind, list);
+    }
+    list.push({ x: p.x, z: p.z, matrix: m.clone() });
+  }
+
+  /**
+   * Pack only nearby instances into the InstancedMesh's live range.
+   * Distant props become invisible without being destroyed, so when the
+   * player wanders back the original positions still exist.
+   */
+  cullByDistance(playerX: number, playerZ: number): void {
+    const cullSq = PROP_CULL_DIST * PROP_CULL_DIST;
+    for (const [kind, instances] of Array.from(this.placed.entries())) {
+      const slot = this.slots.get(kind);
+      if (!slot) continue;
+      let visible = 0;
+      for (let i = 0; i < instances.length; i++) {
+        const dx = instances[i].x - playerX;
+        const dz = instances[i].z - playerZ;
+        if (dx * dx + dz * dz <= cullSq) {
+          slot.mesh.setMatrixAt(visible, instances[i].matrix);
+          visible++;
+        }
+      }
+      slot.mesh.count = visible;
+      slot.mesh.instanceMatrix.needsUpdate = true;
+    }
   }
 
   /** Flush instance matrices after a batch of `place` calls. */

@@ -2,6 +2,11 @@ import { useState } from "react";
 import { MAPS, MAP_KEYS, type MapKey } from "@shared/maps";
 import { type GraphicsQuality } from "../util/device";
 import { loadStats } from "../hooks/useGameStats";
+import {
+  getDailyId,
+  getDailyResult,
+  shareString,
+} from "../hooks/useDailyChallenge";
 
 function formatTime(s: number) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -12,6 +17,7 @@ interface Props {
     difficulty: MapKey;
     quality: GraphicsQuality;
     sensitivity: number;
+    daily?: boolean;
   }) => void;
   webglSupported: boolean;
   volume: number;
@@ -139,6 +145,13 @@ export function TitleScreen({
       >
         ENTER THE HOUSE
       </button>
+
+      <DailyChallengeButton
+        onEnter={onEnter}
+        quality={quality}
+        sensitivity={sensitivity}
+        webglSupported={webglSupported}
+      />
       <p className="mt-6 max-w-xl text-center text-xs opacity-60">
         Find glowing keys · hide in closets with E · reach the green exit before
         time runs out. Your browser runs the AI director locally.
@@ -209,6 +222,64 @@ function BestTimesDisplay() {
       <div className="text-[10px] text-white/25">
         {stats.escapedCount} escaped · {stats.caughtCount} caught
       </div>
+    </div>
+  );
+}
+
+function DailyChallengeButton({
+  onEnter,
+  quality,
+  sensitivity,
+  webglSupported,
+}: {
+  onEnter: Props["onEnter"];
+  quality: GraphicsQuality;
+  sensitivity: number;
+  webglSupported: boolean;
+}) {
+  const result = getDailyResult();
+  const id = getDailyId();
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    if (!result) return;
+    try {
+      await navigator.clipboard?.writeText(shareString(result));
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable */
+    }
+  };
+
+  return (
+    <div className="mt-3 flex flex-col items-center gap-2">
+      <button
+        type="button"
+        disabled={!!result || !webglSupported}
+        onClick={() =>
+          onEnter({
+            difficulty: "normal",
+            quality,
+            sensitivity,
+            daily: true,
+          })
+        }
+        className="w-[min(92vw,520px)] rounded border border-amber-500/40 bg-amber-950/40 px-4 py-3 text-sm tracking-widest transition-colors hover:bg-amber-900/50 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        {result
+          ? `Daily ${result.result === "escaped" ? "✓ escaped" : "✗ caught"} (${formatTime(result.timeUsed)})`
+          : `Today's Challenge — ${id}`}
+      </button>
+      {result && (
+        <button
+          type="button"
+          onClick={copy}
+          className="text-xs underline opacity-50 transition-opacity hover:opacity-80"
+        >
+          {copied ? "Copied" : "Copy share text"}
+        </button>
+      )}
     </div>
   );
 }
