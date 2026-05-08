@@ -3,6 +3,15 @@
 //   W = wall, D = door, S = player spawn, X = exit, K = key,
 //   H = hiding spot, E = enemy (Observer) spawn, P = pickup, '.' = floor.
 
+export type ColorProfile = {
+  fogColor: number;
+  fogDensity: number;
+  ambientColor: number;
+  ambientIntensity: number;
+  hemiSky: number;
+  hemiGround: number;
+};
+
 export type MapDef = {
   name: string;
   summary: string;
@@ -13,6 +22,8 @@ export type MapDef = {
   raw: string[];
   /** Tile-coord waypoints the Observer cycles through when not chasing. */
   patrolWaypoints: { x: number; z: number }[];
+  /** Per-map color identity: fog, ambient, hemisphere fill. */
+  colorProfile: ColorProfile;
 };
 
 export const TILE_SIZE = 4;
@@ -60,6 +71,15 @@ export const MAPS: Record<MapKey, MapDef> = {
       { x: 14, z: 12 },
       { x: 6, z: 12 },
     ],
+    // Warm amber, oil-lamp glow.
+    colorProfile: {
+      fogColor: 0x18120a,
+      fogDensity: 0.038,
+      ambientColor: 0x2a1a10,
+      ambientIntensity: 0.18,
+      hemiSky: 0x4a3018,
+      hemiGround: 0x180c04,
+    },
   },
   normal: {
     name: "The Mill",
@@ -98,6 +118,15 @@ export const MAPS: Record<MapKey, MapDef> = {
       { x: 14, z: 11 },
       { x: 5, z: 11 },
     ],
+    // Cold steel blue, fluorescent.
+    colorProfile: {
+      fogColor: 0x0e1418,
+      fogDensity: 0.046,
+      ambientColor: 0x101820,
+      ambientIntensity: 0.14,
+      hemiSky: 0x26364f,
+      hemiGround: 0x080a10,
+    },
   },
   hard: {
     name: "The Basement",
@@ -138,6 +167,15 @@ export const MAPS: Record<MapKey, MapDef> = {
       { x: 5, z: 17 },
       { x: 24, z: 17 },
     ],
+    // Sickly red-black boiler menace.
+    colorProfile: {
+      fogColor: 0x0a0808,
+      fogDensity: 0.058,
+      ambientColor: 0x180808,
+      ambientIntensity: 0.10,
+      hemiSky: 0x3a0a0a,
+      hemiGround: 0x100404,
+    },
   },
 };
 
