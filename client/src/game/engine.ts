@@ -109,6 +109,15 @@ export type EngineHandle = {
   unlockAudio: () => boolean;
   setSensitivity: (s: number) => void;
   getMinimapState: () => MinimapState;
+  getObserverIndicatorState: () => ObserverIndicatorState;
+};
+
+export type ObserverIndicatorState = {
+  /** Yaw to the Observer relative to camera forward (0 = ahead, ±π = behind). */
+  angleRelative: number;
+  /** 0..1 visibility: 1 = full threat, 0 = invisible. Edge-of-screen UI only
+   *  shows when |angleRelative| > 0.9 rad (off-screen) and intensity > 0.05. */
+  intensity: number;
 };
 
 export type MinimapState = {
@@ -1796,5 +1805,26 @@ export function startGame(
       tileSize: TILE_SIZE,
       tiles: parsed.tiles,
     }),
+    getObserverIndicatorState: (): ObserverIndicatorState => {
+      if (!enemyMesh.visible) return { angleRelative: 0, intensity: 0 };
+      const dx = enemyMesh.position.x - camera.position.x;
+      const dz = enemyMesh.position.z - camera.position.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist > 16) return { angleRelative: 0, intensity: 0 };
+      // World-space yaw to Observer; camera looks down -Z when yaw=0, so
+      // forward = (-sin(yaw), -cos(yaw)). atan2(dx, -dz) gives the angle of
+      // the Observer measured from -Z, which we then offset by yaw to get
+      // the relative angle. Wrap to [-π, π].
+      const observerYaw = Math.atan2(dx, -dz);
+      let rel = observerYaw - yaw;
+      while (rel > Math.PI) rel -= Math.PI * 2;
+      while (rel < -Math.PI) rel += Math.PI * 2;
+      // Intensity rises sharply under 8m. Chasing (close enough that
+      // observer_stalk plays) bumps the indicator to full strength.
+      const distScalar = Math.max(0, Math.min(1, 1 - dist / 16));
+      const chasing = dist < 9;
+      const intensity = distScalar * (chasing ? 1 : 0.6);
+      return { angleRelative: rel, intensity };
+    },
   };
 }

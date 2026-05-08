@@ -15,6 +15,7 @@ import LoadingScreen from "../ui/LoadingScreen";
 import { recordRun } from "../hooks/useGameStats";
 import { getDailySeed, saveDailyResult } from "../hooks/useDailyChallenge";
 import { Minimap } from "../ui/Minimap";
+import { ObserverIndicator } from "../ui/ObserverIndicator";
 import { PauseMenu } from "../ui/PauseMenu";
 import { MobilePauseButton } from "../ui/MobilePauseButton";
 import { PortraitGate } from "../ui/PortraitGate";
@@ -427,6 +428,7 @@ export default function Game3D({
           )}
           {!showTutorial && <MobilePauseButton onPause={() => setPaused(true)} />}
           <Minimap engine={engineRef.current} />
+          <ObserverIndicator engine={engineRef.current} />
         </>
       )}
 
