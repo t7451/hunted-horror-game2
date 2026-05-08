@@ -70,7 +70,13 @@ export type VirtualInput = {
 };
 
 export type EngineEvents = {
-  onReady?: (info: { keys: number; timer: number; mapName: string }) => void;
+  onReady?: (info: {
+    keys: number;
+    timer: number;
+    mapName: string;
+    notesTotal: number;
+    batteriesTotal: number;
+  }) => void;
   onKeyPickup?: (remaining: number) => void;
   onCaught?: () => void;
   onTimeUp?: () => void;
@@ -81,6 +87,10 @@ export type EngineEvents = {
   onDangerChange?: (danger: "safe" | "near" | "critical") => void;
   onHideChange?: (hidden: boolean) => void;
   onAIDirector?: (update: DirectorUpdate) => void;
+  /** Flashlight charge 0..1 (engine drains over time, batteries refill). */
+  onBatteryChange?: (charge: number) => void;
+  /** Notes collected / total — refreshed when picked up. */
+  onNotesChange?: (collected: number, total: number) => void;
 };
 
 export type EngineHandle = {
@@ -443,8 +453,8 @@ export function startGame(
   const decals = new DecalSpawner(scene);
   const decalCount =
     quality === "low"
-      ? Math.min(30, Math.max(8, Math.floor(parsed.walls.length * 0.15)))
-      : Math.min(80, Math.max(20, Math.floor(parsed.walls.length * 0.4)));
+      ? Math.min(50, Math.max(12, Math.floor(parsed.walls.length * 0.22)))
+      : Math.min(140, Math.max(36, Math.floor(parsed.walls.length * 0.6)));
   for (let i = 0; i < decalCount; i++) {
     const w = parsed.walls[Math.floor(Math.random() * parsed.walls.length)];
     const wx = w.x * TILE_SIZE + TILE_SIZE / 2;
@@ -553,9 +563,63 @@ export function startGame(
     scene.add(closet);
   });
 
-  // Prop dressing — chairs/tables/lamps/shelves dropped into floor tiles
-  // that aren't blocked, walls, doors, keys, hides, or the exit. One
-  // InstancedMesh per kind so total draw-call cost is O(kinds), not
+  // ── Pickups: batteries (refill flashlight) and notes (lore pages) ─────────
+  const batteryGroup = new THREE.Group();
+  const batteryMeshes: THREE.Mesh[] = [];
+  const batteryMat = new THREE.MeshStandardMaterial({
+    color: 0x66ff88,
+    emissive: 0x114422,
+    emissiveIntensity: 0.7,
+    metalness: 0.6,
+    roughness: 0.35,
+  });
+  const batteryGeo = new THREE.CylinderGeometry(
+    0.13,
+    0.13,
+    0.32,
+    quality === "low" ? 8 : 16
+  );
+  parsed.batteries.forEach(b => {
+    const m = new THREE.Mesh(batteryGeo, batteryMat);
+    m.castShadow = shadowsEnabled;
+    m.position.set(
+      b.x * TILE_SIZE + TILE_SIZE / 2,
+      0.7,
+      b.z * TILE_SIZE + TILE_SIZE / 2
+    );
+    batteryGroup.add(m);
+    batteryMeshes.push(m);
+  });
+  scene.add(batteryGroup);
+
+  const noteGroup = new THREE.Group();
+  const noteMeshes: THREE.Mesh[] = [];
+  const noteMat = new THREE.MeshStandardMaterial({
+    color: 0xf2e0b0,
+    emissive: 0x4a3a18,
+    emissiveIntensity: 0.5,
+    roughness: 0.8,
+    metalness: 0.0,
+  });
+  const noteGeo = new THREE.BoxGeometry(0.3, 0.02, 0.22);
+  parsed.notes.forEach(n => {
+    const m = new THREE.Mesh(noteGeo, noteMat);
+    m.castShadow = shadowsEnabled;
+    m.position.set(
+      n.x * TILE_SIZE + TILE_SIZE / 2,
+      0.85,
+      n.z * TILE_SIZE + TILE_SIZE / 2
+    );
+    noteGroup.add(m);
+    noteMeshes.push(m);
+  });
+  scene.add(noteGroup);
+
+  const totalNotes = noteMeshes.length;
+  let notesCollected = 0;
+
+  // Prop dressing — theme-weighted prop selection over the full kind set.
+  // One InstancedMesh per kind so total draw-call cost is O(kinds), not
   // O(props). Seed is deterministic per map for a stable look.
   const props = new PropSpawner(scene);
   const blocked = new Set<string>();
@@ -563,38 +627,106 @@ export function startGame(
   for (const d of parsed.doors) blocked.add(`${d.x},${d.z}`);
   for (const k of parsed.keys) blocked.add(`${k.x},${k.z}`);
   for (const h of parsed.hides) blocked.add(`${h.x},${h.z}`);
+  for (const b of parsed.batteries) blocked.add(`${b.x},${b.z}`);
+  for (const n of parsed.notes) blocked.add(`${n.x},${n.z}`);
   if (parsed.exit) blocked.add(`${parsed.exit.x},${parsed.exit.z}`);
   blocked.add(`${parsed.spawn.x},${parsed.spawn.z}`);
 
   const propRng = mulberry32((options.seed ?? 0x484e54) ^ 0x484e54);
-  const propKinds: PropKind[] = ["chair", "table", "lamp", "shelf"];
-  const propWeights = [0.4, 0.2, 0.25, 0.15];
+  // Theme-weighted prop tables. Order matches kinds[] for cumulative draw.
+  const PROP_KIND_ORDER: PropKind[] = [
+    "chair",
+    "table",
+    "lamp",
+    "shelf",
+    "crate",
+    "barrel",
+    "bookstack",
+    "painting",
+    "rug",
+    "clutter",
+  ];
+  const PROP_WEIGHTS_BY_THEME: Record<string, number[]> = {
+    // chair, table, lamp, shelf, crate, barrel, bookstack, painting, rug, clutter
+    kitchen:   [0.20, 0.14, 0.10, 0.10, 0.05, 0.04, 0.10, 0.08, 0.07, 0.12],
+    house:     [0.10, 0.08, 0.10, 0.08, 0.16, 0.16, 0.04, 0.06, 0.04, 0.18],
+    nightmare: [0.06, 0.05, 0.06, 0.05, 0.18, 0.20, 0.04, 0.04, 0.02, 0.30],
+  };
+  const propWeights =
+    PROP_WEIGHTS_BY_THEME[mapDef.theme] ?? PROP_WEIGHTS_BY_THEME.kitchen;
+  // Floor-only kinds skip wall-adjacent rules; "painting" needs a wall.
+  const wallAdjacent = (gx: number, gz: number): { dx: number; dz: number } | null => {
+    const dirs = [
+      { dx: 1, dz: 0 },
+      { dx: -1, dz: 0 },
+      { dx: 0, dz: 1 },
+      { dx: 0, dz: -1 },
+    ];
+    for (const d of dirs) {
+      if (isBlocked(parsed, gx + d.dx, gz + d.dz)) return d;
+    }
+    return null;
+  };
+  // Per-room budget: we don't have proper room volumes yet, so cap globally.
+  const PROP_DENSITY = 0.22; // up from 0.14
+  const MAX_LAMP_LIGHTS = 8;
+  let lampLightCount = 0;
   for (let gz = 0; gz < parsed.height; gz++) {
     for (let gx = 0; gx < parsed.width; gx++) {
       if (blocked.has(`${gx},${gz}`)) continue;
-      // ~14% of free tiles get a prop. Dense silhouettes make doorways and
-      // corners feel less readable without becoming a furniture warehouse.
-      if (propRng() > 0.14) continue;
+      if (propRng() > PROP_DENSITY) continue;
       const r = propRng();
       let acc = 0;
-      let picked: PropKind = "chair";
-      for (let i = 0; i < propKinds.length; i++) {
+      let picked: PropKind = "clutter";
+      for (let i = 0; i < PROP_KIND_ORDER.length; i++) {
         acc += propWeights[i];
         if (r <= acc) {
-          picked = propKinds[i];
+          picked = PROP_KIND_ORDER[i];
           break;
         }
       }
+      const adj = wallAdjacent(gx, gz);
+      // Painting requires a wall to mount against; if none, fall back to clutter.
+      if (picked === "painting" && !adj) picked = "clutter";
       const cx = gx * TILE_SIZE + TILE_SIZE / 2;
       const cz = gz * TILE_SIZE + TILE_SIZE / 2;
       const jitter = TILE_SIZE * 0.2;
-      const px = cx + (propRng() - 0.5) * jitter;
-      const pz = cz + (propRng() - 0.5) * jitter;
-      props.place(
-        picked,
-        new THREE.Vector3(px, 0, pz),
-        propRng() * Math.PI * 2
-      );
+      let px = cx + (propRng() - 0.5) * jitter;
+      let pz = cz + (propRng() - 0.5) * jitter;
+      let rotY = propRng() * Math.PI * 2;
+      if (picked === "painting" && adj) {
+        // Push painting flush against the wall and orient it inward.
+        px = cx + adj.dx * (TILE_SIZE / 2 - 0.05);
+        pz = cz + adj.dz * (TILE_SIZE / 2 - 0.05);
+        rotY = Math.atan2(-adj.dx, -adj.dz);
+      } else if (picked === "shelf" || picked === "bookstack") {
+        // Push storage against a wall when one is adjacent.
+        if (adj) {
+          px = cx + adj.dx * (TILE_SIZE / 2 - 0.25);
+          pz = cz + adj.dz * (TILE_SIZE / 2 - 0.25);
+          rotY = Math.atan2(-adj.dx, -adj.dz);
+        }
+      }
+      props.place(picked, new THREE.Vector3(px, 0, pz), rotY);
+      // Cheap practical light on a small subset of lamps.
+      if (
+        picked === "lamp" &&
+        quality !== "low" &&
+        lampLightCount < MAX_LAMP_LIGHTS
+      ) {
+        const light = createPractical({
+          position: new THREE.Vector3(px, 1.55, pz),
+          color: 0xffb066,
+          intensity: 0.55,
+          distance: 5,
+        });
+        scene.add(light);
+        lightCuller.register(light);
+        if (propRng() < 0.35) {
+          flickers.add(new LightFlicker(light, 0.55, 0.15, 6));
+        }
+        lampLightCount++;
+      }
     }
   }
   props.commit();
@@ -747,6 +879,15 @@ export function startGame(
   let dangerState: "safe" | "near" | "critical" = "safe";
   let isHiding = false;
   let timeLeft = mapDef.timer;
+  // Flashlight battery — drains while flashlight is on. Pickup batteries
+  // (parsed.batteries) refill it. Drains slow enough that a full map needs
+  // ~3 batteries to keep the cone bright; running out doesn't kill, just
+  // dims the world toward unplayable.
+  let batteryCharge = 1;
+  // Drain rate: 100% → 0% over ~5 minutes of continuous "on" time.
+  // Mapped per-second (1/300) so dt-scaled in tick().
+  const BATTERY_DRAIN_PER_SEC = 1 / 300;
+  let lastBatteryReportPct = 100;
   let lastTimerSecond = Math.ceil(timeLeft);
   let isSprinting = false;
   let isMoving = false;
@@ -816,8 +957,12 @@ export function startGame(
     keys: totalKeys,
     timer: mapDef.timer,
     mapName: mapDef.name,
+    notesTotal: totalNotes,
+    batteriesTotal: batteryMeshes.length,
   });
   events.onTimer?.(lastTimerSecond);
+  events.onNotesChange?.(notesCollected, totalNotes);
+  events.onBatteryChange?.(1);
 
   function emitDirector(event: Parameters<typeof aiDirector.trigger>[0]) {
     const enemyDistance = enemyMesh.visible
@@ -1133,6 +1278,39 @@ export function startGame(
         emitDirector("keyPickup");
       }
     }
+    // Battery pickups — refill flashlight charge.
+    for (let i = batteryMeshes.length - 1; i >= 0; i--) {
+      const b = batteryMeshes[i];
+      const dx = b.position.x - camera.position.x;
+      const dz = b.position.z - camera.position.z;
+      if (dx * dx + dz * dz < 1.4 * 1.4) {
+        batteryGroup.remove(b);
+        batteryMeshes.splice(i, 1);
+        batteryCharge = Math.min(1, batteryCharge + 0.6);
+        flashlight.setBattery(batteryCharge);
+        events.onBatteryChange?.(batteryCharge);
+        events.onHint?.("Battery picked up. Flashlight restored.");
+        Haptics.pickup();
+      }
+    }
+    // Note pickups — increment counter, hint progress.
+    for (let i = noteMeshes.length - 1; i >= 0; i--) {
+      const n = noteMeshes[i];
+      const dx = n.position.x - camera.position.x;
+      const dz = n.position.z - camera.position.z;
+      if (dx * dx + dz * dz < 1.4 * 1.4) {
+        noteGroup.remove(n);
+        noteMeshes.splice(i, 1);
+        notesCollected++;
+        events.onNotesChange?.(notesCollected, totalNotes);
+        events.onHint?.(
+          notesCollected === totalNotes
+            ? "All notes collected."
+            : `Note ${notesCollected}/${totalNotes}.`
+        );
+        Haptics.pickup();
+      }
+    }
     if (parsed.exit) {
       const ex = parsed.exit.x * TILE_SIZE + TILE_SIZE / 2;
       const ez = parsed.exit.z * TILE_SIZE + TILE_SIZE / 2;
@@ -1352,6 +1530,32 @@ export function startGame(
       for (const k of keyMeshes) {
         k.rotation.y += dt * 2;
         k.position.y = 0.9 + Math.sin(t * 2 + k.position.x) * 0.08;
+      }
+      // Hovering & rotating pickups for batteries / notes — same vibe as keys.
+      for (const b of batteryMeshes) {
+        b.rotation.y += dt * 1.6;
+        b.position.y = 0.7 + Math.sin(t * 2.5 + b.position.x) * 0.06;
+      }
+      for (const n of noteMeshes) {
+        n.rotation.y += dt * 1.2;
+        n.position.y = 0.85 + Math.sin(t * 2.2 + n.position.z) * 0.05;
+      }
+
+      // Flashlight battery drain — only while the flashlight is on.
+      if (flashlight.isOn() && batteryCharge > 0) {
+        batteryCharge = Math.max(0, batteryCharge - BATTERY_DRAIN_PER_SEC * dt);
+        flashlight.setBattery(batteryCharge);
+        const pct = Math.round(batteryCharge * 100);
+        // Throttle event emission to 1% changes so React state churn is minimal.
+        if (pct !== lastBatteryReportPct) {
+          lastBatteryReportPct = pct;
+          events.onBatteryChange?.(batteryCharge);
+          if (pct === 25 || pct === 10) {
+            events.onHint?.(`Flashlight battery at ${pct}%.`);
+          } else if (pct === 0) {
+            events.onHint?.("Flashlight is dead. Find a battery.");
+          }
+        }
       }
 
       flickers.update(dt);

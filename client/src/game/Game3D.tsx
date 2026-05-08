@@ -85,6 +85,11 @@ export default function Game3D({
   const [showTutorial, setShowTutorial] = useState(() => shouldShowTutorial());
   const [keysLeft, setKeysLeft] = useState<number | null>(null);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const [batteryPct, setBatteryPct] = useState<number>(100);
+  const [notes, setNotes] = useState<{ collected: number; total: number }>({
+    collected: 0,
+    total: 0,
+  });
   const [danger, setDanger] = useState<Danger>("safe");
   const [hidden, setHidden] = useState(false);
   const [director, setDirector] = useState<DirectorUpdate>(INITIAL_DIRECTOR);
@@ -166,6 +171,8 @@ export default function Game3D({
           onReady: info => {
             setKeysLeft(info.keys);
             setTimeLeft(info.timer);
+            setNotes({ collected: 0, total: info.notesTotal });
+            setBatteryPct(100);
             setHint(
               isMobile
                 ? `${info.mapName}: collect keys, then reach the green exit. Drag to look.`
@@ -180,6 +187,9 @@ export default function Game3D({
                 : "Key collected."
             );
           },
+          onBatteryChange: charge =>
+            setBatteryPct(Math.max(0, Math.min(100, Math.round(charge * 100)))),
+          onNotesChange: (collected, total) => setNotes({ collected, total }),
           onCaught: () => {
             const tl = timeLeftRef.current ?? 0;
             const used = Math.round(selectedMap.timer - tl);
@@ -355,6 +365,36 @@ export default function Game3D({
             <div>
               Time left: {timeLeft === null ? "—" : formatTime(timeLeft)}
             </div>
+            <div className="flex items-center gap-2">
+              <span>Battery:</span>
+              <span
+                className={`inline-block h-2 w-20 overflow-hidden rounded border ${
+                  batteryPct < 15
+                    ? "border-red-400/70"
+                    : batteryPct < 35
+                      ? "border-yellow-400/70"
+                      : "border-white/30"
+                }`}
+                aria-label={`Flashlight battery ${batteryPct}%`}
+              >
+                <span
+                  className={`block h-full ${
+                    batteryPct < 15
+                      ? "bg-red-500"
+                      : batteryPct < 35
+                        ? "bg-yellow-400"
+                        : "bg-emerald-400"
+                  }`}
+                  style={{ width: `${batteryPct}%` }}
+                />
+              </span>
+              <span className="opacity-70">{batteryPct}%</span>
+            </div>
+            {notes.total > 0 && (
+              <div>
+                Notes: {notes.collected}/{notes.total}
+              </div>
+            )}
             <div>
               Stealth:{" "}
               {hidden
