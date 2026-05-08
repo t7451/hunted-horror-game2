@@ -1035,6 +1035,7 @@ export function startGame(
       scale
     );
   };
+  // The "easy" map key is the level-one Farmhouse in shared/maps.ts.
   if ((options.mapKey ?? "easy") === "easy") {
     const N = 0;
     const E = -Math.PI / 2;

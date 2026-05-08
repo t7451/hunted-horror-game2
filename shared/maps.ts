@@ -86,7 +86,7 @@ export const MAPS: Record<MapKey, MapDef> = {
       "W..N........H........D....B......H.....W",
       "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
     ],
-    // Observer sweeps the hallway, kitchen wing, mudroom and exit run.
+    // Claude sweeps the hallway, kitchen wing, mudroom and exit run.
     patrolWaypoints: [
       { x: 6, z: 7 },
       { x: 16, z: 7 },
