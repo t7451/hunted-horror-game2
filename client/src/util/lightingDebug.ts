@@ -45,8 +45,10 @@ export function dumpLightingState(
   let pointVisibleCount = 0;
   let spotCount = 0;
   let spotTotal = 0;
+  let spotEffectiveTotal = 0;
   let dirCount = 0;
   let dirTotal = 0;
+  let dirEffectiveTotal = 0;
   let nearestPointDist = Infinity;
   let nearestPointIntensity = 0;
 
@@ -71,15 +73,23 @@ export function dumpLightingState(
     } else if (obj instanceof THREE.SpotLight) {
       spotCount++;
       spotTotal += obj.intensity;
+      // Toggling the flashlight off sets visible=false but leaves
+      // intensity intact, so the [SCENE BLACK] alarm has to look at
+      // visible × intensity, not raw intensity.
+      if (obj.visible && obj.intensity > 0.001) {
+        spotEffectiveTotal += obj.intensity;
+      }
     } else if (obj instanceof THREE.DirectionalLight) {
       dirCount++;
       dirTotal += obj.intensity;
+      if (obj.visible && obj.intensity > 0.001) {
+        dirEffectiveTotal += obj.intensity;
+      }
     }
   });
 
   const fog = scene.fog as FogLike;
 
-  // eslint-disable-next-line no-console
   console.log("[LIGHT DUMP]", {
     ambient: { count: ambientCount, totalIntensity: ambientTotal.toFixed(3) },
     hemi: { count: hemiCount, totalIntensity: hemiTotal.toFixed(3) },
@@ -118,10 +128,9 @@ export function dumpLightingState(
     ambientTotal +
     hemiTotal +
     pointTotal * visibleFraction +
-    spotTotal +
-    dirTotal;
+    spotEffectiveTotal +
+    dirEffectiveTotal;
   if (totalIllum < 0.05) {
-    // eslint-disable-next-line no-console
     console.error(
       "[SCENE BLACK] No effective light reaching scene. Total illumination:",
       totalIllum.toFixed(4)

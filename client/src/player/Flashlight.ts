@@ -1,9 +1,12 @@
 import * as THREE from "three";
 import { isMobile } from "../util/device";
 
+// Only the explicit value "1" enables debug logging — `?lightdebug=0`
+// (or presence-only) should NOT count as on. Mirrors the parsing used in
+// engine.ts for the same flag.
 const FLASHLIGHT_DEBUG =
   typeof window !== "undefined" &&
-  new URLSearchParams(window.location.search).has("lightdebug");
+  new URLSearchParams(window.location.search).get("lightdebug") === "1";
 
 function logFlashlightInit(light: THREE.Light, camera: THREE.Camera): void {
   if (!FLASHLIGHT_DEBUG) return;
@@ -11,7 +14,6 @@ function logFlashlightInit(light: THREE.Light, camera: THREE.Camera): void {
     light instanceof THREE.PointLight || light instanceof THREE.SpotLight
       ? light.distance
       : null;
-  // eslint-disable-next-line no-console
   console.log("[FLASHLIGHT INIT]", {
     type: light.type,
     intensity: light.intensity,

@@ -58,12 +58,11 @@ import { Haptics } from "../util/haptics";
 import { dumpLightingState } from "../util/lightingDebug";
 
 // Debug / safety URL flags — read once at module load. ?lightdebug=1 turns
-// on the per-2s lighting state dump (see lightingDebug.ts). ?nosave=1 force-
-// disables the battery-saver auto-detect path while we're verifying the
-// black-screen hotfix.
+// on the per-2s lighting state dump (see lightingDebug.ts). Only the exact
+// value "1" enables it; presence-only (e.g. ?lightdebug=0) doesn't count.
 const LIGHT_DEBUG =
   typeof window !== "undefined" &&
-  new URLSearchParams(window.location.search).has("lightdebug");
+  new URLSearchParams(window.location.search).get("lightdebug") === "1";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rendering backend for HUNTED BY CLAUDE.
