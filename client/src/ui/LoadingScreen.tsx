@@ -1,20 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-
-// Loading screen between the difficulty-select title and the running scene.
-// Spec §9 calls for progress driven by `AssetManager.onPhase` once real
-// asset loading lands. Until then we drive a simulated phase sequence so
-// the loading-flow UX is in place and the AssetManager can be wired by
-// just replacing the timer with subscriptions.
-
-const PHASES = [
-  "Building the house",
-  "Hanging paintings",
-  "Lighting candles",
-  "Sweeping the floors",
-  "Listening at the door",
-  "Ready",
-] as const;
-type Phase = (typeof PHASES)[number];
+import { buildLoadManifest } from "../loaders/loadManifest";
+import { preloadAssets } from "../loaders/AssetPreloader";
 
 const TIPS = [
   "Don't run if The Observer is near.",
@@ -34,47 +20,42 @@ export type LoadingScreenProps = {
    */
   onReady: () => void;
   /** Optional overall load duration (ms). Default ~2.4s. */
-  durationMs?: number;
 };
 
-export default function LoadingScreen({
-  onReady,
-  // Reduced from 2.4s to 1.0s — when we're not actually loading anything
-  // (no real asset bundle yet), the long delay was just dead air. Real
-  // AssetManager-driven progress will set its own pace.
-  durationMs = 1000,
-}: LoadingScreenProps) {
-  const [progress, setProgress] = useState(0); // 0..1
-  const [phase, setPhase] = useState<Phase>(PHASES[0]);
+export default function LoadingScreen({ onReady }: LoadingScreenProps) {
+  const [progress, setProgress] = useState(0);
+  const [phase, setPhase] = useState<string>("Building the house");
   const [tipIdx, setTipIdx] = useState(0);
   const [ready, setReady] = useState(false);
   const [fadingOut, setFadingOut] = useState(false);
+  const startedRef = useRef(false);
 
-  // Drive progress + phase rotation. Each phase consumes an equal slice of
-  // the duration; "Ready" lands exactly at progress = 1.
+  // Real preload: HTTP-cache-warm every audio file and KTX2 texture so the
+  // engine's first decode is near-instant. Hold the screen at least 600ms
+  // even on cached returns so the UX has visual stability.
   useEffect(() => {
+    if (startedRef.current) return;
+    startedRef.current = true;
+    const ctrl = new AbortController();
+    const manifest = buildLoadManifest();
+    const minDuration = 600;
     const start = performance.now();
-    let raf = 0;
-    const step = () => {
-      const t = Math.min(1, (performance.now() - start) / durationMs);
-      setProgress(t);
-      // Map [0,1] across the first N-1 phases; the final "Ready" only
-      // shows once we hit 1.
-      if (t >= 1) {
-        setPhase("Ready");
-        setReady(true);
-        return;
-      }
-      const slot = Math.min(
-        PHASES.length - 2,
-        Math.floor(t * (PHASES.length - 1)),
-      );
-      setPhase(PHASES[slot]);
-      raf = requestAnimationFrame(step);
-    };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-  }, [durationMs]);
+
+    void preloadAssets(
+      manifest,
+      p => {
+        setProgress(p.ratio);
+        setPhase(p.currentLabel);
+      },
+      ctrl.signal
+    ).then(() => {
+      const elapsed = performance.now() - start;
+      const wait = Math.max(0, minDuration - elapsed);
+      window.setTimeout(() => setReady(true), wait);
+    });
+
+    return () => ctrl.abort();
+  }, []);
 
   // Rotate tips every 4s so a slow connection doesn't get a static screen.
   useEffect(() => {

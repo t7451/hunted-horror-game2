@@ -13,8 +13,14 @@ import type { DirectorUpdate } from "./aiDirector";
 import { useIsMobile } from "../hooks/useMobile";
 import LoadingScreen from "../ui/LoadingScreen";
 import { recordRun } from "../hooks/useGameStats";
+import { getDailySeed, saveDailyResult } from "../hooks/useDailyChallenge";
 import { Minimap } from "../ui/Minimap";
 import { PauseMenu } from "../ui/PauseMenu";
+import {
+  Tutorial,
+  shouldShowTutorial,
+  markTutorialSeen,
+} from "../ui/Tutorial";
 
 type Status = "loading" | "playing" | "caught" | "escaped" | "time_up";
 type Danger = "safe" | "near" | "critical";
@@ -46,6 +52,7 @@ interface Props {
   initialQuality: GraphicsQuality;
   initialSensitivity: number;
   initialVolume: number;
+  isDaily?: boolean;
   onReturnToTitle: () => void;
   onVolumeChange?: (v: number) => void;
 }
@@ -55,6 +62,7 @@ export default function Game3D({
   initialQuality,
   initialSensitivity,
   initialVolume,
+  isDaily,
   onReturnToTitle,
   onVolumeChange,
 }: Props) {
@@ -69,6 +77,7 @@ export default function Game3D({
   const [sensitivity, setSensitivity] = useState(initialSensitivity);
   const [volume, setVolumeState] = useState(initialVolume);
   const [paused, setPaused] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(() => shouldShowTutorial());
   const [keysLeft, setKeysLeft] = useState<number | null>(null);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [danger, setDanger] = useState<Danger>("safe");
@@ -147,6 +156,7 @@ export default function Game3D({
         mapKey: difficulty,
         quality,
         sensitivity,
+        seed: isDaily ? getDailySeed() : undefined,
         events: {
           onReady: info => {
             setKeysLeft(info.keys);
@@ -166,28 +176,29 @@ export default function Game3D({
             );
           },
           onCaught: () => {
-            setRunTimeLeft(timeLeftRef.current);
-            recordRun(
-              difficulty,
-              "caught",
-              selectedMap.timer,
-              timeLeftRef.current ?? 0
-            );
+            const tl = timeLeftRef.current ?? 0;
+            const used = Math.round(selectedMap.timer - tl);
+            setRunTimeLeft(tl);
+            recordRun(difficulty, "caught", selectedMap.timer, tl);
+            if (isDaily) saveDailyResult("caught", used);
             setStatus("caught");
           },
           onTimeUp: () => {
             recordRun(difficulty, "caught", selectedMap.timer, 0);
+            if (isDaily) saveDailyResult("caught", selectedMap.timer);
             setRunTimeLeft(0);
             setStatus("time_up");
           },
           onEscape: () => {
             const tl = timeLeftRef.current;
+            const used = Math.round(selectedMap.timer - (tl ?? 0));
             const { isNewBest: nb } = recordRun(
               difficulty,
               "escaped",
               selectedMap.timer,
               tl ?? 0
             );
+            if (isDaily) saveDailyResult("escaped", used);
             setRunTimeLeft(tl);
             setIsNewBest(nb);
             setStatus("escaped");
@@ -343,6 +354,15 @@ export default function Game3D({
           )}
           <Minimap engine={engineRef.current} />
         </>
+      )}
+
+      {status === "playing" && showTutorial && (
+        <Tutorial
+          onDone={() => {
+            markTutorialSeen();
+            setShowTutorial(false);
+          }}
+        />
       )}
 
       {status === "playing" && paused && (

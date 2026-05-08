@@ -10,6 +10,7 @@ import {
   type ParsedMap,
 } from "@shared/maps";
 import {
+  isMobile,
   perfFlag,
   resolveGraphicsQuality,
   type GraphicsQuality,
@@ -17,6 +18,8 @@ import {
 import { createPerfMonitor } from "../util/perfMonitor";
 import { createRenderer } from "../render/Renderer";
 import { createPostFX, type PostFX } from "../render/PostFX";
+import { AdaptiveQuality } from "../render/AdaptiveQuality";
+import { LightCuller } from "../lighting/LightCuller";
 import { createSharedUniforms } from "../render/uniforms";
 import { setupAtmosphere } from "../lighting/Atmosphere";
 import { createPractical } from "../lighting/Practical";
@@ -158,6 +161,8 @@ export function startGame(
     quality?: GraphicsQuality;
     sensitivity?: number;
     events?: EngineEvents;
+    /** Deterministic seed for prop/cobweb placement. Used by daily challenge. */
+    seed?: number;
   } = {}
 ): EngineHandle {
   const mapDef: MapDef = MAPS[options.mapKey ?? "easy"];
@@ -177,6 +182,12 @@ export function startGame(
     quality: options.quality,
   });
   container.appendChild(renderer.domElement);
+
+  // Adaptive renderer DPR — drops on sustained <30fps, rises on >55fps.
+  const adaptiveQuality = new AdaptiveQuality(renderer, isMobile ? 1.5 : 2.0);
+  // Distance-based light culler — practicals dim/disable beyond ~18 tiles.
+  const lightCuller = new LightCuller(isMobile ? 14 : 20);
+  let lastPropCullAt = 0;
 
   // KTX2 texture pipeline: getMaterial() returns procedural fallbacks
   // synchronously; configureMaterials() lets the factory upgrade them in-place
@@ -508,6 +519,7 @@ export function startGame(
       });
       keyGroup.add(light);
       keyLights.set(key, light);
+      lightCuller.register(light);
       if (Math.random() < 0.3) {
         flickers.add(new LightFlicker(light, 0.6, 0.12, 7));
       }
@@ -542,7 +554,7 @@ export function startGame(
   if (parsed.exit) blocked.add(`${parsed.exit.x},${parsed.exit.z}`);
   blocked.add(`${parsed.spawn.x},${parsed.spawn.z}`);
 
-  const propRng = mulberry32(0x484e54);
+  const propRng = mulberry32((options.seed ?? 0x484e54) ^ 0x484e54);
   const propKinds: PropKind[] = ["chair", "table", "lamp", "shelf"];
   const propWeights = [0.4, 0.2, 0.25, 0.15];
   for (let gz = 0; gz < parsed.height; gz++) {
@@ -599,7 +611,7 @@ export function startGame(
           size: quality === "high" ? 0.05 : 0.04,
         })
       : null;
-  const cobwebRng = mulberry32(0xc0bea73);
+  const cobwebRng = mulberry32((options.seed ?? 0xc0bea73) ^ 0xc0bea73);
   // Cobweb planes are individual transparent meshes — each is a draw call
   // and they get sorted every frame. Gate density by tier.
   const cobwebRatio = quality === "low" ? 0 : quality === "mid" ? 0.06 : 0.15;
@@ -636,6 +648,7 @@ export function startGame(
       const exitLight = new THREE.PointLight(0x44ff66, 1.2, 8, 2);
       exitLight.position.copy(exitMesh.position);
       scene.add(exitLight);
+      lightCuller.register(exitLight);
     }
   }
 
@@ -1161,6 +1174,13 @@ export function startGame(
     if (disposed) return;
     try {
       perf.begin();
+      adaptiveQuality.tick();
+      const nowMs = performance.now();
+      lightCuller.update(camera.position.x, camera.position.z, nowMs);
+      if (nowMs - lastPropCullAt > 500) {
+        lastPropCullAt = nowMs;
+        props.cullByDistance(camera.position.x, camera.position.z);
+      }
       const dt = Math.min(clock.getDelta(), 0.05);
 
       // ── Catch sequence ──────────────────────────────────────────────────
@@ -1422,6 +1442,7 @@ export function startGame(
       cobwebs.dispose();
       dust?.dispose();
       shadowBudget.dispose();
+      lightCuller.dispose();
       audio.dispose();
       postfx?.dispose();
       perf.dispose();

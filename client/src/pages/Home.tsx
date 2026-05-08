@@ -24,6 +24,7 @@ interface GameOptions {
   difficulty: MapKey;
   quality: GraphicsQuality;
   sensitivity: number;
+  daily?: boolean;
 }
 
 export default function Home() {
@@ -62,6 +63,7 @@ export default function Home() {
         initialQuality={opts.quality}
         initialSensitivity={opts.sensitivity}
         initialVolume={volume}
+        isDaily={opts.daily ?? false}
         onReturnToTitle={() => setOpts(null)}
         onVolumeChange={setVolume}
       />
