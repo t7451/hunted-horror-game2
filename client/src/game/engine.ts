@@ -226,7 +226,7 @@ export function startGame(
   // Atmosphere sets near-zero ambient + hemisphere + fog so practicals
   // dominate. Flashlight is mobile-gated: PointLight on Android (avoids the
   // SpotLight+shadow WebGL crash class), SpotLight on desktop.
-  setupAtmosphere(scene);
+  setupAtmosphere(scene, mapDef.colorProfile);
   scene.add(camera);
   const flashlight = createFlashlight(camera);
   const flickers = new FlickerGroup();
@@ -318,6 +318,83 @@ export function startGame(
   });
   wallMesh.instanceMatrix.needsUpdate = true;
   scene.add(wallMesh);
+
+  // Architectural trim — thin instanced strip at every wall→floor seam.
+  // Mid+ quality only; on low we keep the silhouette flat to spare draws.
+  if (quality !== "low") {
+    const trimSegments: { x: number; z: number; rotY: number }[] = [];
+    const trimDirs: { dx: number; dz: number; rotY: number }[] = [
+      { dx: 0, dz: -1, rotY: 0 },
+      { dx: 0, dz: 1, rotY: Math.PI },
+      { dx: -1, dz: 0, rotY: Math.PI / 2 },
+      { dx: 1, dz: 0, rotY: -Math.PI / 2 },
+    ];
+    for (let z = 0; z < parsed.height; z++) {
+      for (let x = 0; x < parsed.width; x++) {
+        if (parsed.tiles[z][x] !== "W") continue;
+        for (const d of trimDirs) {
+          const nx = x + d.dx;
+          const nz = z + d.dz;
+          if (nz < 0 || nz >= parsed.height || nx < 0 || nx >= parsed.width)
+            continue;
+          if (parsed.tiles[nz][nx] !== ".") continue;
+          const wx =
+            x * TILE_SIZE +
+            TILE_SIZE / 2 +
+            d.dx * (TILE_SIZE / 2 - 0.04);
+          const wz =
+            z * TILE_SIZE +
+            TILE_SIZE / 2 +
+            d.dz * (TILE_SIZE / 2 - 0.04);
+          trimSegments.push({ x: wx, z: wz, rotY: d.rotY });
+        }
+      }
+    }
+
+    if (trimSegments.length > 0) {
+      const trimMat = getMaterial("baseboard_trim");
+      const trimTmp = new THREE.Object3D();
+
+      const baseboardGeo = new THREE.BoxGeometry(TILE_SIZE, 0.12, 0.04);
+      const baseboardMesh = new THREE.InstancedMesh(
+        baseboardGeo,
+        trimMat,
+        trimSegments.length
+      );
+      baseboardMesh.castShadow = false;
+      baseboardMesh.receiveShadow = shadowsEnabled;
+      for (let i = 0; i < trimSegments.length; i++) {
+        const s = trimSegments[i];
+        trimTmp.position.set(s.x, 0.06, s.z);
+        trimTmp.rotation.set(0, s.rotY, 0);
+        trimTmp.updateMatrix();
+        baseboardMesh.setMatrixAt(i, trimTmp.matrix);
+      }
+      baseboardMesh.instanceMatrix.needsUpdate = true;
+      scene.add(baseboardMesh);
+
+      // Crown molding — high quality only.
+      if (quality === "high") {
+        const crownGeo = new THREE.BoxGeometry(TILE_SIZE, 0.08, 0.06);
+        const crownMesh = new THREE.InstancedMesh(
+          crownGeo,
+          trimMat,
+          trimSegments.length
+        );
+        crownMesh.castShadow = false;
+        crownMesh.receiveShadow = shadowsEnabled;
+        for (let i = 0; i < trimSegments.length; i++) {
+          const s = trimSegments[i];
+          trimTmp.position.set(s.x, WALL_HEIGHT - 0.04, s.z);
+          trimTmp.rotation.set(0, s.rotY, 0);
+          trimTmp.updateMatrix();
+          crownMesh.setMatrixAt(i, trimTmp.matrix);
+        }
+        crownMesh.instanceMatrix.needsUpdate = true;
+        scene.add(crownMesh);
+      }
+    }
+  }
 
   const doorGeo = new THREE.BoxGeometry(
     TILE_SIZE * 0.95,
@@ -666,11 +743,24 @@ export function startGame(
     enemyLight.position.set(pos.x, 1.6, pos.z);
   }
 
-  function updateAnxietyEffects(intensity: number, elapsed: number) {
+  // Smoothly tracked hide-vignette amount, lerped toward 0.20 when hiding so
+  // the closet darken doesn't snap. Read by updateAnxietyEffects every frame.
+  let hideVignetteCurrent = 0;
+
+  function updateAnxietyEffects(intensity: number, elapsed: number, dt: number) {
     const panic = THREE.MathUtils.clamp(intensity, 0, 1);
     const jitter = (Math.sin(elapsed * 41.3) + Math.sin(elapsed * 67.9)) * 0.5;
+    // Lerp the hide-vignette toward its target so toggling E feels smooth.
+    const targetHide = isHiding ? 0.20 : 0;
+    hideVignetteCurrent +=
+      (targetHide - hideVignetteCurrent) * Math.min(1, dt * 4);
+    // Heartbeat-synced pulse: vignette breathes in/out at panic-scaled amplitude.
+    const heartbeatPulse = Math.sin(elapsed * 4) * panic * 0.04;
     sharedUniforms.vignetteOffset.value =
-      basePostFx.vignetteOffset - panic * 0.09;
+      basePostFx.vignetteOffset -
+      panic * 0.09 -
+      heartbeatPulse +
+      hideVignetteCurrent;
     sharedUniforms.noiseOpacity.value =
       basePostFx.noiseOpacity +
       panic * 0.12 +
@@ -835,8 +925,7 @@ export function startGame(
       velocityZ = 0;
     }
     // Vignette darkens edges when hiding so the player feels concealed.
-    sharedUniforms.vignetteOffset.value =
-      basePostFx.vignetteOffset + (isHiding ? 0.18 : 0);
+    // Smooth lerp lives in the main loop — see hideVignetteCurrent.
     // Camera height is owned by CameraRig.update() each frame — it smooths
     // the crouch lerp so we don't snap.
     events.onHideChange?.(isHiding);
@@ -1185,7 +1274,7 @@ export function startGame(
         camera,
         enemyMesh.visible ? enemyMesh.position : null
       );
-      updateAnxietyEffects(heartbeat.intensity(), t);
+      updateAnxietyEffects(heartbeat.intensity(), t, dt);
       audio.setHeartbeatIntensity(heartbeat.intensity());
       audio.update(dt);
       dust?.update(dt, camera);

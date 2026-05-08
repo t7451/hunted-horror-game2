@@ -31,8 +31,29 @@ export function TitleScreen({
   const difficultyOptions = MAP_KEYS.map(key => ({ key, ...MAPS[key] }));
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-black px-4 py-8 text-white">
-      <h1 className="mb-2 text-5xl font-bold tracking-widest">HUNTED</h1>
+    <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-black px-4 py-8 text-white">
+      {/* Atmospheric drifting radial gradient */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 opacity-40"
+        style={{
+          background:
+            "radial-gradient(ellipse at 30% 40%, #1a0808 0%, #050202 50%, #000 100%)",
+          animation: "title-drift 18s ease-in-out infinite",
+        }}
+      />
+      {/* Subtle red scanlines (CRT decay) */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 opacity-20 mix-blend-screen"
+        style={{
+          background:
+            "repeating-linear-gradient(0deg, transparent 0 2px, rgba(255,80,80,0.05) 2px 3px)",
+        }}
+      />
+      <h1 className="relative mb-2 text-5xl font-bold tracking-widest">
+        HUNTED
+      </h1>
       <p className="mb-6 text-sm opacity-70">
         A browser-first horror escape · adaptive AI · no install
       </p>
