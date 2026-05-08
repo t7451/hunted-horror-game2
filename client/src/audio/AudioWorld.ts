@@ -184,6 +184,38 @@ export class AudioWorld {
     this.play("key_pickup");
   }
 
+  /** Sharp metallic clatter at a thrown-object impact location. */
+  triggerThrowableImpact(): void {
+    if (!this.unlocked) return;
+    const h = this.sounds.get("static_burst");
+    if (!h) return;
+    const id = h.play();
+    h.rate(1.6, id);
+    setTimeout(() => {
+      try {
+        h.rate(1.0, id);
+      } catch {
+        /* sound may have ended */
+      }
+    }, 320);
+  }
+
+  /** Heavier creak-then-thud for door slams. */
+  triggerDoorSlam(): void {
+    if (!this.unlocked) return;
+    const h = this.sounds.get("door_creak");
+    if (!h) return;
+    const id = h.play();
+    h.rate(0.7, id);
+    setTimeout(() => {
+      try {
+        h.rate(1.0, id);
+      } catch {
+        /* sound may have ended */
+      }
+    }, 600);
+  }
+
   triggerJumpScare(): void {
     if (!this.unlocked) return;
     this.play("static_burst");
