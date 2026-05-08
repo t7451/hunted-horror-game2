@@ -888,7 +888,10 @@ export function startGame(
   const onKeyDown = (e: KeyboardEvent) => {
     keys.add(e.code);
     if (e.code === "KeyE") {
-      if (!tryDoorSlam()) toggleHide();
+      // While hiding, E must always exit the closet — never try a door slam,
+      // since closets and doors are often within Manhattan-1 of each other
+      // and a slam would lock the player in.
+      if (isHiding || !tryDoorSlam()) toggleHide();
     } else if (e.code === "KeyF") {
       throwObject();
     }
@@ -1457,8 +1460,9 @@ export function startGame(
         const tw = activeThrows[i];
         // Despawn cans that have been on the floor for 2s.
         if (tw.expireAt && tickNow >= tw.expireAt) {
+          // Don't dispose throwGeo here — it's shared across all cans.
+          // Released once in dispose() below.
           scene.remove(tw.mesh);
-          tw.mesh.geometry.dispose();
           activeThrows.splice(i, 1);
           continue;
         }
@@ -1605,6 +1609,11 @@ export function startGame(
       renderer.dispose();
       observer.dispose();
       disposeObserverCache();
+      // Release shared throwable resources before scene.traverse hits them.
+      for (const tw of activeThrows) scene.remove(tw.mesh);
+      activeThrows.length = 0;
+      throwGeo.dispose();
+      throwMat.dispose();
       if (catchOverlay.parentNode === container) container.removeChild(catchOverlay);
       if (renderer.domElement.parentNode === container) {
         container.removeChild(renderer.domElement);
