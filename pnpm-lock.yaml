@@ -217,7 +217,7 @@ importers:
         specifier: ^3.58.1
         version: 3.58.1
       '@types/howler':
-        specifier: ^2.2.11
+        specifier: ^2.2.12
         version: 2.2.12
       '@types/node':
         specifier: ^24.7.0

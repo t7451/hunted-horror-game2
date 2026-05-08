@@ -108,5 +108,7 @@ temp/
 # Claude agent worktrees
 .claude/worktrees/
 
-# Downloaded PBR textures (fetched by scripts/download-textures.js)
-client/public/assets/textures/
+# Generated PBR texture assets (downloaded/encoded by scripts/fetch-textures.mjs)
+client/public/assets/textures/**/*.ktx2
+client/public/assets/textures/**/*.jpg
+client/public/assets/textures/**/*.png
