@@ -1,0 +1,37 @@
+.ana-panel {
+  position: relative;
+  border: 1px solid var(--ana-rust);
+  font-family: var(--ana-font-mono);
+  color: var(--ana-fg);
+  padding: 16px;
+  background-image:
+    radial-gradient(circle at 22% 33%, rgba(255,255,255,0.04) 0 1px, transparent 2px),
+    radial-gradient(circle at 71% 65%, rgba(255,255,255,0.03) 0 1px, transparent 2px),
+    radial-gradient(circle at 45% 80%, rgba(255,255,255,0.05) 0 1px, transparent 2px);
+  background-size: 8px 8px, 13px 13px, 6px 6px;
+}
+
+.ana-panel-dark {
+  background-color: rgba(10, 6, 5, 0.85);
+}
+
+.ana-panel-paper {
+  background-color: rgba(40, 28, 22, 0.85);
+  color: var(--ana-bone);
+  border-color: var(--ana-bone);
+}
+
+.ana-panel-stamp {
+  position: absolute;
+  top: -10px;
+  left: 12px;
+  padding: 2px 8px;
+  background: var(--ana-bg);
+  border: 2px solid var(--ana-rust);
+  color: var(--ana-rust);
+  font-family: var(--ana-font-mono);
+  font-size: 9px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  transform: rotate(-2deg);
+}
