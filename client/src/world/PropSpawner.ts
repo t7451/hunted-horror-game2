@@ -242,6 +242,9 @@ function buildChair() {
     { x: half, y: seatY + 0.4, z: -half, w: legW, h: 0.8, d: legW },
     // Backrest cross
     { x: 0, y: seatY + 0.7, z: -half, w: seatW, h: 0.08, d: 0.04 },
+    // Armrests — horizontal slats bridging the back post to a short front post
+    { x: -half, y: seatY + 0.22, z: 0, w: legW * 1.4, h: legW * 0.9, d: seatD * 0.78 },
+    { x: half, y: seatY + 0.22, z: 0, w: legW * 1.4, h: legW * 0.9, d: seatD * 0.78 },
   ];
   return mergeBoxes(
     boxes,
@@ -277,6 +280,9 @@ function buildTable() {
     { x: 0, y: apronY, z: halfD - apronInset + legW, w: topW - legW * 2, h: apronH, d: apronT },
     { x: -half + apronInset - legW, y: apronY, z: 0, w: apronT, h: apronH, d: topD - legW * 2 },
     { x: half - apronInset + legW, y: apronY, z: 0, w: apronT, h: apronH, d: topD - legW * 2 },
+    // Floor stretcher — a central cross-piece near the floor ties the legs
+    // and makes the silhouette read as hand-crafted joinery.
+    { x: 0, y: 0.22, z: 0, w: topW - legW * 2.4, h: legW * 0.65, d: legW * 0.65 },
   ];
   return mergeBoxes(
     boxes,
@@ -416,8 +422,9 @@ function buildBarrel() {
   const h = 0.95;
   const boxes: BoxSpec[] = [
     { x: 0, y: h / 2, z: 0, w: r * 1.7, h, d: r * 1.7 }, // body
-    { x: 0, y: h * 0.22, z: 0, w: r * 1.85, h: 0.06, d: r * 1.85 }, // hoop low
-    { x: 0, y: h * 0.78, z: 0, w: r * 1.85, h: 0.06, d: r * 1.85 }, // hoop high
+    { x: 0, y: h * 0.18, z: 0, w: r * 1.88, h: 0.055, d: r * 1.88 }, // hoop low
+    { x: 0, y: h * 0.50, z: 0, w: r * 1.90, h: 0.055, d: r * 1.90 }, // hoop mid
+    { x: 0, y: h * 0.82, z: 0, w: r * 1.88, h: 0.055, d: r * 1.88 }, // hoop high
     { x: 0, y: h - 0.02, z: 0, w: r * 1.55, h: 0.04, d: r * 1.55 }, // lid
   ];
   return mergeBoxes(
