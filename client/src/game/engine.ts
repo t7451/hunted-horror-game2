@@ -52,6 +52,7 @@ import { buildWalls } from "../world/WallBuilder";
 import { WallDecals } from "../world/WallDecals";
 import { buildDoorFrames } from "../world/DoorFrames";
 import { WallFixtures } from "../world/WallFixtures";
+import { buildCeilingFixtures } from "../world/CeilingFixtures.ts";
 import { createAIDirector, type DirectorUpdate } from "./aiDirector";
 import { findPath } from "./pathfinding";
 import { TheObserver, disposeObserverCache } from "../world/TheObserver";
@@ -463,11 +464,8 @@ export function startGame(
     metalness: 0.85,
     roughness: 0.3,
   });
-  const hideMat = new THREE.MeshStandardMaterial({
-    color: 0x40291a,
-    roughness: 0.9,
-    metalness: 0.05,
-  });
+  // Wardrobe/closet uses the PBR wood_panel_dark material for a richer look.
+  const wardrobeMat = getMaterial("wood_panel_dark");
   const exitMat = new THREE.MeshStandardMaterial({
     color: 0x1a4a1a,
     emissive: 0x0a4a0a,
@@ -678,24 +676,108 @@ export function startGame(
         );
         scene.add(crownMesh);
       }
+
+      // Wainscoting dado rail — kitchen and house themes only.
+      // A dado cap strip at ~1 m height + a flat wood panel below it give
+      // period-appropriate depth and break up the long wall expanses.
+      if (mapDef.theme === "kitchen" || mapDef.theme === "house") {
+        const dadoMat = getMaterial("wood_panel_dark");
+        // Cap molding: projects proud of the wall face
+        const dadoCapGeo = new THREE.BoxGeometry(TILE_SIZE, 0.065, 0.055);
+        const dadoCapMesh = new THREE.InstancedMesh(
+          dadoCapGeo,
+          dadoMat,
+          trimSegments.length
+        );
+        dadoCapMesh.castShadow = false;
+        dadoCapMesh.receiveShadow = shadowsEnabled;
+        // Flat panel from baseboard top (≈0.12) to dado cap bottom (≈0.97)
+        const panelH = 0.85;
+        const dadoPanelGeo = new THREE.BoxGeometry(TILE_SIZE, panelH, 0.022);
+        const dadoPanelMesh = new THREE.InstancedMesh(
+          dadoPanelGeo,
+          dadoMat,
+          trimSegments.length
+        );
+        dadoPanelMesh.castShadow = false;
+        dadoPanelMesh.receiveShadow = shadowsEnabled;
+        for (let i = 0; i < trimSegments.length; i++) {
+          const s = trimSegments[i];
+          trimTmp.position.set(s.x, 1.0, s.z);
+          trimTmp.rotation.set(0, s.rotY, 0);
+          trimTmp.updateMatrix();
+          dadoCapMesh.setMatrixAt(i, trimTmp.matrix);
+          trimTmp.position.set(s.x, 0.12 + panelH * 0.5, s.z);
+          trimTmp.rotation.set(0, s.rotY, 0);
+          trimTmp.updateMatrix();
+          dadoPanelMesh.setMatrixAt(i, trimTmp.matrix);
+        }
+        dadoCapMesh.instanceMatrix.needsUpdate = true;
+        dadoPanelMesh.instanceMatrix.needsUpdate = true;
+        applyInstanceTint(
+          dadoCapMesh,
+          trimSegments.map(s => ({ x: s.x, z: s.z })),
+          0.08,
+          0.02,
+        );
+        applyInstanceTint(
+          dadoPanelMesh,
+          trimSegments.map(s => ({ x: s.x, z: s.z })),
+          0.08,
+          0.02,
+        );
+        scene.add(dadoCapMesh);
+        scene.add(dadoPanelMesh);
+      }
     }
   }
 
-  const doorGeo = new THREE.BoxGeometry(
-    TILE_SIZE * 0.95,
-    WALL_HEIGHT * 0.92,
-    0.2
-  );
+  // ── Paneled door geometry ───────────────────────────────────────────────────
+  // A classic 6-piece door: thinner body + proud left/right stiles +
+  // top/bottom/mid rails. The depth difference casts shadow lines under
+  // point-light illumination and reads as a real door leaf.
+  function buildPaneledDoorGeo(w: number, h: number): THREE.BufferGeometry {
+    const bodyD = 0.12;
+    const frameD = 0.20;
+    const sw = Math.min(0.20, w * 0.055); // stile width
+    const rh = Math.min(0.22, h * 0.065); // top/bottom rail height
+    const mh = 0.16; // mid rail height
+    const pieces: Array<{ sx: number; sy: number; sz: number; px: number; py: number; pz: number }> = [
+      { sx: w, sy: h, sz: bodyD, px: 0, py: h * 0.5, pz: 0 },                       // body
+      { sx: sw, sy: h, sz: frameD, px: -(w * 0.5 - sw * 0.5), py: h * 0.5, pz: 0 }, // left stile
+      { sx: sw, sy: h, sz: frameD, px: (w * 0.5 - sw * 0.5), py: h * 0.5, pz: 0 },  // right stile
+      { sx: w - sw * 2, sy: rh, sz: frameD, px: 0, py: h - rh * 0.5, pz: 0 },       // top rail
+      { sx: w - sw * 2, sy: rh, sz: frameD, px: 0, py: rh * 0.5, pz: 0 },           // bottom rail
+      { sx: w - sw * 2, sy: mh, sz: frameD, px: 0, py: h * 0.5, pz: 0 },            // mid rail
+    ];
+    const positions: number[] = [], normals: number[] = [], uvs: number[] = [];
+    for (const p of pieces) {
+      const g = new THREE.BoxGeometry(p.sx, p.sy, p.sz);
+      g.applyMatrix4(new THREE.Matrix4().makeTranslation(p.px, p.py, p.pz));
+      const ni = g.toNonIndexed();
+      const pa = ni.attributes.position.array as Float32Array;
+      const na = ni.attributes.normal.array as Float32Array;
+      const ua = ni.attributes.uv.array as Float32Array;
+      for (let i = 0; i < pa.length; i++) positions.push(pa[i]);
+      for (let i = 0; i < na.length; i++) normals.push(na[i]);
+      for (let i = 0; i < ua.length; i++) uvs.push(ua[i]);
+      g.dispose(); ni.dispose();
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
+    geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+    geo.computeBoundingBox();
+    geo.computeBoundingSphere();
+    return geo;
+  }
+
+  const doorGeo = buildPaneledDoorGeo(TILE_SIZE * 0.95, WALL_HEIGHT * 0.92);
   const keyGeo = new THREE.TorusGeometry(
     0.25,
     0.08,
     8,
     quality === "low" ? 16 : 24
-  );
-  const hideGeo = new THREE.BoxGeometry(
-    TILE_SIZE * 0.9,
-    WALL_HEIGHT * 0.8,
-    TILE_SIZE * 0.9
   );
 
   // Seed grime/blood/water decals on random wall faces and floor patches
@@ -883,18 +965,48 @@ export function startGame(
   });
   scene.add(keyGroup);
 
-  // Hiding closets
-  parsed.hides.forEach(h => {
-    const closet = new THREE.Mesh(hideGeo, hideMat);
-    closet.castShadow = shadowsEnabled;
-    closet.receiveShadow = shadowsEnabled;
-    closet.position.set(
-      h.x * TILE_SIZE + TILE_SIZE / 2,
-      (WALL_HEIGHT * 0.8) / 2,
-      h.z * TILE_SIZE + TILE_SIZE / 2
-    );
-    scene.add(closet);
-  });
+  // Hiding closets — rendered as standing wardrobes with crown rail,
+  // base plinth, and horizontal door-divider strips.
+  {
+    const bodyW = TILE_SIZE * 0.82;
+    const bodyH = WALL_HEIGHT * 0.72;
+    const bodyD = TILE_SIZE * 0.82;
+    // Shared geometry pieces (created once, reused per hide instance)
+    const wBodyGeo = new THREE.BoxGeometry(bodyW, bodyH, bodyD);
+    const wCrownGeo = new THREE.BoxGeometry(bodyW + 0.12, 0.12, bodyD + 0.12);
+    const wPlinthGeo = new THREE.BoxGeometry(bodyW + 0.12, 0.16, bodyD + 0.12);
+    const wDivGeo = new THREE.BoxGeometry(bodyW + 0.04, 0.07, bodyD + 0.04);
+    parsed.hides.forEach(h => {
+      const cx = h.x * TILE_SIZE + TILE_SIZE / 2;
+      const cz = h.z * TILE_SIZE + TILE_SIZE / 2;
+      const ward = new THREE.Group();
+      const body = new THREE.Mesh(wBodyGeo, wardrobeMat);
+      body.position.y = 0.16 + bodyH * 0.5;
+      body.castShadow = shadowsEnabled;
+      body.receiveShadow = shadowsEnabled;
+      ward.add(body);
+      const crown = new THREE.Mesh(wCrownGeo, wardrobeMat);
+      crown.position.y = 0.16 + bodyH + 0.06;
+      crown.castShadow = false;
+      crown.receiveShadow = shadowsEnabled;
+      ward.add(crown);
+      const plinth = new THREE.Mesh(wPlinthGeo, wardrobeMat);
+      plinth.position.y = 0.08;
+      plinth.castShadow = false;
+      plinth.receiveShadow = shadowsEnabled;
+      ward.add(plinth);
+      // Two horizontal divider strips suggesting three-panel doors
+      for (const divY of [0.16 + bodyH * 0.35, 0.16 + bodyH * 0.70]) {
+        const div = new THREE.Mesh(wDivGeo, wardrobeMat);
+        div.position.y = divY;
+        div.castShadow = false;
+        div.receiveShadow = shadowsEnabled;
+        ward.add(div);
+      }
+      ward.position.set(cx, 0, cz);
+      scene.add(ward);
+    });
+  }
 
   // ── Pickups: batteries (refill flashlight) and notes (lore pages) ─────────
   const batteryGroup = new THREE.Group();
@@ -1132,6 +1244,18 @@ export function startGame(
     }
   }
   props.commit();
+
+  // Ceiling pendant fixtures — warm overhead lights that define room volumes
+  // and create the lit-pools-vs-dark-corners contrast of a horror interior.
+  const ceilRng = mulberry32((baseSeed ^ 0x43454c4c) >>> 0);
+  const ceilingFixtures = buildCeilingFixtures(parsed, TILE_SIZE, quality, ceilRng);
+  scene.add(ceilingFixtures.group);
+  for (const l of ceilingFixtures.lights) {
+    lightCuller.register(l);
+  }
+  for (const l of ceilingFixtures.flickerLights) {
+    flickers.add(new LightFlicker(l, l.intensity, 0.10, 4 + ceilRng() * 4));
+  }
 
   // Cobwebs in the upper corners of every wall tile that has a free
   // neighbor — gives an "in the corner of the room" feel without needing
@@ -2483,6 +2607,7 @@ export function startGame(
       for (const g of wallBuild.geometries) g.dispose();
       for (const g of doorFrameBuild.geometries) g.dispose();
       doorFrameMat.dispose();
+      ceilingFixtures.dispose();
       props.dispose();
       cobwebs.dispose();
       dust?.dispose();
