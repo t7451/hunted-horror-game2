@@ -295,40 +295,21 @@ function buildTable() {
 }
 
 function buildLamp() {
-  // Floor lamp: thin pole + flared shade. Shade is mildly emissive so it
-  // reads as "lit" in the Phase 3 dark scene without needing a real
-  // PointLight per lamp (which would blow the shadow budget).
-  const boxes: BoxSpec[] = [
-    { x: 0, y: 0.05, z: 0, w: 0.3, h: 0.06, d: 0.3 }, // base
-    { x: 0, y: 0.7, z: 0, w: 0.04, h: 1.3, d: 0.04 }, // pole
-  ];
-  const baseAndPole = mergeBoxes(
-    boxes,
+  return mergeBoxes(
+    [
+      { x: 0, y: 0.05, z: 0, w: 0.3, h: 0.06, d: 0.3 },
+      { x: 0, y: 0.72, z: 0, w: 0.04, h: 1.38, d: 0.04 },
+      { x: 0, y: 1.32, z: 0, w: 0.12, h: 0.04, d: 0.12 },
+      { x: 0, y: 1.47, z: 0, w: 0.42, h: 0.28, d: 0.42 },
+    ],
     new THREE.MeshStandardMaterial({
-      color: 0x222020,
-      roughness: 0.8,
-      metalness: 0.4,
-    })
-  );
-  // Shade as a separate emissive cone — but mergeBoxes only takes boxes,
-  // so we cheat: include the shade as a wide short box. Fine at distance,
-  // and the bloom from PostFX softens its silhouette.
-  const shade = mergeBoxes(
-    [{ x: 0, y: 1.45, z: 0, w: 0.4, h: 0.25, d: 0.4 }],
-    new THREE.MeshStandardMaterial({
-      color: 0xffd28a,
+      color: 0xffe8b0,
       emissive: 0xffaa55,
-      emissiveIntensity: 0.7,
-      roughness: 0.4,
-      metalness: 0.1,
+      emissiveIntensity: 0.35,
+      roughness: 0.45,
+      metalness: 0.25,
     })
   );
-  // Combine the two geometries; result has two material groups so we hand
-  // back a multi-material InstancedMesh isn't supported in three. To keep
-  // this single-geometry/single-material, we just use the shade emissive
-  // material for the whole lamp — readable enough at flashlight distance.
-  baseAndPole.geometry.dispose();
-  return shade;
 }
 
 function buildShelf() {
@@ -458,8 +439,8 @@ function buildPainting() {
   // Wall painting silhouette — frame + canvas. Caller is expected to push
   // these against walls (we orient + flush them via rotationY in engine).
   // Geometry sits at z≈-0.02 so the local origin is the wall surface.
-  const w = 0.7;
-  const h = 0.5;
+  const w = 0.72;
+  const h = 0.56;
   const t = 0.04;
   const cy = 1.7;
   const boxes: BoxSpec[] = [
@@ -468,15 +449,21 @@ function buildPainting() {
     { x: 0, y: cy - h / 2, z: -t / 2, w: w + 0.08, h: 0.06, d: t },
     { x: -w / 2, y: cy, z: -t / 2, w: 0.06, h: h + 0.06, d: t },
     { x: w / 2, y: cy, z: -t / 2, w: 0.06, h: h + 0.06, d: t },
-    // Canvas
+    // Canvas + crude portrait relief
     { x: 0, y: cy, z: -t / 2 - 0.005, w, h, d: 0.01 },
+    { x: 0, y: cy + h * 0.22, z: -t / 2 - 0.008, w: w * 0.26, h: h * 0.28, d: 0.008 },
+    { x: 0, y: cy - h * 0.1, z: -t / 2 - 0.008, w: w * 0.52, h: h * 0.35, d: 0.008 },
+    { x: -w * 0.22, y: cy, z: -t / 2 - 0.006, w: w * 0.28, h: h * 0.7, d: 0.006 },
+    { x: w * 0.22, y: cy, z: -t / 2 - 0.006, w: w * 0.28, h: h * 0.7, d: 0.006 },
   ];
   return mergeBoxes(
     boxes,
     new THREE.MeshStandardMaterial({
-      color: 0x3a2820,
-      roughness: 0.85,
-      metalness: 0.04,
+      color: 0x1c0e08,
+      emissive: 0x180808,
+      emissiveIntensity: 0.04,
+      roughness: 0.65,
+      metalness: 0.0,
     })
   );
 }
