@@ -1035,7 +1035,7 @@ export function startGame(
       scale
     );
   };
-  if (mapDef.name === "The Farmhouse") {
+  if ((options.mapKey ?? "easy") === "easy") {
     const N = 0;
     const E = -Math.PI / 2;
     const S = Math.PI;

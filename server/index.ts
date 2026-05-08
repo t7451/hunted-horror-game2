@@ -7,6 +7,7 @@ import fs from "fs";
 import Anthropic from "@anthropic-ai/sdk";
 import {
   MAPS,
+  MAP_KEYS,
   parseMap as parseSharedMap,
   type MapDef,
   type MapKey,
@@ -45,6 +46,7 @@ const DIFFICULTY_BONUS: Record<string, number> = {
   normal: 200,
   hard: 500,
 };
+const VALID_MAP_KEYS = new Set<string>(MAP_KEYS);
 
 // ═══════════════════════════════════════════════════════════════
 // MAP PARSING
@@ -55,9 +57,7 @@ function tileCenter(row: number, col: number) {
 }
 
 function resolveMapKey(difficulty: string): MapKey {
-  return difficulty === "easy" || difficulty === "normal" || difficulty === "hard"
-    ? difficulty
-    : "normal";
+  return VALID_MAP_KEYS.has(difficulty) ? (difficulty as MapKey) : "normal";
 }
 
 function parseMap(mapData: MapDef) {
