@@ -93,6 +93,12 @@ export type EngineEvents = {
   onBatteryChange?: (charge: number) => void;
   /** Notes collected / total — refreshed when picked up. */
   onNotesChange?: (collected: number, total: number) => void;
+  /**
+   * Catch-sequence fade-to-black driver, 0..1. Drives a black overlay in
+   * the React layer (engine fires this every frame the catch sequence is
+   * active; it stays at 0 outside of it).
+   */
+  onCatchFade?: (v: number) => void;
 };
 
 export type EngineHandle = {
@@ -1478,6 +1484,16 @@ export function startGame(
         Haptics.catch();
         // Flash white then fade
         catchOverlay.style.opacity = "1";
+        // "Phasing out" audio bend: drop heartbeat + ambient rate so the
+        // mix audibly drags during the cinematic. Reset on completion.
+        const hbHowl = audio.getHowl("heartbeat_loop");
+        if (hbHowl) {
+          try { hbHowl.rate(0.6); } catch { /* ignore */ }
+        }
+        const ambHowl = audio.getHowl("ambient_loop");
+        if (ambHowl) {
+          try { ambHowl.rate(0.5); } catch { /* ignore */ }
+        }
       }
     }
   }
@@ -1540,10 +1556,26 @@ export function startGame(
         sharedUniforms.chromaticAberrationStrength.value =
           flashProgress * 0.012;
 
+        // Fade to black across the LAST 30% of the sequence. flashProgress
+        // counts down from 1 to 0; we want fade rising as flashProgress
+        // approaches 0 — i.e. once flashProgress < 0.3.
+        const fade = flashProgress > 0.3 ? 0 : (0.3 - flashProgress) / 0.3;
+        events.onCatchFade?.(fade);
+
         if (catchSequenceTimer <= 0) {
           catchSequenceActive = false;
           catchOverlay.style.opacity = "0";
           sharedUniforms.chromaticAberrationStrength.value = 0;
+          // Reset audio rates so they're not 0.6/0.5 forever after.
+          const hbHowl = audio.getHowl("heartbeat_loop");
+          if (hbHowl) {
+            try { hbHowl.rate(1.0); } catch { /* ignore */ }
+          }
+          const ambHowl = audio.getHowl("ambient_loop");
+          if (ambHowl) {
+            try { ambHowl.rate(1.0); } catch { /* ignore */ }
+          }
+          events.onCatchFade?.(1); // hold full black through onCaught hand-off
           events.onCaught?.();
           return;
         }

@@ -105,6 +105,10 @@ export default function Game3D({
   // pickup and cleared 420ms later — opacity transitions over 500ms.
   const [pickupFlashAt, setPickupFlashAt] = useState(0);
   const [pickupFlashOn, setPickupFlashOn] = useState(false);
+  // Catch-sequence fade-to-black opacity (0..1). Driven by engine's
+  // onCatchFade callback every frame the catch is active; resets when
+  // status leaves "playing".
+  const [catchFade, setCatchFade] = useState(0);
   useEffect(() => {
     if (!pickupFlashAt) return;
     setPickupFlashOn(true);
@@ -209,7 +213,11 @@ export default function Game3D({
             recordRun(difficulty, "caught", selectedMap.timer, tl);
             if (isDaily) saveDailyResult("caught", used);
             setStatus("caught");
+            // Snap fade off once we leave the playing screen — the caught
+            // status screen is its own backdrop.
+            setCatchFade(0);
           },
+          onCatchFade: (v: number) => setCatchFade(v),
           onTimeUp: () => {
             recordRun(difficulty, "caught", selectedMap.timer, 0);
             if (isDaily) saveDailyResult("caught", selectedMap.timer);
@@ -450,6 +458,13 @@ export default function Game3D({
                 "radial-gradient(circle, rgba(255,217,102,0.18) 0%, transparent 60%)",
               opacity: pickupFlashOn ? 1 : 0,
             }}
+          />
+          {/* Catch-sequence fade-to-black. Driven directly by engine each
+              frame (no transition — the engine's smooth ramp owns the
+              animation). z-25 sits above HUD but below pause/menus. */}
+          <div
+            className="absolute inset-0 z-[25] pointer-events-none bg-black"
+            style={{ opacity: catchFade }}
           />
         </>
       )}
