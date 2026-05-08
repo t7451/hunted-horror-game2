@@ -496,6 +496,8 @@ export function startGame(
   ceiling.position.set(worldW / 2, WALL_HEIGHT, worldD / 2);
   scene.add(ceiling);
 
+  const baseSeed = options.seed ?? 0x484e54;
+
   // Water-stained ceiling — irregular sepia blotches over interior tiles.
   // Plane meshes facing down, slightly below the ceiling plane with
   // polygonOffset to avoid z-fighting. Density target: ~one stain per
@@ -555,6 +557,63 @@ export function startGame(
     scene.add(stainGroup);
   }
 
+  // Floor grime and blood patches — horror atmosphere overlaid on the floor.
+  // Thin planes sitting 3mm above the floor face so they don't z-fight.
+  if (quality !== "low") {
+    const grimeRng = mulberry32((baseSeed ^ 0xf100d5) >>> 0);
+    const grimeGroup = new THREE.Group();
+    grimeGroup.name = "floor_grime";
+
+    const bloodMat = new THREE.MeshStandardMaterial({
+      color: 0x3a0000,
+      emissive: 0x120000,
+      emissiveIntensity: 0.12,
+      roughness: 0.98,
+      metalness: 0.0,
+      transparent: true,
+      opacity: 0.82,
+      depthWrite: false,
+    });
+    const grimeMat = new THREE.MeshStandardMaterial({
+      color: 0x151210,
+      roughness: 0.99,
+      metalness: 0.0,
+      transparent: true,
+      opacity: 0.65,
+      depthWrite: false,
+    });
+
+    const floorTilesForGrime: { x: number; z: number }[] = [];
+    for (let gz2 = 0; gz2 < parsed.height; gz2++) {
+      for (let gx2 = 0; gx2 < parsed.width; gx2++) {
+        if (parsed.tiles[gz2]?.[gx2] === ".") {
+          floorTilesForGrime.push({ x: gx2, z: gz2 });
+        }
+      }
+    }
+
+    const bloodCount = Math.max(2, Math.floor(floorTilesForGrime.length / 14));
+    const grimeCount = Math.max(3, Math.floor(floorTilesForGrime.length / 9));
+
+    for (let i = 0; i < bloodCount + grimeCount; i++) {
+      const isBlood = i < bloodCount;
+      const t = floorTilesForGrime[Math.floor(grimeRng() * floorTilesForGrime.length)];
+      const patchW = (isBlood ? 1.2 : 1.8) + grimeRng() * 1.4;
+      const patchD = (isBlood ? 1.0 : 1.5) + grimeRng() * 1.2;
+      const patchGeo = new THREE.PlaneGeometry(patchW, patchD);
+      const patch = new THREE.Mesh(patchGeo, isBlood ? bloodMat : grimeMat);
+      patch.rotation.x = -Math.PI / 2;
+      patch.rotation.z = grimeRng() * Math.PI * 2;
+      patch.position.set(
+        t.x * TILE_SIZE + TILE_SIZE / 2 + (grimeRng() - 0.5) * TILE_SIZE * 0.5,
+        0.003,
+        t.z * TILE_SIZE + TILE_SIZE / 2 + (grimeRng() - 0.5) * TILE_SIZE * 0.5
+      );
+      grimeGroup.add(patch);
+    }
+    scene.add(grimeGroup);
+  }
+
   // Walls — coalesced into per-run boxes by WallBuilder. Replaces the old
   // per-tile InstancedMesh, which produced visible seams/z-fighting at tile
   // edges and identical-tile striping along long runs. Collision still reads
@@ -584,7 +643,6 @@ export function startGame(
   //
   // Each constructor gets its own independent RNG stream so tweaking decal
   // density doesn't shift every fixture's placement.
-  const baseSeed = options.seed ?? 0x484e54;
   const decalRng = mulberry32((baseSeed ^ 0x57414c4c) >>> 0);
   const fixtureRng = mulberry32((baseSeed ^ 0x46585452) >>> 0);
   const wallDecals = new WallDecals(parsed, TILE_SIZE, decalRng);
