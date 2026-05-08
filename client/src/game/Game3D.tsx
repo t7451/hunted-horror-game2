@@ -560,7 +560,7 @@ function MobileControls({
 
   const baseSize = 128;
   const joystickSize = Math.round(
-    Math.min(176, Math.max(baseSize, window.innerWidth * 0.34)) * prefs.size
+    Math.min(176, Math.max(baseSize, (typeof window !== "undefined" ? window.innerWidth : 375) * 0.34)) * prefs.size
   );
 
   // Reset all inputs on pointer cancel (system gesture, notification, etc.)
