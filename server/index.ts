@@ -50,8 +50,8 @@ const DIFFICULTY_BONUS: Record<string, number> = {
 // MAP PARSING
 // ═══════════════════════════════════════════════════════════════
 
-function tileCenter(r: number, c: number) {
-  return { x: c * TILE + TILE / 2, z: r * TILE + TILE / 2 };
+function tileCenter(row: number, col: number) {
+  return { x: col * TILE + TILE / 2, z: row * TILE + TILE / 2 };
 }
 
 function resolveMapKey(difficulty: string): MapKey {
