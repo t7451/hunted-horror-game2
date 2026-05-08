@@ -590,8 +590,8 @@ function MobileControls({
           touchAction: "none",
           width: joystickSize,
           height: joystickSize,
-          bottom: "calc(var(--safe-bottom) + 24px)",
-          left: "calc(var(--safe-left) + 24px)",
+          bottom: "8px",
+          left: "12px",
         }}
       >
         <div
@@ -630,8 +630,8 @@ function MobileControls({
       <div
         className="pointer-events-none absolute flex flex-col items-end justify-end gap-3"
         style={{
-          right: "calc(var(--safe-right) + 24px)",
-          bottom: "calc(var(--safe-bottom) + 24px)",
+          right: "12px",
+          bottom: "8px",
         }}
       >
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-20">
