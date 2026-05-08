@@ -31,6 +31,7 @@ import { CameraRig } from "../player/CameraRig";
 import { Heartbeat } from "../player/Heartbeat";
 import { AudioWorld } from "../audio/AudioWorld";
 import { FootstepSystem } from "../audio/FootstepSystem";
+import { PickupBurst } from "../effects/PickupBurst";
 import {
   getMaterial,
   resetMaterialCache,
@@ -289,6 +290,9 @@ export function startGame(
   // by ear. Surface variant chosen from the tile char under each foot.
   const footstepSystem = new FootstepSystem(audio, parsed, TILE_SIZE, false);
   const enemyFootstepSystem = new FootstepSystem(audio, parsed, TILE_SIZE, true);
+  // Active key-pickup particle bursts. Each entry self-reports completion
+  // via update() returning true; the engine then disposes its meshes.
+  const activeBursts: PickupBurst[] = [];
   // (Footstep cadence now lives in FootstepSystem above, which keys off
   // actual horizontal movement distance and picks surface variants.)
 
@@ -1386,6 +1390,11 @@ export function startGame(
         // pickup sting for the "got it" feedback.
         audio.playAt("static_burst", k.position.x, k.position.y, k.position.z);
         audio.triggerKeyPickup();
+        // Particle burst — gold sparks + expanding ring at the key's
+        // position; the engine ticks/dispose this from the main loop.
+        activeBursts.push(
+          new PickupBurst(scene, k.position.x, k.position.y, k.position.z),
+        );
         keyMeshes.splice(i, 1);
         events.onKeyPickup?.(keyMeshes.length);
         Haptics.pickup();
@@ -1709,6 +1718,14 @@ export function startGame(
       audio.tickAmbient(dt);
       audio.update(dt);
       tickDoorSwings(dt);
+      // Tick active pickup bursts. update() returns true when a burst is
+      // done; we splice from the back so indices stay valid mid-loop.
+      for (let i = activeBursts.length - 1; i >= 0; i--) {
+        if (activeBursts[i].update(dt)) {
+          activeBursts[i].dispose(scene);
+          activeBursts.splice(i, 1);
+        }
+      }
       dust?.update(dt, camera);
       // Footsteps — player + enemy. Both fire on actual horizontal movement
       // distance, with surface variants picked from the tile char under each
