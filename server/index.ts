@@ -5,6 +5,12 @@ import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import Anthropic from "@anthropic-ai/sdk";
+import {
+  MAPS,
+  parseMap as parseSharedMap,
+  type MapDef,
+  type MapKey,
+} from "../shared/maps.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -41,142 +47,6 @@ const DIFFICULTY_BONUS: Record<string, number> = {
 };
 
 // ═══════════════════════════════════════════════════════════════
-// MAPS (copied from server.js)
-// ═══════════════════════════════════════════════════════════════
-
-const MAPS: Record<string, { name: string; difficulty: number; timer: number; claudeSpeed: number; theme: string; raw: string[] }> = {
-  easy: {
-    name: "Granny's Kitchen",
-    difficulty: 1,
-    timer: 240,
-    claudeSpeed: 3.0,
-    theme: "kitchen",
-    raw: [
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
-      "WS.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W...W",
-      "W.....D.....D.....D.....D...W",
-      "W.....W.....W.....W.....W...W",
-      "W..H..W..K..W..H..W..K..W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W...W",
-      "W..K..D.....D.....D.....D...W",
-      "W.....W.....W.....W.....W...W",
-      "W..H..W.....W..H..W.....W...W",
-      "WWWDWWWWWWWWWWWDWWWWWDWWWWWWWW",
-      "W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W...W",
-      "W.....D.....D.....D.....D...W",
-      "W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W..XW",
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
-    ],
-  },
-  normal: {
-    name: "Granny's House",
-    difficulty: 2,
-    timer: 180,
-    claudeSpeed: 4.5,
-    theme: "house",
-    raw: [
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
-      "WS.....W.....W.....W.....W.....W...W",
-      "W.D....W.D...W.D...W.D...W.D...W...W",
-      "W.W....W.W...W.W...W.W...W.W...W...W",
-      "W.W..K.W.W.K.W.W..KW.W..KW.W..KW...W",
-      "W.D....W.D...W.D...W.D...W.D...W...W",
-      "W.W....W.W...W.W...W.W...W.W...W...W",
-      "W.H....W.H...W.H...W.H...W.H...W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.....W...........W.....W.....W...W",
-      "W.H...D...........D.....D.....D...W",
-      "W.W...W...........W.....W.....W...W",
-      "W.W..KW.....E.....W..H..W..K..W...W",
-      "W.D...W...........W.....W.....W...W",
-      "W.W...W...........W.....W.....W...W",
-      "W.W...D.....P.....D.....D.....D...W",
-      "W.H...W...........W.....W.....W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.....W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W.....W...W",
-      "W.....D.....D.....D.....D.....D...W",
-      "W.....W.....W.....W.....W.....W...W",
-      "W..H..W.....W..H..W..K..W.....W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.....W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W.....W...W",
-      "W.....D.....D.....D.....D.....D...W",
-      "W.....W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W.....W..XW",
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
-    ],
-  },
-  hard: {
-    name: "Granny's Nightmare",
-    difficulty: 3,
-    timer: 120,
-    claudeSpeed: 6.0,
-    theme: "nightmare",
-    raw: [
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
-      "WS.D...W.D...W.D...W.D...W.D...W.D...W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.KW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.D.D..W.D.D.W.D.D.W.D.D.W.D.D.W.D.D.W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.HW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.D...W.D...W.D...W.D...W.D...W.D...W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.KW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.D.D..W.D.D.W.D.D.W.D.D.W.D.D.W.D.D.W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.HW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.D...W.D...W.D...W.D...W.D...W.D...W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.KW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.D.D..W.D.D.W.D.D.W.D.D.W.D.D.W.D.D.W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.HW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.D...W.D...W.D...W.D...W.D...W.D...W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.KW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.D.D..W.D.D.W.D.D.W.D.D.W.D.D.W.D.D.W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.HW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.D...W.D...W.D...W.D...W.D...W.D...W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.KW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.D.D..W.D.D.W.D.D.W.D.D.W.D.D.W.D.D.W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.HW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.D...W.D...W.D...W.D...W.D...W.D...W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.KW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.D.D..W.D.D.W.D.D.W.D.D.W.D.D.W.D.D.W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.HW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.....W.....W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W.....W.....W...W",
-      "W.....D.....D.....D.....D.....D.....D...W",
-      "W.....W.....W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W.....W.....W..XW",
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
-    ],
-  },
-};
-
-// ═══════════════════════════════════════════════════════════════
 // MAP PARSING
 // ═══════════════════════════════════════════════════════════════
 
@@ -184,45 +54,33 @@ function tileCenter(r: number, c: number) {
   return { x: c * TILE + TILE / 2, z: r * TILE + TILE / 2 };
 }
 
-function parseMap(mapData: typeof MAPS[string]) {
-  const raw = mapData.raw;
-  const H = raw.length;
-  const W = raw[0].length;
+function resolveMapKey(difficulty: string): MapKey {
+  return difficulty === "easy" || difficulty === "normal" || difficulty === "hard"
+    ? difficulty
+    : "normal";
+}
 
-  const keySpawns: { r: number; c: number }[] = [];
-  const hideSpots: { r: number; c: number }[] = [];
-  const doorTiles: { r: number; c: number }[] = [];
-  let exitTile: { r: number; c: number } | null = null;
-  let entitySpawn: { r: number; c: number } | null = null;
-  let playerSpawn: { r: number; c: number } | null = null;
-
-  for (let r = 0; r < H; r++) {
-    for (let c = 0; c < W; c++) {
-      const t = raw[r][c];
-      if (t === "K") keySpawns.push({ r, c });
-      if (t === "H") hideSpots.push({ r, c });
-      if (t === "D") doorTiles.push({ r, c });
-      if (t === "X") exitTile = { r, c };
-      if (t === "E") entitySpawn = { r, c };
-      if (t === "S") playerSpawn = { r, c };
-    }
-  }
-
-  // Fallback spawns to a safe interior tile
-  if (!playerSpawn) playerSpawn = { r: 1, c: 1 };
-  if (!entitySpawn) entitySpawn = { r: Math.floor(H / 2), c: Math.floor(W / 2) };
-  if (!exitTile) exitTile = { r: H - 2, c: W - 2 };
+function parseMap(mapData: MapDef) {
+  const parsed = parseSharedMap(mapData);
+  const raw = parsed.tiles.map(row => row.join(""));
+  const H = parsed.height;
+  const W = parsed.width;
+  const exitTile = parsed.exit ?? { x: W - 2, z: H - 2 };
+  const entitySpawn = parsed.enemy ?? {
+    x: Math.floor(W / 2),
+    z: Math.floor(H / 2),
+  };
 
   return {
     raw,
     H,
     W,
-    keySpawns: keySpawns.map((p) => tileCenter(p.r, p.c)),
-    hideSpots: hideSpots.map((p) => tileCenter(p.r, p.c)),
-    doorTiles: doorTiles.map((p) => tileCenter(p.r, p.c)),
-    exitTile: tileCenter(exitTile.r, exitTile.c),
-    entitySpawn: tileCenter(entitySpawn.r, entitySpawn.c),
-    playerSpawn: tileCenter(playerSpawn.r, playerSpawn.c),
+    keySpawns: parsed.keys.map(p => tileCenter(p.z, p.x)),
+    hideSpots: parsed.hides.map(p => tileCenter(p.z, p.x)),
+    doorTiles: parsed.doors.map(p => tileCenter(p.z, p.x)),
+    exitTile: tileCenter(exitTile.z, exitTile.x),
+    entitySpawn: tileCenter(entitySpawn.z, entitySpawn.x),
+    playerSpawn: tileCenter(parsed.spawn.z, parsed.spawn.x),
   };
 }
 
@@ -370,7 +228,8 @@ const playerSession = new Map<WebSocket, string>();
 const playerIdMap = new Map<WebSocket, string>();
 
 function createGameState(mode: string, sessionId: string, difficulty = "normal"): GameState {
-  const mapData = MAPS[difficulty] || MAPS.normal;
+  const mapKey = resolveMapKey(difficulty);
+  const mapData = MAPS[mapKey];
   const parsed = parseMap(mapData);
 
   const items: Item[] = parsed.keySpawns.map((pos, i) => ({
@@ -385,7 +244,7 @@ function createGameState(mode: string, sessionId: string, difficulty = "normal")
   return {
     sessionId,
     mode,
-    difficulty,
+    difficulty: mapKey,
     mapName: mapData.name,
     phase: "lobby",
     time: 0,
@@ -401,7 +260,7 @@ function createGameState(mode: string, sessionId: string, difficulty = "normal")
       targetX: parsed.entitySpawn.x,
       targetZ: parsed.entitySpawn.z,
       speed: mapData.claudeSpeed,
-      aggression: CLAUDE_AGGRESSION[difficulty] ?? 0.8,
+      aggression: CLAUDE_AGGRESSION[mapKey] ?? 0.8,
     },
     items,
     exit: { x: parsed.exitTile.x, z: parsed.exitTile.z, open: false },
@@ -589,12 +448,12 @@ function handleJoin(ws: WebSocket, msg: Record<string, string>) {
   const playerId = `player_${Math.random().toString(36).slice(2, 9)}`;
   playerIdMap.set(ws, playerId);
 
-  const difficulty = msg.difficulty || "normal";
+  const difficulty = resolveMapKey(msg.difficulty || "normal");
   const gs = createGameState(msg.mode || "solo", `session_${Math.random().toString(36).slice(2, 9)}`, difficulty);
   sessions.set(gs.sessionId, gs);
   playerSession.set(ws, gs.sessionId);
 
-  const parsed = parseMap(MAPS[difficulty] || MAPS.normal);
+  const parsed = parseMap(MAPS[difficulty]);
 
   // Spawn player away from Claude
   let spawnX = parsed.playerSpawn.x;
