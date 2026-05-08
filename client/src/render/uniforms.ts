@@ -8,6 +8,8 @@ export type SharedUniforms = {
   vignetteOffset: { value: number };
   noiseOpacity: { value: number };
   bloomIntensity: { value: number };
+  /** Per-axis offset applied to ChromaticAberrationEffect each frame. */
+  chromaticAberrationStrength: { value: number };
 };
 
 export function createSharedUniforms(): SharedUniforms {
@@ -16,5 +18,6 @@ export function createSharedUniforms(): SharedUniforms {
     vignetteOffset: { value: 0.28 },
     noiseOpacity: { value: 0.08 },
     bloomIntensity: { value: 0.45 },
+    chromaticAberrationStrength: { value: 0 },
   };
 }

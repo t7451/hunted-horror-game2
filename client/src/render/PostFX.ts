@@ -112,13 +112,17 @@ export async function createPostFX(
 
   const effects: Effect[] = [];
   // Mobile drops chromatic aberration and LUT for cost; SMAA fills in for
-  // the missing native MSAA.
-  if (!isMobile && quality === "high" && mod.ChromaticAberrationEffect) {
-    effects.push(
-      new mod.ChromaticAberrationEffect({
-        offset: new THREE.Vector2(0.0008, 0.0008),
-      })
-    );
+  // the missing native MSAA. CA is now driven by uniforms.chromaticAberrationStrength
+  // each frame so gameplay (sprint, Observer proximity, catch sequence) can
+  // dynamically intensify the effect.
+  let chromaticAberration:
+    | (Effect & { offset: THREE.Vector2 })
+    | null = null;
+  if (!isMobile && mod.ChromaticAberrationEffect) {
+    chromaticAberration = new mod.ChromaticAberrationEffect({
+      offset: new THREE.Vector2(0, 0),
+    }) as Effect & { offset: THREE.Vector2 };
+    effects.push(chromaticAberration);
   }
 
   if (opts.lutUrl && mod.LUTCubeLoader && mod.LUT3DEffect) {
@@ -148,6 +152,7 @@ export async function createPostFX(
     bloom: bloom as unknown as { intensity: number },
     vignette: vignette as unknown as { darkness: number; offset: number },
     noise: noise as unknown as { blendMode: { opacity: { value: number } } },
+    chromaticAberration,
   };
 
   return {
@@ -156,6 +161,10 @@ export async function createPostFX(
       live.vignette.darkness = opts.uniforms.vignetteDarkness.value;
       live.vignette.offset = opts.uniforms.vignetteOffset.value;
       live.noise.blendMode.opacity.value = opts.uniforms.noiseOpacity.value;
+      if (live.chromaticAberration) {
+        const s = opts.uniforms.chromaticAberrationStrength.value;
+        live.chromaticAberration.offset.set(s, s);
+      }
       composer.render(dt);
     },
     setSize: (w, h) => composer.setSize(w, h),
