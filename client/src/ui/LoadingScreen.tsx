@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { buildLoadManifest } from "../loaders/loadManifest";
 import { preloadAssets } from "../loaders/AssetPreloader";
+import { useIsMobile } from "../hooks/useMobile";
+import { requestFullscreen } from "../util/fullscreen";
 
 const TIPS = [
   "Don't run if The Observer is near.",
@@ -23,6 +25,7 @@ export type LoadingScreenProps = {
 };
 
 export default function LoadingScreen({ onReady }: LoadingScreenProps) {
+  const isMobile = useIsMobile();
   const [progress, setProgress] = useState(0);
   const [phase, setPhase] = useState<string>("Building the house");
   const [tipIdx, setTipIdx] = useState(0);
@@ -67,6 +70,9 @@ export default function LoadingScreen({ onReady }: LoadingScreenProps) {
 
   const handleEnter = () => {
     if (!ready || fadingOut) return;
+    if (isMobile) {
+      void requestFullscreen();
+    }
     setFadingOut(true);
     // Match fade-out duration in the className transition (300ms).
     window.setTimeout(onReady, 300);

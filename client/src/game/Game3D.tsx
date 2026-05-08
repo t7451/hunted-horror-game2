@@ -16,6 +16,10 @@ import { recordRun } from "../hooks/useGameStats";
 import { getDailySeed, saveDailyResult } from "../hooks/useDailyChallenge";
 import { Minimap } from "../ui/Minimap";
 import { PauseMenu } from "../ui/PauseMenu";
+import { MobilePauseButton } from "../ui/MobilePauseButton";
+import { PortraitGate } from "../ui/PortraitGate";
+import { lockLandscape } from "../util/orientation";
+import { acquireWakeLock, releaseWakeLock } from "../util/wakeLock";
 import {
   Tutorial,
   shouldShowTutorial,
@@ -281,6 +285,22 @@ export default function Game3D({
     };
   }, [difficulty, isMobile, quality, selectedMap.timer, sensitivity, status]);
 
+  useEffect(() => {
+    if (status !== "playing") return;
+    void lockLandscape();
+  }, [status]);
+
+  useEffect(() => {
+    if (status === "playing") {
+      void acquireWakeLock();
+    } else {
+      void releaseWakeLock();
+    }
+    return () => {
+      void releaseWakeLock();
+    };
+  }, [status]);
+
   const setVirtualMove = useCallback((moveX: number, moveZ: number) => {
     engineRef.current?.setVirtualInput({ moveX, moveZ });
   }, []);
@@ -295,6 +315,7 @@ export default function Game3D({
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-black text-white select-none">
+      <PortraitGate />
       <div ref={containerRef} className="absolute inset-0" />
 
       {status === "loading" && (
@@ -352,6 +373,7 @@ export default function Game3D({
               onHide={toggleVirtualHide}
             />
           )}
+          {!showTutorial && <MobilePauseButton onPause={() => setPaused(true)} />}
           <Minimap engine={engineRef.current} />
         </>
       )}
@@ -553,17 +575,28 @@ function MobileControls({
   }, [onMove]);
 
   return (
-    <>
-      {/* Left half: joystick */}
-      <div className="pointer-events-none absolute inset-y-0 left-0 flex w-1/2 items-end pb-10 pl-6">
+    <div
+      className="pointer-events-none absolute bottom-0 left-0 right-0"
+      aria-hidden="true"
+      style={{
+        paddingBottom: "calc(var(--safe-bottom) + 16px)",
+        paddingLeft: "calc(var(--safe-left) + 12px)",
+        paddingRight: "calc(var(--safe-right) + 12px)",
+      }}
+    >
+      <div
+        className="pointer-events-auto absolute rounded-full border border-white/20 bg-black/35 backdrop-blur"
+        style={{
+          touchAction: "none",
+          width: joystickSize,
+          height: joystickSize,
+          bottom: "calc(var(--safe-bottom) + 24px)",
+          left: "calc(var(--safe-left) + 24px)",
+        }}
+      >
         <div
           ref={padRef}
-          className="pointer-events-auto relative rounded-full border border-white/20 bg-black/35 backdrop-blur"
-          style={{
-            touchAction: "none",
-            width: joystickSize,
-            height: joystickSize,
-          }}
+          className="relative h-full w-full"
           onPointerDown={event => {
             pointerIdRef.current = event.pointerId;
             event.currentTarget.setPointerCapture(event.pointerId);
@@ -594,7 +627,13 @@ function MobileControls({
       </div>
 
       {/* Right half: look-zone affordance + action buttons */}
-      <div className="pointer-events-none absolute inset-y-0 right-0 flex w-1/2 flex-col items-end justify-end gap-3 pb-10 pr-5">
+      <div
+        className="pointer-events-none absolute flex flex-col items-end justify-end gap-3"
+        style={{
+          right: "calc(var(--safe-right) + 24px)",
+          bottom: "calc(var(--safe-bottom) + 24px)",
+        }}
+      >
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-20">
           <div
             className="rounded-full border border-white/30"
@@ -625,7 +664,7 @@ function MobileControls({
           Hide / E
         </button>
       </div>
-    </>
+    </div>
   );
 }
 

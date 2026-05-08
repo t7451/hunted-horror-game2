@@ -43,6 +43,7 @@ import { DustParticles } from "../world/DustParticles";
 import { createAIDirector, type DirectorUpdate } from "./aiDirector";
 import { findPath } from "./pathfinding";
 import { TheObserver, disposeObserverCache } from "../world/TheObserver";
+import { Haptics } from "../util/haptics";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rendering backend for HUNTED BY CLAUDE.
@@ -1117,6 +1118,7 @@ export function startGame(
         keyMeshes.splice(i, 1);
         audio.triggerKeyPickup();
         events.onKeyPickup?.(keyMeshes.length);
+        Haptics.pickup();
         emitDirector("keyPickup");
       }
     }
@@ -1143,6 +1145,9 @@ export function startGame(
       const nextDanger =
         distSq < 4 * 4 ? "critical" : distSq < 9 * 9 ? "near" : "safe";
       if (nextDanger !== dangerState) {
+        if (nextDanger !== "safe") {
+          Haptics.pulse();
+        }
         if (nextDanger === "critical" && dangerState !== "critical") {
           cameraRig.pulseDamage(0.2);
           events.onHint?.("The Observer has found you.");
@@ -1158,6 +1163,7 @@ export function startGame(
         catchSequenceActive = true;
         catchSequenceTimer = CATCH_SEQUENCE_DURATION;
         audio.triggerJumpScare();
+        Haptics.catch();
         // Flash white then fade
         catchOverlay.style.opacity = "1";
       }

@@ -3,7 +3,7 @@
 // Advanced caching strategies for offline support and performance
 // ═══════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'v3';
+const CACHE_VERSION = 'v4';
 const CACHE_NAMES = {
   static: `hunted-static-${CACHE_VERSION}`,
   dynamic: `hunted-dynamic-${CACHE_VERSION}`,
@@ -22,10 +22,8 @@ const CORE_ASSETS = [
   '/icon-maskable.png',
 ];
 
-// CDN libraries to cache
-const CDN_ASSETS = [
-  'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
-];
+// CDN libraries to cache (none — Three.js is bundled by Vite)
+const CDN_ASSETS = [];
 
 // ═══════════════════════════════════════════════════════════════
 // INSTALL EVENT - Cache core assets
@@ -41,13 +39,16 @@ self.addEventListener('install', (event) => {
         return cache.addAll(CORE_ASSETS);
       }),
       
-      // Cache CDN libraries
-      caches.open(CACHE_NAMES.cdn).then(cache => {
-        console.log('[SW] Caching CDN assets');
-        return cache.addAll(CDN_ASSETS).catch(err => {
-          console.log('[SW] CDN cache failed (may be offline during install):', err);
-        });
-      }),
+      ...(CDN_ASSETS.length
+        ? [
+            caches.open(CACHE_NAMES.cdn).then(cache => {
+              console.log('[SW] Caching CDN assets');
+              return cache.addAll(CDN_ASSETS).catch(err => {
+                console.log('[SW] CDN cache failed (may be offline during install):', err);
+              });
+            }),
+          ]
+        : []),
     ]).then(() => {
       console.log('[SW] Installation complete');
       return self.skipWaiting();
