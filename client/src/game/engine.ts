@@ -32,6 +32,7 @@ import { Heartbeat } from "../player/Heartbeat";
 import { AudioWorld } from "../audio/AudioWorld";
 import { FootstepSystem } from "../audio/FootstepSystem";
 import { PickupBurst } from "../effects/PickupBurst";
+import { FootstepDust } from "../effects/FootstepDust";
 import {
   getMaterial,
   resetMaterialCache,
@@ -294,7 +295,21 @@ export function startGame(
   // Player footsteps: 2D (listener is the player). Enemy footsteps: spatial,
   // emitted from enemyMesh.position so the player can locate the Observer
   // by ear. Surface variant chosen from the tile char under each foot.
-  const footstepSystem = new FootstepSystem(audio, parsed, TILE_SIZE, false);
+  // Dust kick spawns under the player on wood/creaky steps; battery-saver
+  // skips dust entirely.
+  const footstepDust = new FootstepDust(scene);
+  const footstepSystem = new FootstepSystem(
+    audio,
+    parsed,
+    TILE_SIZE,
+    false,
+    (x, z, surface) => {
+      if (batterySaver) return;
+      if (surface === "wood" || surface === "creaky") {
+        footstepDust.spawn(x, z);
+      }
+    },
+  );
   const enemyFootstepSystem = new FootstepSystem(audio, parsed, TILE_SIZE, true);
   // Active key-pickup particle bursts. Each entry self-reports completion
   // via update() returning true; the engine then disposes its meshes.
@@ -1758,6 +1773,7 @@ export function startGame(
           activeBursts.splice(i, 1);
         }
       }
+      footstepDust.update(dt);
       dust?.update(dt, camera);
       // Footsteps — player + enemy. Both fire on actual horizontal movement
       // distance, with surface variants picked from the tile char under each
@@ -1867,6 +1883,7 @@ export function startGame(
       props.dispose();
       cobwebs.dispose();
       dust?.dispose();
+      footstepDust.dispose(scene);
       shadowBudget.dispose();
       lightCuller.dispose();
       audio.dispose();
