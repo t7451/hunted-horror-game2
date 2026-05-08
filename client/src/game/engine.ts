@@ -15,7 +15,10 @@ import {
   resolveGraphicsQuality,
   type GraphicsQuality,
 } from "../util/device";
-import { isBatterySaverEnabled, subscribeBatterySaver } from "../util/batterySaver";
+import {
+  isBatterySaverEnabled,
+  subscribeBatterySaver,
+} from "../util/batterySaver";
 import { createPerfMonitor } from "../util/perfMonitor";
 import { createRenderer } from "../render/Renderer";
 import { createPostFX, type PostFX } from "../render/PostFX";
@@ -41,6 +44,10 @@ import { DecalSpawner } from "../materials/Decals";
 import { PropSpawner, type PropKind } from "../world/PropSpawner";
 import { CobwebSet } from "../world/Cobwebs";
 import { DustParticles } from "../world/DustParticles";
+import { buildWalls } from "../world/WallBuilder";
+import { WallDecals } from "../world/WallDecals";
+import { buildDoorFrames } from "../world/DoorFrames";
+import { WallFixtures } from "../world/WallFixtures";
 import { createAIDirector, type DirectorUpdate } from "./aiDirector";
 import { findPath } from "./pathfinding";
 import { TheObserver, disposeObserverCache } from "../world/TheObserver";
@@ -438,32 +445,42 @@ export function startGame(
   ceiling.position.set(worldW / 2, WALL_HEIGHT, worldD / 2);
   scene.add(ceiling);
 
-  // Walls — instanced for performance
-  const wallGeo = new THREE.BoxGeometry(TILE_SIZE, WALL_HEIGHT, TILE_SIZE);
-  const wallMesh = new THREE.InstancedMesh(
-    wallGeo,
-    wallMat,
-    parsed.walls.length
-  );
-  wallMesh.castShadow = shadowsEnabled;
-  wallMesh.receiveShadow = shadowsEnabled;
-  const tmp = new THREE.Object3D();
-  parsed.walls.forEach((w, i) => {
-    tmp.position.set(
-      w.x * TILE_SIZE + TILE_SIZE / 2,
-      WALL_HEIGHT / 2,
-      w.z * TILE_SIZE + TILE_SIZE / 2
-    );
-    tmp.updateMatrix();
-    wallMesh.setMatrixAt(i, tmp.matrix);
+  // Walls — coalesced into per-run boxes by WallBuilder. Replaces the old
+  // per-tile InstancedMesh, which produced visible seams/z-fighting at tile
+  // edges and identical-tile striping along long runs. Collision still reads
+  // parsed.tiles[][] directly, so this is a render-only swap.
+  const wallBuild = buildWalls(parsed, TILE_SIZE, wallMat, {
+    castShadow: shadowsEnabled,
+    receiveShadow: shadowsEnabled,
   });
-  wallMesh.instanceMatrix.needsUpdate = true;
-  // Per-tile brightness/warmth so adjacent walls aren't perfectly identical
-  // shades; per-tile UV offset so the wallpaper's vertical bands don't line
-  // up identically across every wall in a row.
-  applyInstanceTint(wallMesh, parsed.walls, 0.18, 0.06);
-  applyInstanceUvOffset(wallGeo, wallMat, parsed.walls);
-  scene.add(wallMesh);
+  scene.add(wallBuild.group);
+
+  // Door frames — wood header + jambs around every D tile so doorways have
+  // a finished edge instead of geometry that just stops.
+  const doorFrameMat = new THREE.MeshStandardMaterial({
+    color: 0x3a2a1c,
+    roughness: 0.85,
+    metalness: 0,
+  });
+  const doorFrameBuild = buildDoorFrames(parsed, TILE_SIZE, doorFrameMat);
+  scene.add(doorFrameBuild.group);
+
+  // Wall decoration — sparse decals + fixtures keyed off the map seed so
+  // placement is deterministic per map and independent from prop placement.
+  // The per-tile InstancedMesh + applyInstanceTint/UvOffset variation that
+  // main added are intentionally not used here: WallBuilder produces merged
+  // run meshes, so per-tile attributes don't apply. Variation now comes
+  // from per-run 90° UV rotation inside WallBuilder.
+  //
+  // Each constructor gets its own independent RNG stream so tweaking decal
+  // density doesn't shift every fixture's placement.
+  const baseSeed = options.seed ?? 0x484e54;
+  const decalRng = mulberry32((baseSeed ^ 0x57414c4c) >>> 0);
+  const fixtureRng = mulberry32((baseSeed ^ 0x46585452) >>> 0);
+  const wallDecals = new WallDecals(parsed, TILE_SIZE, decalRng);
+  scene.add(wallDecals.object);
+  const wallFixtures = new WallFixtures(parsed, TILE_SIZE, fixtureRng);
+  scene.add(wallFixtures.object);
 
   // Architectural trim — thin instanced strip at every wall→floor seam.
   // Mid+ quality only; on low we keep the silhouette flat to spare draws.
@@ -485,13 +502,9 @@ export function startGame(
             continue;
           if (parsed.tiles[nz][nx] !== ".") continue;
           const wx =
-            x * TILE_SIZE +
-            TILE_SIZE / 2 +
-            d.dx * (TILE_SIZE / 2 - 0.04);
+            x * TILE_SIZE + TILE_SIZE / 2 + d.dx * (TILE_SIZE / 2 - 0.04);
           const wz =
-            z * TILE_SIZE +
-            TILE_SIZE / 2 +
-            d.dz * (TILE_SIZE / 2 - 0.04);
+            z * TILE_SIZE + TILE_SIZE / 2 + d.dz * (TILE_SIZE / 2 - 0.04);
           trimSegments.push({ x: wx, z: wz, rotY: d.rotY });
         }
       }
@@ -790,14 +803,17 @@ export function startGame(
   ];
   const PROP_WEIGHTS_BY_THEME: Record<string, number[]> = {
     // chair, table, lamp, shelf, crate, barrel, bookstack, painting, rug, clutter
-    kitchen:   [0.20, 0.14, 0.10, 0.10, 0.05, 0.04, 0.10, 0.08, 0.07, 0.12],
-    house:     [0.10, 0.08, 0.10, 0.08, 0.16, 0.16, 0.04, 0.06, 0.04, 0.18],
-    nightmare: [0.06, 0.05, 0.06, 0.05, 0.18, 0.20, 0.04, 0.04, 0.02, 0.30],
+    kitchen: [0.2, 0.14, 0.1, 0.1, 0.05, 0.04, 0.1, 0.08, 0.07, 0.12],
+    house: [0.1, 0.08, 0.1, 0.08, 0.16, 0.16, 0.04, 0.06, 0.04, 0.18],
+    nightmare: [0.06, 0.05, 0.06, 0.05, 0.18, 0.2, 0.04, 0.04, 0.02, 0.3],
   };
   const propWeights =
     PROP_WEIGHTS_BY_THEME[mapDef.theme] ?? PROP_WEIGHTS_BY_THEME.kitchen;
   // Floor-only kinds skip wall-adjacent rules; "painting" needs a wall.
-  const wallAdjacent = (gx: number, gz: number): { dx: number; dz: number } | null => {
+  const wallAdjacent = (
+    gx: number,
+    gz: number
+  ): { dx: number; dz: number } | null => {
     const dirs = [
       { dx: 1, dz: 0 },
       { dx: -1, dz: 0 },
@@ -810,7 +826,7 @@ export function startGame(
     return null;
   };
   // Per-room budget: we don't have proper room volumes yet, so cap globally.
-  const PROP_DENSITY = 0.30; // bumped up to fill the larger Phase-2 maps
+  const PROP_DENSITY = 0.3; // bumped up to fill the larger Phase-2 maps
   const MAX_LAMP_LIGHTS = 12;
   let lampLightCount = 0;
   for (let gz = 0; gz < parsed.height; gz++) {
@@ -983,14 +999,27 @@ export function startGame(
   // Compatibility alias — remaining engine code that referenced enemyMesh now
   // uses observerProxy which proxies the same position/visible interface.
   const enemyMesh = {
-    get position() { return observer.group.position; },
-    get visible() { return observer.visible; },
-    set visible(v: boolean) { observer.visible = v; },
-    lookAt(x: number, y: number, z: number) { observer.lookAt(x, y, z); },
+    get position() {
+      return observer.group.position;
+    },
+    get visible() {
+      return observer.visible;
+    },
+    set visible(v: boolean) {
+      observer.visible = v;
+    },
+    lookAt(x: number, y: number, z: number) {
+      observer.lookAt(x, y, z);
+    },
     castShadow: shadowsEnabled,
   };
 
-  const enemyLight = new THREE.PointLight(0x1a2a3a, quality === "low" ? 0 : 0.5, 8, 2);
+  const enemyLight = new THREE.PointLight(
+    0x1a2a3a,
+    quality === "low" ? 0 : 0.5,
+    8,
+    2
+  );
   enemyLight.visible = false;
   scene.add(enemyLight);
 
@@ -1017,6 +1046,9 @@ export function startGame(
   let lastKnownPlayerX = 0;
   let lastKnownPlayerZ = 0;
   let isInvestigating = false;
+  // Tracks the prior "is the Observer in chase?" frame so we can fire the
+  // lunge-telegraph exactly once on the investigating→chase transition.
+  let wasChasingLastFrame = false;
   // Distraction state — set by throwable impact or door slam.
   let observerDistractedUntil = 0;
   let distractionX = 0;
@@ -1077,7 +1109,10 @@ export function startGame(
     lastRemoteEnemyAt = performance.now();
     enemyMesh.visible = true;
     enemyLight.visible = quality !== "low";
-    enemyMesh.position.set(pos.x, 1.0, pos.z);
+    // TheObserver builds with its origin at the floor (legs 0..1m, torso
+    // 1.4m, head 2.1m), so the group y MUST be 0 — anything higher floats
+    // the entire model off the ground.
+    enemyMesh.position.set(pos.x, 0, pos.z);
     enemyLight.position.set(pos.x, 1.6, pos.z);
   }
 
@@ -1085,11 +1120,15 @@ export function startGame(
   // the closet darken doesn't snap. Read by updateAnxietyEffects every frame.
   let hideVignetteCurrent = 0;
 
-  function updateAnxietyEffects(intensity: number, elapsed: number, dt: number) {
+  function updateAnxietyEffects(
+    intensity: number,
+    elapsed: number,
+    dt: number
+  ) {
     const panic = THREE.MathUtils.clamp(intensity, 0, 1);
     const jitter = (Math.sin(elapsed * 41.3) + Math.sin(elapsed * 67.9)) * 0.5;
     // Lerp the hide-vignette toward its target so toggling E feels smooth.
-    const targetHide = isHiding ? 0.20 : 0;
+    const targetHide = isHiding ? 0.2 : 0;
     hideVignetteCurrent +=
       (targetHide - hideVignetteCurrent) * Math.min(1, dt * 4);
     // Heartbeat-synced pulse: vignette breathes in/out at panic-scaled amplitude.
@@ -1166,6 +1205,19 @@ export function startGame(
   // ── Input: pointer-lock first-person look + WASD ──────────────────────────
   let yaw = 0;
   let pitch = 0;
+  // Look-smoothing targets — input handlers write to these, the per-frame
+  // tick lerps actual yaw/pitch toward them. Eliminates judder on rate-
+  // limited pointer event streams while keeping pointer-lock mouse instant
+  // enough to feel responsive.
+  let targetYaw = 0;
+  let targetPitch = 0;
+  const LOOK_LERP_RATE = 22;
+  const PITCH_LIMIT = Math.PI / 2 - 0.05;
+  function applyLookDelta(dx: number, dy: number, scale: number): void {
+    targetYaw -= dx * scale;
+    targetPitch -= dy * scale;
+    targetPitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, targetPitch));
+  }
   let velocityX = 0;
   let velocityZ = 0;
   // Live-tunable so the pause menu can update it without restarting the engine.
@@ -1189,9 +1241,15 @@ export function startGame(
 
   const onMouseMove = (e: MouseEvent) => {
     if (document.pointerLockElement !== renderer.domElement) return;
-    yaw -= e.movementX * MOUSE_LOOK_SCALE * sensitivity;
-    pitch -= e.movementY * MOUSE_LOOK_SCALE * sensitivity;
-    pitch = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, pitch));
+    // Pointer-lock mouse is a sub-millisecond per-pixel stream — applying
+    // the 22 Hz lerp would convert that into ~45 ms of feel-lag and break
+    // experienced FPS aim. Write the target *and* the live yaw/pitch so the
+    // tick lerp is a no-op for the mouse path.
+    targetYaw -= e.movementX * MOUSE_LOOK_SCALE * sensitivity;
+    targetPitch -= e.movementY * MOUSE_LOOK_SCALE * sensitivity;
+    targetPitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, targetPitch));
+    yaw = targetYaw;
+    pitch = targetPitch;
   };
   document.addEventListener("mousemove", onMouseMove);
 
@@ -1207,6 +1265,18 @@ export function startGame(
 
   const onCanvasPointerDown = (e: PointerEvent) => {
     if (e.pointerType !== "touch" && e.pointerType !== "pen") return;
+    // Don't claim the touch if it landed on a UI element overlaid on the
+    // canvas — pause button, joystick, action buttons, etc. The DOM elements
+    // opt in by setting data-ui-element (or being a button/anchor/input).
+    const target = e.target as HTMLElement | null;
+    if (
+      target &&
+      typeof target.closest === "function" &&
+      target.closest("[data-ui-element], button, a, input")
+    ) {
+      return;
+    }
+    if (activeLookPointer !== null) return;
     audio.unlock();
     activeLookPointer = e.pointerId;
     lastLookX = e.clientX;
@@ -1217,9 +1287,11 @@ export function startGame(
 
   const onCanvasPointerMove = (e: PointerEvent) => {
     if (activeLookPointer !== e.pointerId) return;
-    yaw -= (e.clientX - lastLookX) * MOBILE_LOOK_SCALE * sensitivity;
-    pitch -= (e.clientY - lastLookY) * MOBILE_LOOK_SCALE * sensitivity;
-    pitch = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, pitch));
+    applyLookDelta(
+      e.clientX - lastLookX,
+      e.clientY - lastLookY,
+      MOBILE_LOOK_SCALE * sensitivity
+    );
     lastLookX = e.clientX;
     lastLookY = e.clientY;
     e.preventDefault();
@@ -1391,7 +1463,8 @@ export function startGame(
   }
 
   function updateLocalEnemy(dt: number, elapsed: number, now: number) {
-    if (!enemyMesh.visible || now - lastRemoteEnemyAt < REMOTE_ENEMY_TIMEOUT_MS) return;
+    if (!enemyMesh.visible || now - lastRemoteEnemyAt < REMOTE_ENEMY_TIMEOUT_MS)
+      return;
 
     // Don't move enemy during catch sequence — it's already "there"
     if (catchSequenceActive) {
@@ -1407,6 +1480,14 @@ export function startGame(
       lastKnownPlayerZ = camera.position.z;
       isInvestigating = false;
     }
+
+    // Lunge telegraph — fire exactly when chase begins so the player gets a
+    // clear "you've been seen" beat before the Observer accelerates.
+    const chasingNow = !isInvestigating && !isHiding;
+    if (chasingNow && !wasChasingLastFrame) {
+      observer.triggerLungeTelegraph();
+    }
+    wasChasingLastFrame = chasingNow;
 
     // Periodic A* recompute
     pathRecomputeTimer -= dt;
@@ -1448,18 +1529,33 @@ export function startGame(
             wp.x - enemyMesh.position.x,
             wp.z - enemyMesh.position.z
           );
-          if (dist < 1.0) patrolIndex = (patrolIndex + 1) % patrolWaypoints.length;
+          if (dist < 1.0)
+            patrolIndex = (patrolIndex + 1) % patrolWaypoints.length;
           lastKnownPlayerX = wp.x;
           lastKnownPlayerZ = wp.z;
           enemyPath =
-            findPath(parsed, enemyMesh.position.x, enemyMesh.position.z, wp.x, wp.z, closed) ?? [];
+            findPath(
+              parsed,
+              enemyMesh.position.x,
+              enemyMesh.position.z,
+              wp.x,
+              wp.z,
+              closed
+            ) ?? [];
         } else {
           const wander = {
             x: lastKnownPlayerX + (Math.random() - 0.5) * 12,
             z: lastKnownPlayerZ + (Math.random() - 0.5) * 12,
           };
           enemyPath =
-            findPath(parsed, enemyMesh.position.x, enemyMesh.position.z, wander.x, wander.z, closed) ?? [];
+            findPath(
+              parsed,
+              enemyMesh.position.x,
+              enemyMesh.position.z,
+              wander.x,
+              wander.z,
+              closed
+            ) ?? [];
         }
       }
     }
@@ -1478,7 +1574,11 @@ export function startGame(
         enemyPath.shift();
       } else {
         tryMoveEnemy((dx / dist) * speed, (dz / dist) * speed);
-        enemyMesh.lookAt(camera.position.x, enemyMesh.position.y, camera.position.z);
+        enemyMesh.lookAt(
+          camera.position.x,
+          enemyMesh.position.y,
+          camera.position.z
+        );
       }
     } else {
       // Fallback direct move (no valid path found — shouldn't happen on well-formed maps).
@@ -1506,7 +1606,7 @@ export function startGame(
     enemyLight.intensity = 0.3 + proximity * 0.5;
 
     const distForAnim = distToPlayer;
-    observer.update(dt, elapsed, distForAnim);
+    observer.update(dt, elapsed, distForAnim, camera.position);
     observer.syncLights();
   }
 
@@ -1684,6 +1784,13 @@ export function startGame(
         return;
       }
 
+      // Lerp toward the target yaw/pitch each frame. Frame-rate-independent
+      // via 1 - exp(-k·dt). On a fast desktop this is effectively instant
+      // (k=22 → 99% in ~210ms); on rate-limited mobile pointer streams it
+      // smooths out the staircase.
+      const lookK = 1 - Math.exp(-LOOK_LERP_RATE * dt);
+      yaw += (targetYaw - yaw) * lookK;
+      pitch += (targetPitch - pitch) * lookK;
       camera.rotation.order = "YXZ";
       camera.rotation.y = yaw;
       camera.rotation.x = pitch;
@@ -1959,6 +2066,13 @@ export function startGame(
       detachContextHandlers();
       flashlight.dispose();
       decals.dispose();
+      wallDecals.dispose();
+      wallFixtures.dispose();
+      // Wall + door-frame geometries (materials owned by MaterialFactory /
+      // explicit doorFrameMat below).
+      for (const g of wallBuild.geometries) g.dispose();
+      for (const g of doorFrameBuild.geometries) g.dispose();
+      doorFrameMat.dispose();
       props.dispose();
       cobwebs.dispose();
       dust?.dispose();
@@ -1975,7 +2089,8 @@ export function startGame(
       activeThrows.length = 0;
       throwGeo.dispose();
       throwMat.dispose();
-      if (catchOverlay.parentNode === container) container.removeChild(catchOverlay);
+      if (catchOverlay.parentNode === container)
+        container.removeChild(catchOverlay);
       if (renderer.domElement.parentNode === container) {
         container.removeChild(renderer.domElement);
       }

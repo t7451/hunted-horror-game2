@@ -15,6 +15,7 @@ export function MobilePauseButton({ onPause }: { onPause: () => void }) {
       }}
       onTouchStart={e => e.stopPropagation()}
       aria-label="Pause"
+      data-ui-element="pause"
       className="absolute z-30 flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-black/70 backdrop-blur-sm transition-colors active:bg-black/90"
       style={{
         top: "calc(var(--safe-top) + 12px)",

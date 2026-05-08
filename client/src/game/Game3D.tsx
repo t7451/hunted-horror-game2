@@ -20,11 +20,7 @@ import { MobilePauseButton } from "../ui/MobilePauseButton";
 import { PortraitGate } from "../ui/PortraitGate";
 import { lockLandscape } from "../util/orientation";
 import { acquireWakeLock, releaseWakeLock } from "../util/wakeLock";
-import {
-  Tutorial,
-  shouldShowTutorial,
-  markTutorialSeen,
-} from "../ui/Tutorial";
+import { Tutorial, shouldShowTutorial, markTutorialSeen } from "../ui/Tutorial";
 import { loadJoystickPrefs, type JoystickPrefs } from "../util/joystickPrefs";
 
 type Status = "loading" | "playing" | "caught" | "escaped" | "time_up";
@@ -51,6 +47,25 @@ const DESKTOP_CONTROL_HINT =
 const MOBILE_CONTROL_HINT =
   "Drag left pad to move · swipe view to look · sprint / hide buttons";
 const JOYSTICK_RADIUS_FACTOR = 0.36;
+// Input shaping — see shapeJoystick. Values picked from Batch 10 spec to
+// kill stick drift, give precise sub-walk control, and saturate before the
+// thumb hits the visible ring.
+const JOYSTICK_DEADZONE = 0.12;
+const JOYSTICK_OUTER_LIMIT = 0.85;
+const JOYSTICK_RESPONSE_CURVE = 1.6;
+const INPUT_LERP_RATE = 18;
+const SPRINT_DOUBLE_TAP_MS = 280;
+
+function shapeJoystick(rawX: number, rawY: number): { x: number; z: number } {
+  const mag = Math.hypot(rawX, rawY);
+  if (mag < JOYSTICK_DEADZONE) return { x: 0, z: 0 };
+  const remapped = Math.min(
+    1,
+    (mag - JOYSTICK_DEADZONE) / (JOYSTICK_OUTER_LIMIT - JOYSTICK_DEADZONE)
+  );
+  const shaped = Math.pow(remapped, JOYSTICK_RESPONSE_CURVE);
+  return { x: (rawX / mag) * shaped, z: (rawY / mag) * shaped };
+}
 
 interface Props {
   initialDifficulty: MapKey;
@@ -435,7 +450,9 @@ export default function Game3D({
               throwsRemaining={throwables}
             />
           )}
-          {!showTutorial && <MobilePauseButton onPause={() => setPaused(true)} />}
+          {!showTutorial && (
+            <MobilePauseButton onPause={() => setPaused(true)} />
+          )}
           <Minimap engine={engineRef.current} />
         </>
       )}
@@ -522,8 +539,7 @@ export default function Game3D({
           )}
           {runTimeLeft !== null && (
             <p className="mb-5 font-mono text-2xl text-white/80">
-              Score:{" "}
-              {Math.round(runTimeLeft * selectedMap.difficulty * 10)}
+              Score: {Math.round(runTimeLeft * selectedMap.difficulty * 10)}
             </p>
           )}
           <div className="flex gap-3">
@@ -608,50 +624,116 @@ function MobileControls({
 }) {
   const padRef = useRef<HTMLDivElement | null>(null);
   const activeJoystickPointer = useRef<number | null>(null);
-  const activeLookPointer = useRef<number | null>(null);
   const [knob, setKnob] = useState({ x: 0, y: 0, active: false });
+  // Sprint visual state mirrors sprintActiveRef for rendering. The ref is
+  // still the source of truth for handlers (no closure capture issues), but
+  // the React state lets us tint the joystick knob when sprint engages.
+  const [sprintEngaged, setSprintEngaged] = useState(false);
   const [prefs] = useState<JoystickPrefs>(() => loadJoystickPrefs());
+
+  // Raw stick input (post-shaping) — written by the pointer handler. The
+  // engine sees a smoothed copy via the rAF loop below, which gives us a
+  // frame-rate-independent ease and removes the staircase that comes from
+  // rate-limited touch event streams.
+  const rawInputRef = useRef({ x: 0, z: 0 });
+  const smoothedRef = useRef({ x: 0, z: 0 });
+  const onMoveRef = useRef(onMove);
+  onMoveRef.current = onMove;
+
+  // Sprint state: double-tap-and-hold on the joystick. Replaces the old
+  // dedicated Sprint button to free thumb-space and avoid the joystick's
+  // ring overlapping the button on small screens.
+  const lastJoystickTapAtRef = useRef(0);
+  const sprintActiveRef = useRef(false);
+  const onSprintRef = useRef(onSprint);
+  onSprintRef.current = onSprint;
 
   const baseSize = 128;
   const joystickSize = Math.round(
-    Math.min(176, Math.max(baseSize, (typeof window !== "undefined" ? window.innerWidth : 375) * 0.34)) * prefs.size
+    Math.min(
+      176,
+      Math.max(
+        baseSize,
+        (typeof window !== "undefined" ? window.innerWidth : 375) * 0.34
+      )
+    ) * prefs.size
   );
+
+  // Per-frame smoothing → engine. Runs only while mounted.
+  useEffect(() => {
+    const EPS = 1e-3;
+    let raf = 0;
+    let last = performance.now();
+    let lastSentNonzero = false;
+    const tick = () => {
+      const now = performance.now();
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      const k = 1 - Math.exp(-INPUT_LERP_RATE * dt);
+      const sm = smoothedRef.current;
+      const raw = rawInputRef.current;
+      sm.x += (raw.x - sm.x) * k;
+      sm.z += (raw.z - sm.z) * k;
+      // Skip the engine call when both raw and smoothed are effectively
+      // zero — but send one final zero so we don't strand the engine in a
+      // non-zero virtual input state.
+      const active =
+        Math.abs(raw.x) >= EPS ||
+        Math.abs(raw.z) >= EPS ||
+        Math.abs(sm.x) >= EPS ||
+        Math.abs(sm.z) >= EPS;
+      if (active || lastSentNonzero) {
+        onMoveRef.current(sm.x, sm.z);
+        lastSentNonzero = active;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
   // Reset all inputs on pointer cancel (system gesture, notification, etc.)
   useEffect(() => {
     const onCancel = () => {
       activeJoystickPointer.current = null;
-      activeLookPointer.current = null;
-      onMove(0, 0);
-      onSprint(false);
+      rawInputRef.current = { x: 0, z: 0 };
+      if (sprintActiveRef.current) {
+        sprintActiveRef.current = false;
+        setSprintEngaged(false);
+        onSprintRef.current(false);
+      }
     };
     window.addEventListener("pointercancel", onCancel);
     return () => window.removeEventListener("pointercancel", onCancel);
-  }, [onMove, onSprint]);
+  }, []);
 
-  const updatePad = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const pad = padRef.current;
-      if (!pad) return;
-      const rect = pad.getBoundingClientRect();
-      const radius = Math.max(1, rect.width * JOYSTICK_RADIUS_FACTOR);
-      const dx = event.clientX - (rect.left + rect.width / 2);
-      const dy = event.clientY - (rect.top + rect.height / 2);
-      const len = Math.hypot(dx, dy);
-      const scale = len > radius ? radius / len : 1;
-      const x = dx * scale;
-      const y = dy * scale;
-      onMove(x / radius, y / radius);
-      setKnob({ x, y, active: true });
-    },
-    [onMove]
-  );
+  const updatePad = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const pad = padRef.current;
+    if (!pad) return;
+    const rect = pad.getBoundingClientRect();
+    const radius = Math.max(1, rect.width * JOYSTICK_RADIUS_FACTOR);
+    const dx = event.clientX - (rect.left + rect.width / 2);
+    const dy = event.clientY - (rect.top + rect.height / 2);
+    const len = Math.hypot(dx, dy);
+    const scale = len > radius ? radius / len : 1;
+    const x = dx * scale;
+    const y = dy * scale;
+    // Normalize to unit circle, then shape (deadzone + curve) before
+    // setting the smoothing target. World-Z is the inverse of screen-Y.
+    const shaped = shapeJoystick(x / radius, y / radius);
+    rawInputRef.current = { x: shaped.x, z: shaped.z };
+    setKnob({ x, y, active: true });
+  }, []);
 
   const releasePad = useCallback(() => {
     activeJoystickPointer.current = null;
-    onMove(0, 0);
+    rawInputRef.current = { x: 0, z: 0 };
     setKnob({ x: 0, y: 0, active: false });
-  }, [onMove]);
+    if (sprintActiveRef.current) {
+      sprintActiveRef.current = false;
+      onSprintRef.current(false);
+    }
+  }, []);
 
   const joystickSide = prefs.swap ? "right" : "left";
   const buttonSide = prefs.swap ? "left" : "right";
@@ -666,6 +748,7 @@ function MobileControls({
       }}
     >
       <div
+        data-ui-element="joystick"
         className="pointer-events-auto absolute rounded-full border border-white/20 bg-black/35 backdrop-blur"
         style={{
           touchAction: "none",
@@ -684,6 +767,16 @@ function MobileControls({
             if (activeJoystickPointer.current !== null) return;
             activeJoystickPointer.current = event.pointerId;
             event.currentTarget.setPointerCapture(event.pointerId);
+            // Double-tap-and-hold → sprint. The hold portion is implicit:
+            // the user is already touching the stick to move; releasing
+            // ends sprint.
+            const now = performance.now();
+            if (now - lastJoystickTapAtRef.current < SPRINT_DOUBLE_TAP_MS) {
+              sprintActiveRef.current = true;
+              setSprintEngaged(true);
+              onSprintRef.current(true);
+            }
+            lastJoystickTapAtRef.current = now;
             updatePad(event);
           }}
           onPointerMove={event => {
@@ -701,9 +794,11 @@ function MobileControls({
         >
           <div
             className={`absolute left-1/2 top-1/2 rounded-full border transition-colors ${
-              knob.active
-                ? "border-red-400/60 bg-red-500/60"
-                : "border-white/30 bg-white/15"
+              sprintEngaged
+                ? "border-amber-300/80 bg-amber-400/60"
+                : knob.active
+                  ? "border-red-400/60 bg-red-500/60"
+                  : "border-white/30 bg-white/15"
             }`}
             style={{
               width: joystickSize * 0.42,
@@ -714,6 +809,9 @@ function MobileControls({
           <span className="absolute inset-x-0 bottom-2 select-none text-center text-[9px] uppercase tracking-widest text-white/40">
             move
           </span>
+        </div>
+        <div className="pointer-events-none absolute -bottom-5 left-1/2 -translate-x-1/2 select-none whitespace-nowrap text-[10px] uppercase tracking-widest text-white/30">
+          Double tap to sprint
         </div>
       </div>
 
@@ -737,17 +835,7 @@ function MobileControls({
 
         <button
           type="button"
-          className="pointer-events-auto h-14 w-20 rounded-2xl border border-red-300/40 bg-red-900/60 text-[10px] font-bold uppercase tracking-widest shadow-lg backdrop-blur active:bg-red-600/80"
-          style={{ touchAction: "none" }}
-          onPointerDown={() => onSprint(true)}
-          onPointerUp={() => onSprint(false)}
-          onPointerCancel={() => onSprint(false)}
-          onPointerLeave={() => onSprint(false)}
-        >
-          Sprint
-        </button>
-        <button
-          type="button"
+          data-ui-element="hide"
           className="pointer-events-auto h-14 w-20 rounded-2xl border border-white/25 bg-black/55 text-[10px] font-bold uppercase tracking-widest shadow-lg backdrop-blur active:bg-white/20"
           style={{ touchAction: "none" }}
           onClick={onHide}
