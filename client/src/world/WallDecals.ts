@@ -8,7 +8,7 @@
 import * as THREE from "three";
 import type { ParsedMap } from "@shared/maps";
 
-const DECAL_KINDS = ["crack", "stain", "peel", "scratch"] as const;
+const DECAL_KINDS = ["crack", "stain", "peel", "scratch", "lath"] as const;
 type DecalKind = (typeof DECAL_KINDS)[number];
 
 const DECAL_COLORS: Record<DecalKind, number> = {
@@ -16,6 +16,9 @@ const DECAL_COLORS: Record<DecalKind, number> = {
   stain: 0x2a1810,
   peel: 0x5a4a3a,
   scratch: 0x1a1410,
+  // Lath patch is rendered as a small dark backing rectangle; horizontal
+  // wood strips are stacked on top of it as a sibling mesh per placement.
+  lath: 0x1a0f08,
 };
 
 // Per-kind opacity, fixed at construction time. Pooling materials by kind
@@ -26,6 +29,7 @@ const DECAL_OPACITY: Record<DecalKind, number> = {
   stain: 0.55,
   peel: 0.45,
   scratch: 0.65,
+  lath: 0.95,
 };
 
 // Per-wall-adjacent-floor-edge probability of placing a decal.
@@ -65,6 +69,7 @@ export class WallDecals {
       stain: this._makeMaterial("stain"),
       peel: this._makeMaterial("peel"),
       scratch: this._makeMaterial("scratch"),
+      lath: this._makeMaterial("lath"),
     };
 
     for (let z = 0; z < parsed.height; z++) {
@@ -78,7 +83,13 @@ export class WallDecals {
           if (parsed.tiles[nz][nx] !== "W") continue;
           if (rng() > DECAL_DENSITY) continue;
 
-          const kind = DECAL_KINDS[Math.floor(rng() * DECAL_KINDS.length)];
+          // Lath shows up at lower density than the other decal kinds —
+          // it's the strongest visual statement (a chunk of plaster has
+          // fallen away) and overuse breaks the Victorian read.
+          let kind = DECAL_KINDS[Math.floor(rng() * DECAL_KINDS.length)];
+          if (kind === "lath" && rng() > 0.35) {
+            kind = "stain";
+          }
           const w = 0.5 + rng() * 0.8;
           const h = 0.4 + rng() * 0.9;
           const geo = new THREE.PlaneGeometry(w, h);
@@ -87,18 +98,64 @@ export class WallDecals {
           const mesh = new THREE.Mesh(geo, matByKind[kind]);
           const tileCx = (x + 0.5) * tileSize;
           const tileCz = (z + 0.5) * tileSize;
+          const cy = 0.5 + rng() * 1.6;
           mesh.position.set(
             tileCx + n.dx * surfaceDist,
-            0.5 + rng() * 1.6,
+            cy,
             tileCz + n.dz * surfaceDist
           );
           mesh.rotation.y = n.rot;
           mesh.castShadow = false;
           mesh.receiveShadow = false;
           group.add(mesh);
+
+          // For lath patches, layer horizontal wood strips proud of the
+          // dark backing so the broken-plaster reveal reads in 3D rather
+          // than as a flat texture.
+          if (kind === "lath") {
+            const lathMat = this._getLathStripMaterial();
+            const stripCount = 3 + Math.floor(rng() * 3);
+            const stripH = h / (stripCount * 1.6);
+            const gap = (h - stripCount * stripH) / (stripCount + 1);
+            for (let s = 0; s < stripCount; s++) {
+              const stripGeo = new THREE.PlaneGeometry(w * 0.92, stripH);
+              this.geometries.push(stripGeo);
+              const stripMesh = new THREE.Mesh(stripGeo, lathMat);
+              const yOffsetLocal =
+                -h / 2 + gap + s * (stripH + gap) + stripH / 2;
+              // Offset the strip slightly proud of the backing along the
+              // wall normal so polygonOffset can keep them depth-stable.
+              stripMesh.position.set(
+                tileCx + n.dx * (surfaceDist + 0.008),
+                cy + yOffsetLocal,
+                tileCz + n.dz * (surfaceDist + 0.008)
+              );
+              stripMesh.rotation.y = n.rot;
+              stripMesh.castShadow = false;
+              stripMesh.receiveShadow = false;
+              group.add(stripMesh);
+            }
+          }
         }
       }
     }
+  }
+
+  private _lathStripMat: THREE.MeshStandardMaterial | null = null;
+
+  private _getLathStripMaterial(): THREE.MeshStandardMaterial {
+    if (this._lathStripMat) return this._lathStripMat;
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x6a4a2a,
+      roughness: 0.95,
+      metalness: 0,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    });
+    this._lathStripMat = mat;
+    this.materials.push(mat);
+    return mat;
   }
 
   private _makeMaterial(kind: DecalKind): THREE.MeshStandardMaterial {

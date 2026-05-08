@@ -493,6 +493,65 @@ export function startGame(
   ceiling.position.set(worldW / 2, WALL_HEIGHT, worldD / 2);
   scene.add(ceiling);
 
+  // Water-stained ceiling — irregular sepia blotches over interior tiles.
+  // Plane meshes facing down, slightly below the ceiling plane with
+  // polygonOffset to avoid z-fighting. Density target: ~one stain per
+  // ~12 floor tiles, randomised but reproducible per map.
+  {
+    const stainSeed = (options.seed ?? 0x484e54) ^ 0x57415354;
+    const stainRng = mulberry32(stainSeed >>> 0);
+    const stainMat = new THREE.MeshStandardMaterial({
+      color: 0x3a2418,
+      transparent: true,
+      opacity: 0.55,
+      roughness: 0.95,
+      metalness: 0,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+    });
+    const stainGroup = new THREE.Group();
+    stainGroup.name = "ceiling_stains";
+    const floorTiles: { x: number; z: number }[] = [];
+    for (let z = 0; z < parsed.height; z++) {
+      for (let x = 0; x < parsed.width; x++) {
+        if (parsed.tiles[z][x] === ".") floorTiles.push({ x, z });
+      }
+    }
+    const stainCount = Math.max(4, Math.floor(floorTiles.length / 12));
+    for (let i = 0; i < stainCount; i++) {
+      const t = floorTiles[Math.floor(stainRng() * floorTiles.length)];
+      // Two layered blotches per stain — outer faint halo + inner darker
+      // core — read as concentric water-damage rings.
+      const cx = (t.x + stainRng()) * TILE_SIZE;
+      const cz = (t.z + stainRng()) * TILE_SIZE;
+      const outerSize = 1.2 + stainRng() * 1.6;
+      const outer = new THREE.Mesh(
+        new THREE.PlaneGeometry(outerSize, outerSize * (0.7 + stainRng() * 0.6)),
+        stainMat
+      );
+      outer.rotation.x = Math.PI / 2;
+      outer.rotation.z = stainRng() * Math.PI * 2;
+      outer.position.set(cx, WALL_HEIGHT - 0.005, cz);
+      stainGroup.add(outer);
+      const inner = new THREE.Mesh(
+        new THREE.PlaneGeometry(outerSize * 0.55, outerSize * 0.55 * (0.7 + stainRng() * 0.6)),
+        stainMat
+      );
+      inner.rotation.x = Math.PI / 2;
+      inner.rotation.z = stainRng() * Math.PI * 2;
+      inner.position.set(
+        cx + (stainRng() - 0.5) * outerSize * 0.2,
+        WALL_HEIGHT - 0.01,
+        cz + (stainRng() - 0.5) * outerSize * 0.2
+      );
+      stainGroup.add(inner);
+    }
+    scene.add(stainGroup);
+  }
+
   // Walls — coalesced into per-run boxes by WallBuilder. Replaces the old
   // per-tile InstancedMesh, which produced visible seams/z-fighting at tile
   // edges and identical-tile striping along long runs. Collision still reads

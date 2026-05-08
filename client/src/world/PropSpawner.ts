@@ -253,12 +253,22 @@ function buildTable() {
   const legH = 0.74;
   const half = topW / 2 - legW;
   const halfD = topD / 2 - legW;
+  // Apron: thin skirt boards that join the legs just under the tabletop —
+  // makes the table read as carpentered rather than four sticks under a slab.
+  const apronH = 0.12;
+  const apronT = 0.04;
+  const apronY = legH - apronH / 2;
+  const apronInset = legW + apronT / 2;
   const boxes: BoxSpec[] = [
     { x: 0, y: legH + topH / 2, z: 0, w: topW, h: topH, d: topD },
     { x: -half, y: legH / 2, z: -halfD, w: legW, h: legH, d: legW },
     { x: half, y: legH / 2, z: -halfD, w: legW, h: legH, d: legW },
     { x: -half, y: legH / 2, z: halfD, w: legW, h: legH, d: legW },
     { x: half, y: legH / 2, z: halfD, w: legW, h: legH, d: legW },
+    { x: 0, y: apronY, z: -halfD + apronInset - legW, w: topW - legW * 2, h: apronH, d: apronT },
+    { x: 0, y: apronY, z: halfD - apronInset + legW, w: topW - legW * 2, h: apronH, d: apronT },
+    { x: -half + apronInset - legW, y: apronY, z: 0, w: apronT, h: apronH, d: topD - legW * 2 },
+    { x: half - apronInset + legW, y: apronY, z: 0, w: apronT, h: apronH, d: topD - legW * 2 },
   ];
   return mergeBoxes(
     boxes,
@@ -308,7 +318,10 @@ function buildLamp() {
 }
 
 function buildShelf() {
-  // A bookshelf-ish silhouette: tall narrow back + 3 horizontal shelves.
+  // A bookshelf-ish silhouette: tall narrow back + 3 horizontal shelves,
+  // populated with a deterministic row of book volumes per level. Books
+  // share the shelf material — under flashlight that reads as a row of
+  // dark leather spines, which is what we want.
   const w = 0.9;
   const d = 0.3;
   const h = 1.6;
@@ -321,6 +334,38 @@ function buildShelf() {
     { x: -w / 2 + 0.04, y: h / 2, z: 0, w: 0.04, h, d }, // left side
     { x: w / 2 - 0.04, y: h / 2, z: 0, w: 0.04, h, d }, // right side
   ];
+
+  // Books — three rows, on each horizontal shelf surface. Deterministic
+  // jitter per slot keeps tilts/heights consistent across all instances
+  // (props are instanced — every shelf shares one geometry).
+  const shelfYs = [0.05 + 0.025 + 0.005, h * 0.4 + 0.02 + 0.005, h * 0.7 + 0.02 + 0.005];
+  const slots = 9;
+  const slotW = (w - 0.16) / slots;
+  for (let row = 0; row < shelfYs.length; row++) {
+    const baseY = shelfYs[row];
+    let xCursor = -w / 2 + 0.08;
+    for (let i = 0; i < slots; i++) {
+      const seed = Math.sin(row * 12.9898 + i * 78.233) * 43758.5453;
+      const jitter = seed - Math.floor(seed); // 0..1
+      // Skip ~15% of slots so the row isn't perfectly full.
+      if (jitter < 0.15) {
+        xCursor += slotW;
+        continue;
+      }
+      const bookH = 0.18 + jitter * 0.10;
+      const bookW = slotW * (0.78 + jitter * 0.18);
+      const bookD = 0.18 + (1 - jitter) * 0.06;
+      boxes.push({
+        x: xCursor + slotW / 2,
+        y: baseY + bookH / 2,
+        z: 0.01,
+        w: bookW,
+        h: bookH,
+        d: bookD,
+      });
+      xCursor += slotW;
+    }
+  }
   return mergeBoxes(
     boxes,
     new THREE.MeshStandardMaterial({
