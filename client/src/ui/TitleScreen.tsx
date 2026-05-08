@@ -14,9 +14,16 @@ interface Props {
     sensitivity: number;
   }) => void;
   webglSupported: boolean;
+  volume: number;
+  onVolume: (v: number) => void;
 }
 
-export function TitleScreen({ onEnter, webglSupported }: Props) {
+export function TitleScreen({
+  onEnter,
+  webglSupported,
+  volume,
+  onVolume,
+}: Props) {
   const [difficulty, setDifficulty] = useState<MapKey>("easy");
   const [quality, setQuality] = useState<GraphicsQuality>("auto");
   const [sensitivity, setSensitivity] = useState(1);
@@ -58,7 +65,7 @@ export function TitleScreen({ onEnter, webglSupported }: Props) {
         ))}
       </div>
 
-      <div className="mb-6 grid w-[min(92vw,520px)] gap-3 rounded border border-white/15 bg-black/40 p-4 text-sm sm:grid-cols-2">
+      <div className="mb-6 grid w-[min(92vw,720px)] gap-3 rounded border border-white/15 bg-black/40 p-4 text-sm sm:grid-cols-3">
         <label className="flex flex-col gap-1">
           <span className="text-xs uppercase tracking-widest opacity-60">
             Graphics
@@ -87,6 +94,20 @@ export function TitleScreen({ onEnter, webglSupported }: Props) {
             onChange={e => setSensitivity(Number(e.target.value))}
           />
         </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs uppercase tracking-widest opacity-60">
+            Volume
+          </span>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            value={volume}
+            onChange={e => onVolume(Number(e.target.value))}
+            className="accent-red-500"
+          />
+        </label>
       </div>
 
       <button
@@ -110,24 +131,61 @@ export function TitleScreen({ onEnter, webglSupported }: Props) {
 function BestTimesDisplay() {
   const stats = loadStats();
   const hasBests = Object.keys(stats.bestTimes).length > 0;
-  if (!hasBests) return null;
+  const recentRuns = stats.runs.slice(0, 5);
+  if (!hasBests && recentRuns.length === 0) return null;
 
   return (
-    <div className="mt-8 font-mono text-xs opacity-50">
-      <div className="mb-1 text-[10px] uppercase tracking-widest">
-        Best Escapes
-      </div>
-      {(["easy", "normal", "hard"] as MapKey[]).map(key => {
-        const t = stats.bestTimes[key];
-        if (t === undefined) return null;
-        return (
-          <div key={key} className="flex gap-4">
-            <span className="w-20">{MAPS[key].name}</span>
-            <span>{formatTime(t)}</span>
+    <div className="mt-8 space-y-3 font-mono text-xs text-white/40">
+      {hasBests && (
+        <div>
+          <div className="mb-1 text-[10px] uppercase tracking-widest text-white/30">
+            Best Escapes
           </div>
-        );
-      })}
-      <div className="mt-1">
+          {(["easy", "normal", "hard"] as MapKey[]).map(key => {
+            const t = stats.bestTimes[key];
+            if (t === undefined) return null;
+            return (
+              <div key={key} className="flex gap-4">
+                <span className="w-20">{MAPS[key].name}</span>
+                <span className="text-green-400/60">{formatTime(t)}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {recentRuns.length > 0 && (
+        <div>
+          <div className="mb-1 text-[10px] uppercase tracking-widest text-white/30">
+            Recent
+          </div>
+          {recentRuns.map((run, i) => {
+            const mapName =
+              MAPS[run.difficulty as MapKey]?.name ?? run.difficulty;
+            return (
+              <div key={i} className="flex gap-3">
+                <span
+                  className={
+                    run.result === "escaped"
+                      ? "text-green-400/60"
+                      : "text-red-400/60"
+                  }
+                >
+                  {run.result === "escaped" ? "✓" : "✗"}
+                </span>
+                <span className="w-20">{mapName}</span>
+                <span>
+                  {run.result === "escaped"
+                    ? formatTime(run.timeUsed)
+                    : `${formatTime(run.timeUsed)} in`}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="text-[10px] text-white/25">
         {stats.escapedCount} escaped · {stats.caughtCount} caught
       </div>
     </div>
