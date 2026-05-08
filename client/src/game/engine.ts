@@ -272,6 +272,8 @@ export function startGame(
   });
   const heartbeat = new Heartbeat(sharedUniforms);
   const audio = new AudioWorld();
+  // Audio occlusion needs to know wall layout to raymarch source→listener.
+  audio.bindMap(parsed, TILE_SIZE);
   // Track distance walked so we step on a stride cadence rather than every
   // tick — feels less "every frame thunk" without an asset library.
   let stepDist = 0;
@@ -1247,13 +1249,13 @@ export function startGame(
       enemyMesh.lookAt(fx, enemyMesh.position.y, fz);
     }
 
-    // Proximity audio
+    // Enemy light proximity (audio is driven from the main tick now via
+    // updateObserverPosition + tickOcclusion + setHeartbeatProximity).
     const distToPlayer = Math.hypot(
       enemyMesh.position.x - camera.position.x,
       enemyMesh.position.z - camera.position.z
     );
     const proximity = Math.max(0, 1 - distToPlayer / 14);
-    audio.setEntityProximity(proximity);
 
     enemyLight.position.set(enemyMesh.position.x, 1.6, enemyMesh.position.z);
     enemyLight.visible = quality !== "low" && enemyMesh.visible;
@@ -1572,7 +1574,32 @@ export function startGame(
         enemyMesh.visible ? enemyMesh.position : null
       );
       updateAnxietyEffects(heartbeat.intensity(), t, dt);
-      audio.setHeartbeatIntensity(heartbeat.intensity());
+
+      // Spatial-audio wiring. Listener tracks the camera; Observer voice
+      // (breath / stalk / footsteps / moans) follows enemyMesh; occlusion
+      // ticks at ~8Hz and lerps the per-source volume; heartbeat is
+      // distance-driven (not state-driven). Ambient mixer breathes the
+      // wind layer + holds the static drone constant.
+      audio.setListener(
+        camera.position.x,
+        camera.position.y,
+        camera.position.z,
+        yaw,
+      );
+      const enemyDx = enemyMesh.position.x - camera.position.x;
+      const enemyDz = enemyMesh.position.z - camera.position.z;
+      const enemyDist = Math.hypot(enemyDx, enemyDz);
+      const observerChasing = enemyMesh.visible && enemyDist < 9;
+      audio.updateObserverPosition(
+        enemyMesh.position.x,
+        enemyMesh.position.y,
+        enemyMesh.position.z,
+        observerChasing,
+      );
+      audio.tickSpatial(dt);
+      audio.tickOcclusion(camera.position.x, camera.position.z, performance.now());
+      audio.setHeartbeatProximity(enemyMesh.visible ? enemyDist : 999);
+      audio.tickAmbient(dt);
       audio.update(dt);
       dust?.update(dt, camera);
       // Footstep cadence — fire one click every ~0.8m of horizontal travel.
