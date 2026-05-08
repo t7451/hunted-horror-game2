@@ -128,6 +128,110 @@ export type MinimapState = {
   tiles: string[][];
 };
 
+// Scale the (0..1) UVs of a PlaneGeometry by (sx, sy). Used so a single big
+// floor/ceiling plane gets the texture repeated per-tile rather than once
+// across the whole world. Combined with material.tex.repeat = (tiling, tiling)
+// each TILE_SIZE-wide cell ends up with `tiling` repeats — the same density
+// walls receive on their TILE_SIZE-wide faces.
+function scalePlaneUVs(geo: THREE.PlaneGeometry, sx: number, sy: number): void {
+  const uv = geo.attributes.uv;
+  for (let i = 0; i < uv.count; i++) {
+    uv.setXY(i, uv.getX(i) * sx, uv.getY(i) * sy);
+  }
+  uv.needsUpdate = true;
+}
+
+// Deterministic per-tile hash. Seeded so two callers can pull two
+// uncorrelated variation streams from the same (x, z).
+function tileHash(x: number, z: number, seed: number): number {
+  const s = Math.sin(x * 12.9898 + z * 78.233 + seed * 37.719) * 43758.5453;
+  return s - Math.floor(s);
+}
+
+// Add a per-instance UV offset attribute to `geo` and patch `mat`'s vertex
+// shader to add the offset to every map UV. Effect: even though every
+// instance shares one texture, each tile samples a different region of it,
+// breaking the visual repeat (e.g. wallpaper bands that would otherwise
+// line up across rows of wall tiles).
+//
+// The patch survives async JPG/KTX2 swap-in: when MaterialFactory marks
+// `mat.needsUpdate = true` after a texture loads, Three recompiles the
+// shader and onBeforeCompile fires again with our same callback installed.
+//
+// Guarded by USE_INSTANCING in case the same material is later reused on a
+// non-instanced mesh — that path skips the offset cleanly.
+function applyInstanceUvOffset(
+  geo: THREE.BufferGeometry,
+  mat: THREE.MeshStandardMaterial,
+  positions: ArrayLike<{ x: number; z: number }>,
+): void {
+  const offsets = new Float32Array(positions.length * 2);
+  for (let i = 0; i < positions.length; i++) {
+    const p = positions[i];
+    offsets[i * 2 + 0] = tileHash(p.x, p.z, 23);
+    offsets[i * 2 + 1] = tileHash(p.x, p.z, 31);
+  }
+  geo.setAttribute(
+    "instanceUvOffset",
+    new THREE.InstancedBufferAttribute(offsets, 2),
+  );
+  // Idempotent: re-installing the same callback is a no-op.
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        "#include <uv_pars_vertex>",
+        `#include <uv_pars_vertex>
+#ifdef USE_INSTANCING
+attribute vec2 instanceUvOffset;
+#endif`,
+      )
+      .replace(
+        "#include <uv_vertex>",
+        `#include <uv_vertex>
+#ifdef USE_INSTANCING
+#ifdef USE_MAP
+vMapUv += instanceUvOffset;
+#endif
+#ifdef USE_NORMALMAP
+vNormalMapUv += instanceUvOffset;
+#endif
+#ifdef USE_AOMAP
+vAoMapUv += instanceUvOffset;
+#endif
+#ifdef USE_ROUGHNESSMAP
+vRoughnessMapUv += instanceUvOffset;
+#endif
+#ifdef USE_METALNESSMAP
+vMetalnessMapUv += instanceUvOffset;
+#endif
+#endif`,
+      );
+  };
+  mat.needsUpdate = true;
+}
+
+// Fill an InstancedMesh's per-instance color with subtle warm/cool brightness
+// variation tied to (x, z) so the same map looks identical between mounts.
+// The tint is multiplied into the material color, so values stay near 1.0 to
+// avoid washing out or darkening the underlying texture.
+function applyInstanceTint(
+  mesh: THREE.InstancedMesh,
+  positions: ArrayLike<{ x: number; z: number }>,
+  range: number = 0.16,
+  warmth: number = 0.06,
+): void {
+  const tint = new THREE.Color();
+  for (let i = 0; i < positions.length; i++) {
+    const p = positions[i];
+    const v = tileHash(p.x, p.z, 1) - 0.5; // -0.5..0.5
+    const w = (tileHash(p.x, p.z, 7) - 0.5) * warmth; // ±warmth/2
+    const k = 1 + v * range; // centered on 1.0, span = `range`
+    tint.setRGB(k + w, k, k - w);
+    mesh.setColorAt(i, tint);
+  }
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+}
+
 // Tiny seedable PRNG so prop / cobweb placement is stable across mounts
 // of the same map (no popping when the user re-enters the house).
 function mulberry32(seed: number): () => number {
@@ -315,19 +419,21 @@ export function startGame(
   const worldW = parsed.width * TILE_SIZE;
   const worldD = parsed.height * TILE_SIZE;
 
-  const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(worldW, worldD),
-    floorMat
-  );
+  // Floor / ceiling: single planes spanning the whole world. Without UV
+  // scaling the material's tex.repeat=(tiling, tiling) would stretch the
+  // texture across ~150m of floor; scale UVs so one tile of texture density
+  // matches a TILE_SIZE-wide cell, the same way walls (4m boxes) get it.
+  const floorGeo = new THREE.PlaneGeometry(worldW, worldD);
+  scalePlaneUVs(floorGeo, parsed.width, parsed.height);
+  const floor = new THREE.Mesh(floorGeo, floorMat);
   floor.rotation.x = -Math.PI / 2;
   floor.position.set(worldW / 2, 0, worldD / 2);
   floor.receiveShadow = shadowsEnabled;
   scene.add(floor);
 
-  const ceiling = new THREE.Mesh(
-    new THREE.PlaneGeometry(worldW, worldD),
-    ceilingMat
-  );
+  const ceilingGeo = new THREE.PlaneGeometry(worldW, worldD);
+  scalePlaneUVs(ceilingGeo, parsed.width, parsed.height);
+  const ceiling = new THREE.Mesh(ceilingGeo, ceilingMat);
   ceiling.rotation.x = Math.PI / 2;
   ceiling.position.set(worldW / 2, WALL_HEIGHT, worldD / 2);
   scene.add(ceiling);
@@ -352,6 +458,11 @@ export function startGame(
     wallMesh.setMatrixAt(i, tmp.matrix);
   });
   wallMesh.instanceMatrix.needsUpdate = true;
+  // Per-tile brightness/warmth so adjacent walls aren't perfectly identical
+  // shades; per-tile UV offset so the wallpaper's vertical bands don't line
+  // up identically across every wall in a row.
+  applyInstanceTint(wallMesh, parsed.walls, 0.18, 0.06);
+  applyInstanceUvOffset(wallGeo, wallMat, parsed.walls);
   scene.add(wallMesh);
 
   // Architectural trim — thin instanced strip at every wall→floor seam.
@@ -406,6 +517,14 @@ export function startGame(
         baseboardMesh.setMatrixAt(i, trimTmp.matrix);
       }
       baseboardMesh.instanceMatrix.needsUpdate = true;
+      // Smaller variation than walls — trim should still read as one
+      // continuous board strip, just not perfectly uniform.
+      applyInstanceTint(
+        baseboardMesh,
+        trimSegments.map(s => ({ x: s.x, z: s.z })),
+        0.10,
+        0.03,
+      );
       scene.add(baseboardMesh);
 
       // Crown molding — high quality only.
@@ -426,6 +545,12 @@ export function startGame(
           crownMesh.setMatrixAt(i, trimTmp.matrix);
         }
         crownMesh.instanceMatrix.needsUpdate = true;
+        applyInstanceTint(
+          crownMesh,
+          trimSegments.map(s => ({ x: s.x, z: s.z })),
+          0.10,
+          0.03,
+        );
         scene.add(crownMesh);
       }
     }
