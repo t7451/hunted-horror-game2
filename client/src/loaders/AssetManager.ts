@@ -177,7 +177,7 @@ export class AssetManager {
     return loader;
   }
 
-  private async getKtx2Loader(
+  async getKtx2Loader(
     renderer?: THREE.WebGLRenderer
   ): Promise<unknown | null> {
     if (this.ktx2Loader) return this.ktx2Loader;

@@ -13,8 +13,10 @@ import type { DirectorUpdate } from "./aiDirector";
 import { useIsMobile } from "../hooks/useMobile";
 import LoadingScreen from "../ui/LoadingScreen";
 import { recordRun } from "../hooks/useGameStats";
+import { Minimap } from "../ui/Minimap";
+import { PauseMenu } from "../ui/PauseMenu";
 
-type Status = "loading" | "playing" | "caught" | "escaped";
+type Status = "loading" | "playing" | "caught" | "escaped" | "time_up";
 type Danger = "safe" | "near" | "critical";
 
 const DANGER_STYLES: Record<Danger, string> = {
@@ -43,14 +45,18 @@ interface Props {
   initialDifficulty: MapKey;
   initialQuality: GraphicsQuality;
   initialSensitivity: number;
+  initialVolume: number;
   onReturnToTitle: () => void;
+  onVolumeChange?: (v: number) => void;
 }
 
 export default function Game3D({
   initialDifficulty,
   initialQuality,
   initialSensitivity,
+  initialVolume,
   onReturnToTitle,
+  onVolumeChange,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const engineRef = useRef<EngineHandle | null>(null);
@@ -60,7 +66,9 @@ export default function Game3D({
   const [status, setStatus] = useState<Status>("loading");
   const [difficulty] = useState<MapKey>(initialDifficulty);
   const [quality] = useState<GraphicsQuality>(initialQuality);
-  const [sensitivity] = useState(initialSensitivity);
+  const [sensitivity, setSensitivity] = useState(initialSensitivity);
+  const [volume, setVolumeState] = useState(initialVolume);
+  const [paused, setPaused] = useState(false);
   const [keysLeft, setKeysLeft] = useState<number | null>(null);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [danger, setDanger] = useState<Danger>("safe");
@@ -75,11 +83,48 @@ export default function Game3D({
   const [pointerLocked, setPointerLocked] = useState(false);
 
   useEffect(() => {
-    const onLockChange = () =>
-      setPointerLocked(document.pointerLockElement != null);
+    const onLockChange = () => {
+      const locked = document.pointerLockElement != null;
+      setPointerLocked(locked);
+      // Releasing the lock while playing means the user hit ESC or alt-tabbed.
+      // Auto-open the pause menu so they have a clear next action.
+      if (!locked && !isMobile) setPaused(true);
+    };
     document.addEventListener("pointerlockchange", onLockChange);
     return () =>
       document.removeEventListener("pointerlockchange", onLockChange);
+  }, [isMobile]);
+
+  // ESC toggles pause while playing. Browsers consume ESC to release pointer
+  // lock, so we only act when the pointer isn't already locked.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== "Escape") return;
+      if (status !== "playing") return;
+      if (document.pointerLockElement) return;
+      setPaused(p => !p);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [status]);
+
+  // Master volume → Howler global. Lazy import keeps Howler off the title chunk.
+  useEffect(() => {
+    let cancelled = false;
+    void import("howler")
+      .then(({ Howler }) => {
+        if (!cancelled) Howler.volume(volume);
+      })
+      .catch(() => {});
+    onVolumeChange?.(volume);
+    return () => {
+      cancelled = true;
+    };
+  }, [volume, onVolumeChange]);
+
+  const updateSensitivity = useCallback((v: number) => {
+    setSensitivity(v);
+    engineRef.current?.setSensitivity(v);
   }, []);
 
   const selectedMap = MAPS[difficulty];
@@ -129,6 +174,11 @@ export default function Game3D({
               timeLeftRef.current ?? 0
             );
             setStatus("caught");
+          },
+          onTimeUp: () => {
+            recordRun(difficulty, "caught", selectedMap.timer, 0);
+            setRunTimeLeft(0);
+            setStatus("time_up");
           },
           onEscape: () => {
             const tl = timeLeftRef.current;
@@ -291,7 +341,28 @@ export default function Game3D({
               onHide={toggleVirtualHide}
             />
           )}
+          <Minimap engine={engineRef.current} />
         </>
+      )}
+
+      {status === "playing" && paused && (
+        <PauseMenu
+          volume={volume}
+          sensitivity={sensitivity}
+          onVolume={setVolumeState}
+          onSensitivity={updateSensitivity}
+          onResume={() => {
+            setPaused(false);
+            if (!isMobile) {
+              const canvas = containerRef.current?.querySelector("canvas");
+              canvas?.requestPointerLock?.();
+            }
+          }}
+          onQuit={() => {
+            setPaused(false);
+            onReturnToTitle();
+          }}
+        />
       )}
 
       {status === "caught" && (
@@ -358,6 +429,34 @@ export default function Game3D({
               className="rounded border border-green-500/40 bg-green-900/60 px-6 py-2 text-sm font-semibold tracking-widest transition-colors hover:bg-green-800/70"
             >
               Play Again
+            </button>
+            <button
+              type="button"
+              onClick={onReturnToTitle}
+              className="rounded border border-white/20 bg-black/60 px-6 py-2 text-sm tracking-widest transition-colors hover:border-white/40"
+            >
+              Menu
+            </button>
+          </div>
+        </Overlay>
+      )}
+
+      {status === "time_up" && (
+        <Overlay>
+          <h2 className="mb-2 text-4xl font-bold text-amber-400">TIME</h2>
+          <p className="mb-6 font-mono text-xs tracking-widest text-white/40">
+            THE HOUSE KEEPS YOU
+          </p>
+          <p className="mb-4 text-sm opacity-50">
+            The Observer didn't need to find you.
+          </p>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => setStatus("loading")}
+              className="rounded border border-amber-500/40 bg-amber-900/50 px-6 py-2 text-sm font-semibold tracking-widest transition-colors hover:bg-amber-800/60"
+            >
+              Try Again
             </button>
             <button
               type="button"

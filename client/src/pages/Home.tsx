@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { TitleScreen } from "../ui/TitleScreen";
 import { type MapKey } from "@shared/maps";
 import { type GraphicsQuality } from "../util/device";
@@ -28,10 +28,25 @@ interface GameOptions {
 
 export default function Home() {
   const [opts, setOpts] = useState<GameOptions | null>(null);
+  const [volume, setVolume] = useState(0.8);
   const webglSupported = detectWebGL();
 
+  // Apply master volume globally so the title screen and game share one knob.
+  useEffect(() => {
+    void import("howler")
+      .then(({ Howler }) => Howler.volume(volume))
+      .catch(() => {});
+  }, [volume]);
+
   if (!opts) {
-    return <TitleScreen onEnter={setOpts} webglSupported={webglSupported} />;
+    return (
+      <TitleScreen
+        onEnter={setOpts}
+        webglSupported={webglSupported}
+        volume={volume}
+        onVolume={setVolume}
+      />
+    );
   }
 
   return (
@@ -46,7 +61,9 @@ export default function Home() {
         initialDifficulty={opts.difficulty}
         initialQuality={opts.quality}
         initialSensitivity={opts.sensitivity}
+        initialVolume={volume}
         onReturnToTitle={() => setOpts(null)}
+        onVolumeChange={setVolume}
       />
     </Suspense>
   );

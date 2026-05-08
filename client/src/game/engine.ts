@@ -26,7 +26,13 @@ import { createFlashlight } from "../player/Flashlight";
 import { CameraRig } from "../player/CameraRig";
 import { Heartbeat } from "../player/Heartbeat";
 import { AudioWorld } from "../audio/AudioWorld";
-import { getMaterial, resetMaterialCache } from "../materials/MaterialFactory";
+import {
+  getMaterial,
+  resetMaterialCache,
+  configureMaterials,
+  type MaterialFactoryDeps,
+} from "../materials/MaterialFactory";
+import { AssetManager } from "../loaders/AssetManager";
 import { DecalSpawner } from "../materials/Decals";
 import { PropSpawner, type PropKind } from "../world/PropSpawner";
 import { CobwebSet } from "../world/Cobwebs";
@@ -62,6 +68,7 @@ export type EngineEvents = {
   onReady?: (info: { keys: number; timer: number; mapName: string }) => void;
   onKeyPickup?: (remaining: number) => void;
   onCaught?: () => void;
+  onTimeUp?: () => void;
   onEscape?: () => void;
   onError?: (err: Error) => void;
   onHint?: (hint: string) => void;
@@ -84,6 +91,24 @@ export type EngineHandle = {
    * unlocked.
    */
   unlockAudio: () => boolean;
+  setSensitivity: (s: number) => void;
+  getMinimapState: () => MinimapState;
+};
+
+export type MinimapState = {
+  playerX: number;
+  playerZ: number;
+  enemyX: number | null;
+  enemyZ: number | null;
+  enemyVisible: boolean;
+  keys: { x: number; z: number }[];
+  exitX: number;
+  exitZ: number;
+  exitOpen: boolean;
+  mapWidth: number;
+  mapHeight: number;
+  tileSize: number;
+  tiles: string[][];
 };
 
 // Tiny seedable PRNG so prop / cobweb placement is stable across mounts
@@ -152,6 +177,23 @@ export function startGame(
     quality: options.quality,
   });
   container.appendChild(renderer.domElement);
+
+  // KTX2 texture pipeline: getMaterial() returns procedural fallbacks
+  // synchronously; configureMaterials() lets the factory upgrade them in-place
+  // once the loader resolves. Failure (older browsers, no three-stdlib) leaves
+  // the procedural noise in place — no crash.
+  const assetManager = new AssetManager();
+  void assetManager
+    .getKtx2Loader(renderer)
+    .then(loader => {
+      if (loader)
+        configureMaterials({
+          ktx2Loader: loader as MaterialFactoryDeps["ktx2Loader"],
+        });
+    })
+    .catch(() => {
+      /* procedural fallbacks remain active */
+    });
 
   const sharedUniforms = createSharedUniforms();
   const basePostFx = {
@@ -694,6 +736,8 @@ export function startGame(
   let pitch = 0;
   let velocityX = 0;
   let velocityZ = 0;
+  // Live-tunable so the pause menu can update it without restarting the engine.
+  let sensitivity = options.sensitivity ?? 1;
   const virtualInput: VirtualInput = { moveX: 0, moveZ: 0, sprinting: false };
   const keys = new Set<string>();
   const onKeyDown = (e: KeyboardEvent) => {
@@ -706,7 +750,6 @@ export function startGame(
 
   const onMouseMove = (e: MouseEvent) => {
     if (document.pointerLockElement !== renderer.domElement) return;
-    const sensitivity = options.sensitivity ?? 1;
     yaw -= e.movementX * MOUSE_LOOK_SCALE * sensitivity;
     pitch -= e.movementY * MOUSE_LOOK_SCALE * sensitivity;
     pitch = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, pitch));
@@ -735,7 +778,6 @@ export function startGame(
 
   const onCanvasPointerMove = (e: PointerEvent) => {
     if (activeLookPointer !== e.pointerId) return;
-    const sensitivity = options.sensitivity ?? 1;
     yaw -= (e.clientX - lastLookX) * MOBILE_LOOK_SCALE * sensitivity;
     pitch -= (e.clientY - lastLookY) * MOBILE_LOOK_SCALE * sensitivity;
     pitch = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, pitch));
@@ -792,6 +834,9 @@ export function startGame(
       velocityX = 0;
       velocityZ = 0;
     }
+    // Vignette darkens edges when hiding so the player feels concealed.
+    sharedUniforms.vignetteOffset.value =
+      basePostFx.vignetteOffset + (isHiding ? 0.18 : 0);
     // Camera height is owned by CameraRig.update() each frame — it smooths
     // the crouch lerp so we don't snap.
     events.onHideChange?.(isHiding);
@@ -1072,7 +1117,7 @@ export function startGame(
         }
       }
       if (timeLeft <= 0) {
-        events.onCaught?.();
+        events.onTimeUp?.();
         return;
       }
 
@@ -1271,5 +1316,23 @@ export function startGame(
       rotY: yaw,
     }),
     unlockAudio: () => audio.unlock(),
+    setSensitivity: (s: number) => {
+      sensitivity = s;
+    },
+    getMinimapState: () => ({
+      playerX: camera.position.x,
+      playerZ: camera.position.z,
+      enemyX: enemyMesh.visible ? enemyMesh.position.x : null,
+      enemyZ: enemyMesh.visible ? enemyMesh.position.z : null,
+      enemyVisible: enemyMesh.visible,
+      keys: keyMeshes.map(k => ({ x: k.position.x, z: k.position.z })),
+      exitX: parsed.exit ? parsed.exit.x * TILE_SIZE + TILE_SIZE / 2 : 0,
+      exitZ: parsed.exit ? parsed.exit.z * TILE_SIZE + TILE_SIZE / 2 : 0,
+      exitOpen: keyMeshes.length === 0,
+      mapWidth: parsed.width,
+      mapHeight: parsed.height,
+      tileSize: TILE_SIZE,
+      tiles: parsed.tiles,
+    }),
   };
 }
