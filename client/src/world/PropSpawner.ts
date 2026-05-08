@@ -33,17 +33,21 @@ type PropDef = {
   build: () => { geometry: THREE.BufferGeometry; material: THREE.Material };
 };
 
+// Caps sized for the larger Phase-2 maps (40×23 → 44×27 floor plans).
+// One InstancedMesh per kind, so growing these costs only pre-allocated
+// matrix slots, not draw calls. Values are the realistic upper bound a
+// kind hits at PROP_DENSITY 0.30 across the biggest map.
 const PROPS: Record<PropKind, PropDef> = {
-  chair: { maxInstances: 32, yOffset: 0, build: buildChair },
-  table: { maxInstances: 12, yOffset: 0, build: buildTable },
-  lamp: { maxInstances: 16, yOffset: 0, build: buildLamp },
-  shelf: { maxInstances: 12, yOffset: 0, build: buildShelf },
-  crate: { maxInstances: 32, yOffset: 0, build: buildCrate },
-  barrel: { maxInstances: 24, yOffset: 0, build: buildBarrel },
-  bookstack: { maxInstances: 24, yOffset: 0, build: buildBookstack },
-  painting: { maxInstances: 24, yOffset: 0, build: buildPainting },
-  rug: { maxInstances: 16, yOffset: 0, build: buildRug },
-  clutter: { maxInstances: 48, yOffset: 0, build: buildClutter },
+  chair: { maxInstances: 64, yOffset: 0, build: buildChair },
+  table: { maxInstances: 28, yOffset: 0, build: buildTable },
+  lamp: { maxInstances: 32, yOffset: 0, build: buildLamp },
+  shelf: { maxInstances: 28, yOffset: 0, build: buildShelf },
+  crate: { maxInstances: 72, yOffset: 0, build: buildCrate },
+  barrel: { maxInstances: 56, yOffset: 0, build: buildBarrel },
+  bookstack: { maxInstances: 48, yOffset: 0, build: buildBookstack },
+  painting: { maxInstances: 56, yOffset: 0, build: buildPainting },
+  rug: { maxInstances: 32, yOffset: 0, build: buildRug },
+  clutter: { maxInstances: 112, yOffset: 0, build: buildClutter },
 };
 
 type Slot = {

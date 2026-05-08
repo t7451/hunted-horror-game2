@@ -37,40 +37,48 @@ export const MAPS: Record<MapKey, MapDef> = {
   easy: {
     name: "The Farmhouse",
     summary:
-      "Wood-floored rooms — bedroom, bathroom, kitchen — connected by a creaking hallway.",
+      "Bedrooms, bath, study and parlor connect to a creaking hallway, kitchen wing, mudroom closets and an exit corridor.",
     difficulty: 1,
     timer: 240,
     claudeSpeed: 3.0,
     theme: "kitchen",
     raw: [
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW", // 0
-      "WS....W..H..W..........N.....W", // 1 bedroom | bathroom | living
-      "W.....W.....W..............W.W", // 2
-      "W.....D.....D..............W.W", // 3
-      "W..K..W..B..W..............W.W", // 4
-      "WWDWWWWWWDWWWWWWWWWWDWWWWWWW.W", // 5
-      "W..H........W........W.....D.W", // 6 hallway
-      "W...N.......D........D.....W.W", // 7
-      "W...........W........W.....W.W", // 8
-      "WWWWWWWWWWWWW........WWWWWWW.W", // 9
-      "W.....W.....W........W.......W", // 10
-      "W..H..W..K..W........W..B....W", // 11 pantry | dining | kitchen
-      "W.....D.....D........D...K...W", // 12
-      "W.....W.....W........W.......W", // 13
-      "WWWDWWWWWDWWWWWWDWWWWWWWWDWWWW", // 14
-      "W....W..W....W.E.....W..W....W", // 15 exit corridor (segmented)
-      "W....W..W....W....N..W..W....W", // 16
-      "W....D..D....D.......D..D...XW", // 17
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW", // 18
+      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
+      "WS....W..H..W..N..W.....W............W.W",
+      "W.....W.....W.....W.....W..H.........W.W",
+      "W.....D.....D.....D.....D............D.W",
+      "W..K..W..B..W.....W..N..W..K.........W.W",
+      "WWDWWWWWWDWWWWDWWWWWWDWWWWWWWWDWWWWWWWDW",
+      "W..H........................W.....W....W",
+      "W...........................D.....D....W",
+      "W...N....................N..W..K..W....W",
+      "WWWWWWWWWWWWDWWWWWWWWWWWWWWDWWWWWWWWWW.W",
+      "W....W..H..W............W.H..W.........W",
+      "W....W.....D............W....D.........W",
+      "W..H.D.....W..K....N....D....W..B..K...W",
+      "W....W.....W............W....D.........W",
+      "W....W.....W..H.........W....W.........W",
+      "WWWWWWWDWWWWWWWWWDWWWWWWWWDWWWWWWWWWWWWW",
+      "W....W....W....W..B..W...W....W....W..KW",
+      "W....D....D....D.....D...D....D....D...W",
+      "W..K.W..N.W....W.....W...W..H.W....W...W",
+      "WWWWWWWWWWWWWDWWWWWWWWWWWWWWWWWWWWWDWWWW",
+      "W..............E.....W................XW",
+      "W..N........H........D....B......H.....W",
+      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
     ],
-    // Observer cycles through hallway and kitchen when player hides.
+    // Observer sweeps the hallway, kitchen wing, mudroom and exit run.
     patrolWaypoints: [
       { x: 6, z: 7 },
-      { x: 14, z: 7 },
-      { x: 22, z: 7 },
-      { x: 22, z: 12 },
-      { x: 14, z: 12 },
+      { x: 16, z: 7 },
+      { x: 26, z: 7 },
+      { x: 32, z: 12 },
+      { x: 18, z: 12 },
       { x: 6, z: 12 },
+      { x: 12, z: 17 },
+      { x: 26, z: 17 },
+      { x: 32, z: 21 },
+      { x: 12, z: 21 },
     ],
     // Warm amber, oil-lamp glow.
     colorProfile: {
@@ -85,39 +93,50 @@ export const MAPS: Record<MapKey, MapDef> = {
   normal: {
     name: "The Mill",
     summary:
-      "Tighter L-shaped halls and grain rooms. The Observer prowls the central spine.",
+      "Six grain rooms feed a tight L-shaped spine, central operations floor and segmented boiler corridor before the exit.",
     difficulty: 2,
     timer: 180,
     claudeSpeed: 4.2,
     theme: "house",
     raw: [
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW", // 0
-      "WS...W..K..W..H..W..N.W..K...W", // 1
-      "W....W.....W.....W....W......W", // 2
-      "W....D.....D.....D....W..H...W", // 3
-      "W....W.....W.....W....W......W", // 4
-      "WWDWWWWWDWWWWWDWWWWDWWWWWWWWWW", // 5
-      "W..H.....W........D..........W", // 6 spine hallway
-      "W........D...K....W......B...W", // 7
-      "W........W........W..........W", // 8
-      "WWWWWWWWWW.WWWWWWWWWWWWWWWDWWW", // 9 narrow pinch
-      "W....W...........W....W......W", // 10
-      "W..H.W....E......D....W..H...W", // 11 main hall (Observer spawn)
-      "W....D......N....W....D......W", // 12
-      "W....W...........W....W......W", // 13
-      "WWWWWWWWDWWWWWWWWWWDWWWWWWWWWW", // 14
-      "W....W..W....W....W..W....W..W", // 15 segmented south corridor
-      "W..K.D..D..B.D..K.D..D....D..W", // 16
-      "W....W..W..N.W....W..W....W.XW", // 17
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW", // 18
+      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
+      "WS....W..K..W..H..W..N..W..B..W..K..W..H.W",
+      "W.....W.....W.....W.....W.....W.....W....W",
+      "W.....W.....W.....W.....W.....W.....W....W",
+      "W..N..W..H..W..K..W..H..W..N..W..H..W..K.W",
+      "WWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWDWW",
+      "W..H...W..............W.......H......W...W",
+      "W......D....K.....N...D.....H........D...W",
+      "W..N...W..............W..K...........W.H.W",
+      "WWWDWWWWWWWDWWWWWDWWWWWWWDWWWWWWWDWWWWWDWW",
+      "W..H.W......W..K...W...H..W.N..W..H.W....W",
+      "W....D...N..D......D...K..D....D....D....W",
+      "W.K..W......W...H..W...E..W..H.W.N..W....W",
+      "W....D...H..D......D......D....D....D.B..W",
+      "W..N.W..K...W...H..W......W.K..W....W.H..W",
+      "WWWDWWWWDWWWWWWDWWWWWWDWWWWWDWWWWDWWWWWDWW",
+      "W..H.W....W..B.W....W..N..W..H.W....W..K.W",
+      "W....D..K.D....D....D.....D....D.N..D....W",
+      "W..N.W..H.W..K.W....W..B..W..H.W....W..H.W",
+      "WWWDWWWWDWWWWWWWWWDWWWWWWWWWDWWWWWWWWWWDWW",
+      "W..K..W.......N......W......H.......N....W",
+      "W..B..D.......H......D......B..........X.W",
+      "W..H..W.......K......W......N.......H....W",
+      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
     ],
     patrolWaypoints: [
-      { x: 5, z: 6 },
+      { x: 4, z: 7 },
       { x: 14, z: 7 },
-      { x: 24, z: 6 },
-      { x: 24, z: 11 },
-      { x: 14, z: 11 },
-      { x: 5, z: 11 },
+      { x: 26, z: 7 },
+      { x: 38, z: 7 },
+      { x: 28, z: 12 },
+      { x: 16, z: 12 },
+      { x: 4, z: 12 },
+      { x: 14, z: 17 },
+      { x: 26, z: 17 },
+      { x: 38, z: 17 },
+      { x: 12, z: 21 },
+      { x: 30, z: 21 },
     ],
     // Cold steel blue, fluorescent.
     colorProfile: {
@@ -132,41 +151,55 @@ export const MAPS: Record<MapKey, MapDef> = {
   hard: {
     name: "The Basement",
     summary:
-      "A boiler-room maze. Few hiding spots, blind corners, and a fast Observer.",
+      "A boiler-room maze of cells, a central Observer chamber, looping mid corridor, lower cells and a sub-basement before the exit.",
     difficulty: 3,
     timer: 120,
     claudeSpeed: 5.4,
     theme: "nightmare",
     raw: [
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW", // 0
-      "WS.WN.K..W....W..K..W..H...W.W", // 1
-      "W..W.....W....W.....W......W.W", // 2
-      "W..D.....W....D.....W......D.W", // 3
-      "W..W.WWWWW....W.WWWWW.WWWW.W.W", // 4
-      "W..W.W...D....D...W...W..K.W.W", // 5
-      "W..W.W...W....W...W...W....W.W", // 6
-      "WWDWWW.WWWWDWWWWW.WWW.W.WWWWWW", // 7
-      "W..H...W....K....D....W......W", // 8
-      "W......D.....E...W....D..H...W", // 9 Observer chamber
-      "W..B...W.........W....W......W", // 10
-      "WWWWWW.WWWWWWWWWWWWWWWWWWWWWWW", // 11 spine pinch
-      "W....W.W..N.W....W....W..K...W", // 12
-      "W..H.D.D....D....D....D......W", // 13
-      "W....W.W....W....W....W......W", // 14
-      "WWDWWWWWDWWWWWDWWWWWDWWWWWWDWW", // 15
-      "W....W.....W..B..W..N..W.....W", // 16
-      "W..K.D.....D..H..D.....D....XW", // 17
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW", // 18
+      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
+      "WS.WN.K.W.H...W.K...W.H...W..N..W..K..W.H..W",
+      "W..W....W.....W.....W.....W.....W.....W....W",
+      "W..D....W.....D.....W.....D.....W.....D....W",
+      "W..W.W..W..W..W..W..W..W..W..W..W..W..W....W",
+      "W..D.WK.D..W..D.NW..D..W..D.HW..D..WB.D....W",
+      "WH.W....W.K...W.....W.B...W.....W..H..W.N..W",
+      "WWDWWWWWWWWDWWWWWWDWWWWWWWWDWWWWWWWDWWWWWDWW",
+      "W.H....W....K.....W.....H...W...H...W...B..W",
+      "W......D.....E....D....N....D...K...D....H.W",
+      "W..B...W....N.....W......H..W...H...W...K..W",
+      "WWWWWWDWWWWWWWWWWWWWWWDWWWWWWWWWWWWWWWDWWWWW",
+      "W.H..W..N..W.B...W.H..W..K..W.H..W.N..W..H.W",
+      "W.K..D..H..D.....D.N..D..H..D....D....D..B.W",
+      "W.N..W..K..W.H...W.B..W..N..W.K..W.H..W..K.W",
+      "WWDWWWWWDWWWWWDWWWWWDWWWWWWDWWWWWDWWWWWWWDWW",
+      "W.H..W..B..W..N..W..K..W..H..W..N..W..B..WKW",
+      "W.K..D.....D..H..D.....D..K..D.....D..N..D.W",
+      "W.B..W..H..W..K..W..N..W..H..W..K..W..H..WHW",
+      "WWWWDWWWWWWWWDWWWWWWWWWWWWDWWWWWWWWWWWWDWWWW",
+      "W.H....W......N...B...W.....K......W....H..W",
+      "W..K...D......H.......D.....B......D....N..W",
+      "W.N....W......K...H...W.....H......W....B..W",
+      "WWWWWWWWWWWWDWWWWWWWWWWWWWWWWWDWWWWWWWWWWWWW",
+      "W..H........N.....W......B.........H.......W",
+      "W..N........H.....D......K.........H.....X.W",
+      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
     ],
     patrolWaypoints: [
-      { x: 7, z: 9 },
-      { x: 16, z: 9 },
-      { x: 24, z: 9 },
-      { x: 24, z: 13 },
-      { x: 14, z: 13 },
-      { x: 5, z: 13 },
-      { x: 5, z: 17 },
-      { x: 24, z: 17 },
+      { x: 6, z: 9 },
+      { x: 18, z: 9 },
+      { x: 30, z: 9 },
+      { x: 40, z: 9 },
+      { x: 30, z: 13 },
+      { x: 16, z: 13 },
+      { x: 6, z: 13 },
+      { x: 8, z: 17 },
+      { x: 22, z: 17 },
+      { x: 36, z: 17 },
+      { x: 14, z: 21 },
+      { x: 28, z: 21 },
+      { x: 38, z: 25 },
+      { x: 8, z: 25 },
     ],
     // Sickly red-black boiler menace.
     colorProfile: {
