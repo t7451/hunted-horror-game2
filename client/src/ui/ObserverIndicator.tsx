@@ -5,6 +5,7 @@
 
 import { useEffect, useRef } from "react";
 import type { EngineHandle } from "../game/engine";
+import { ChromaticText } from "./analog";
 
 export type ObserverIndicatorProps = {
   engine: EngineHandle | null;
@@ -60,6 +61,13 @@ export function ObserverIndicator({ engine }: ObserverIndicatorProps) {
           style={{ filter: "drop-shadow(0 0 6px rgba(248,113,113,0.6))" }}
         />
       </svg>
+      <ChromaticText
+        as="div"
+        offset="auto"
+        className="text-[10px] tracking-[0.3em] uppercase text-white/70 text-center leading-none mt-0.5"
+      >
+        PROXIMITY
+      </ChromaticText>
     </div>
   );
 }

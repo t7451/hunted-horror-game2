@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { EngineHandle } from "../game/engine";
+import { AnalogPanel } from "./analog";
 
 const MAP_SCALE = 3.5;
 const PLAYER_R = 3;
@@ -85,17 +86,22 @@ export function Minimap({ engine }: { engine: EngineHandle | null }) {
   const H = initial ? initial.mapHeight * MAP_SCALE : 63;
 
   return (
-    <div
-      className="pointer-events-none absolute right-3 top-3 overflow-hidden rounded border border-white/15 opacity-70 transition-opacity hover:opacity-100"
-      style={{ width: W, height: H }}
-    >
+    <AnalogPanel className="pointer-events-none absolute right-3 top-3 overflow-hidden p-1 opacity-70 transition-opacity hover:opacity-100">
       <canvas
         ref={canvasRef}
         width={W}
         height={H}
         className="block"
-        style={{ imageRendering: "pixelated" }}
+        style={{
+          imageRendering: "pixelated",
+          width: W,
+          height: H,
+          filter:
+            "drop-shadow(calc(var(--ana-intensity) * -2px) 0 var(--ana-magenta))" +
+            " drop-shadow(calc(var(--ana-intensity) * 2px) 0 var(--ana-cyan))" +
+            " drop-shadow(0 0 4px rgba(0,255,128,0.6))",
+        }}
       />
-    </div>
+    </AnalogPanel>
   );
 }
