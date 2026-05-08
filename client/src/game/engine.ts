@@ -15,6 +15,7 @@ import {
   resolveGraphicsQuality,
   type GraphicsQuality,
 } from "../util/device";
+import { isBatterySaverEnabled, subscribeBatterySaver } from "../util/batterySaver";
 import { createPerfMonitor } from "../util/perfMonitor";
 import { createRenderer } from "../render/Renderer";
 import { createPostFX, type PostFX } from "../render/PostFX";
@@ -214,6 +215,16 @@ export function startGame(
     bloomIntensity: sharedUniforms.bloomIntensity.value,
   };
   let postfx: PostFX | null = null;
+
+  // Battery saver — caps to ~30fps and disables PostFX + shadows
+  let batterySaver = isBatterySaverEnabled();
+  let frameSkip = 0;
+  const FRAME_SKIP_TARGET = 1; // render every 2nd frame at 60fps display = ~30fps
+  const unsubBatterySaver = subscribeBatterySaver(v => {
+    batterySaver = v;
+    if (postfx) postfx.setEnabled(!v && quality !== "low");
+    renderer.shadowMap.enabled = !v && quality !== "low";
+  });
 
   const resize = () => {
     const w = container.clientWidth || window.innerWidth;
@@ -1368,6 +1379,14 @@ export function startGame(
       }
       checkPickups();
       if (!isContextLost()) {
+        if (batterySaver) {
+          frameSkip++;
+          if (frameSkip < FRAME_SKIP_TARGET) {
+            raf = requestAnimationFrame(tick);
+            return;
+          }
+          frameSkip = 0;
+        }
         if (postfx) postfx.render(dt);
         else renderer.render(scene, camera);
       }
@@ -1405,6 +1424,7 @@ export function startGame(
         return;
       }
       postfx = fx;
+      if (batterySaver) postfx.setEnabled(false);
       const w = container.clientWidth || window.innerWidth;
       const h = container.clientHeight || window.innerHeight;
       postfx.setSize(w, h);
@@ -1423,6 +1443,7 @@ export function startGame(
     dispose: () => {
       disposed = true;
       cancelAnimationFrame(raf);
+      unsubBatterySaver();
       ro.disconnect();
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);

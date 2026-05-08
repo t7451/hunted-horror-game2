@@ -1,5 +1,9 @@
 import { useState } from "react";
 import { Haptics, loadHapticsPref, setHapticsEnabled } from "../util/haptics";
+import {
+  isBatterySaverEnabled,
+  setBatterySaverEnabled,
+} from "../util/batterySaver";
 
 interface Props {
   volume: number;
@@ -19,6 +23,7 @@ export function PauseMenu({
   onQuit,
 }: Props) {
   const [hapticsOn, setHapticsOn] = useState(() => loadHapticsPref());
+  const [batterySaver, setSaver] = useState(() => isBatterySaverEnabled());
 
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
@@ -74,6 +79,27 @@ export function PauseMenu({
             <span
               className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${
                 hapticsOn ? "left-6" : "left-0.5"
+              }`}
+            />
+          </button>
+        </label>
+
+        <label className="flex items-center justify-between text-sm tracking-widest uppercase">
+          <span>Battery saver</span>
+          <button
+            type="button"
+            onClick={() => {
+              const next = !batterySaver;
+              setSaver(next);
+              setBatterySaverEnabled(next);
+            }}
+            className={`w-12 h-6 rounded-full transition-colors ${
+              batterySaver ? "bg-amber-600" : "bg-white/20"
+            } relative`}
+          >
+            <span
+              className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${
+                batterySaver ? "left-6" : "left-0.5"
               }`}
             />
           </button>

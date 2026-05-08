@@ -58,10 +58,21 @@ export class AudioWorld {
   private lastMoanAt = 0;
   private lastFootstepIndex = 0;
   private entityProximity = 0;
+  private visibilityHandler: (() => void) | null = null;
 
   constructor(opts: AudioWorldOptions = {}) {
     if (typeof opts.masterVolume === "number") {
       Howler.volume(opts.masterVolume);
+    }
+    if (typeof document !== "undefined") {
+      this.visibilityHandler = () => {
+        if (document.visibilityState === "hidden") {
+          Howler.mute(true);
+        } else {
+          Howler.mute(false);
+        }
+      };
+      document.addEventListener("visibilitychange", this.visibilityHandler);
     }
   }
 
@@ -183,6 +194,10 @@ export class AudioWorld {
   }
 
   dispose(): void {
+    if (this.visibilityHandler) {
+      document.removeEventListener("visibilitychange", this.visibilityHandler);
+      this.visibilityHandler = null;
+    }
     for (const howl of this.sounds.values()) {
       howl.stop();
       howl.unload();

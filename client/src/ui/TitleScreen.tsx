@@ -7,6 +7,10 @@ import {
   getDailyResult,
   shareString,
 } from "../hooks/useDailyChallenge";
+import { useInstallPrompt } from "../hooks/useInstallPrompt";
+import { useIsMobile } from "../hooks/useMobile";
+import { loadJoystickPrefs, saveJoystickPrefs } from "../util/joystickPrefs";
+import type { JoystickPrefs } from "../util/joystickPrefs";
 
 function formatTime(s: number) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -33,6 +37,16 @@ export function TitleScreen({
   const [difficulty, setDifficulty] = useState<MapKey>("easy");
   const [quality, setQuality] = useState<GraphicsQuality>("auto");
   const [sensitivity, setSensitivity] = useState(1);
+
+  const { canInstall, accept: acceptInstall, dismiss: dismissInstall } = useInstallPrompt();
+  const isMobile = useIsMobile();
+  const [joyPrefs, setJoyPrefs] = useState<JoystickPrefs>(() => loadJoystickPrefs());
+
+  const updateJoyPrefs = (patch: Partial<JoystickPrefs>) => {
+    const next = { ...joyPrefs, ...patch };
+    setJoyPrefs(next);
+    saveJoystickPrefs(next);
+  };
 
   const difficultyOptions = MAP_KEYS.map(key => ({ key, ...MAPS[key] }));
 
@@ -152,6 +166,74 @@ export function TitleScreen({
         sensitivity={sensitivity}
         webglSupported={webglSupported}
       />
+
+      {canInstall && (
+        <div className="mt-3 mb-1 w-[min(92vw,520px)] rounded border border-blue-400/30 bg-blue-950/30 px-4 py-3 flex items-center justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="text-xs uppercase tracking-widest opacity-60 mb-1">Install</div>
+            <div className="text-sm">Add to home screen — plays offline, fullscreen, no browser bar.</div>
+          </div>
+          <div className="flex flex-col gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={acceptInstall}
+              className="rounded border border-blue-400 bg-blue-900/60 px-4 py-1.5 text-xs font-semibold tracking-widest hover:bg-blue-800/70"
+            >
+              Install
+            </button>
+            <button
+              type="button"
+              onClick={dismissInstall}
+              className="text-[10px] uppercase tracking-widest opacity-50 hover:opacity-80"
+            >
+              Not now
+            </button>
+          </div>
+        </div>
+      )}
+
+      {isMobile && (
+        <details className="mt-3 mb-1 w-[min(92vw,520px)] rounded border border-white/10 bg-black/40">
+          <summary className="cursor-pointer px-4 py-3 text-xs uppercase tracking-widest opacity-70">
+            Touch Controls
+          </summary>
+          <div className="px-4 pb-4 space-y-3 text-xs">
+            <label className="block">
+              <div className="flex justify-between mb-1 opacity-60">
+                <span>Joystick size</span>
+                <span>{Math.round(joyPrefs.size * 100)}%</span>
+              </div>
+              <input
+                type="range" min="70" max="130" step="5"
+                value={Math.round(joyPrefs.size * 100)}
+                onChange={e => updateJoyPrefs({ size: parseInt(e.target.value, 10) / 100 })}
+                className="w-full"
+              />
+            </label>
+            <label className="block">
+              <div className="flex justify-between mb-1 opacity-60">
+                <span>Opacity</span>
+                <span>{Math.round(joyPrefs.opacity * 100)}%</span>
+              </div>
+              <input
+                type="range" min="30" max="100" step="5"
+                value={Math.round(joyPrefs.opacity * 100)}
+                onChange={e => updateJoyPrefs({ opacity: parseInt(e.target.value, 10) / 100 })}
+                className="w-full"
+              />
+            </label>
+            <label className="flex items-center justify-between">
+              <span className="opacity-60">Left-handed (swap sides)</span>
+              <input
+                type="checkbox"
+                checked={joyPrefs.swap}
+                onChange={e => updateJoyPrefs({ swap: e.target.checked })}
+              />
+            </label>
+          </div>
+        </details>
+      )}
+
       <p className="mt-6 max-w-xl text-center text-xs opacity-60">
         Find glowing keys · hide in closets with E · reach the green exit before
         time runs out. Your browser runs the AI director locally.
