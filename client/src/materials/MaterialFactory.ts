@@ -51,7 +51,11 @@ const TEXTURE_SETS: Record<MaterialName, TextureSet> = {
     albedo: "/assets/textures/floors/wood_floor_worn_01_2k_albedo.ktx2",
     normal: "/assets/textures/floors/wood_floor_worn_01_2k_normal.ktx2",
     orm:    "/assets/textures/floors/wood_floor_worn_01_2k_orm.ktx2",
-    tiling: 4,
+    // Lower than the obvious 4x: combined with the floor PlaneGeometry's
+    // per-tile UV scaling, tiling=2 gives one texture repeat per 2m of
+    // world (matches wall density). 4 made plank seams repeat every meter
+    // across ~150m of floor — too periodic.
+    tiling: 2,
   },
   plaster_cracked: {
     albedoJpg: "/assets/textures/walls/plaster_cracked_albedo.jpg",
