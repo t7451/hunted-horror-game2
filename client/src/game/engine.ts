@@ -971,13 +971,26 @@ export function startGame(
     "bookstack",
     "painting",
     "rug",
+    "bed",
+    "sofa",
+    "counter",
+    "bathtub",
     "clutter",
   ];
   const PROP_WEIGHTS_BY_THEME: Record<string, number[]> = {
-    // chair, table, lamp, shelf, crate, barrel, bookstack, painting, rug, clutter
-    kitchen: [0.2, 0.14, 0.1, 0.1, 0.05, 0.04, 0.1, 0.08, 0.07, 0.12],
-    house: [0.1, 0.08, 0.1, 0.08, 0.16, 0.16, 0.04, 0.06, 0.04, 0.18],
-    nightmare: [0.06, 0.05, 0.06, 0.05, 0.18, 0.2, 0.04, 0.04, 0.02, 0.3],
+    // chair, table, lamp, shelf, crate, barrel, bookstack, painting, rug, bed, sofa, counter, bathtub, clutter
+    kitchen: [
+      0.16, 0.12, 0.08, 0.08, 0.03, 0.02, 0.07, 0.07, 0.06, 0.04, 0.05,
+      0.12, 0.02, 0.08,
+    ],
+    house: [
+      0.09, 0.08, 0.09, 0.08, 0.13, 0.12, 0.04, 0.06, 0.04, 0.04, 0.04,
+      0.03, 0.02, 0.14,
+    ],
+    nightmare: [
+      0.05, 0.04, 0.05, 0.04, 0.16, 0.18, 0.03, 0.03, 0.02, 0.02, 0.02,
+      0.02, 0.01, 0.33,
+    ],
   };
   const propWeights =
     PROP_WEIGHTS_BY_THEME[mapDef.theme] ?? PROP_WEIGHTS_BY_THEME.kitchen;
@@ -1001,6 +1014,58 @@ export function startGame(
   const PROP_DENSITY = 0.3; // bumped up to fill the larger Phase-2 maps
   const MAX_LAMP_LIGHTS = 12;
   let lampLightCount = 0;
+  const placeSignatureProp = (
+    kind: PropKind,
+    gx: number,
+    gz: number,
+    rotY = 0,
+    scale = 1
+  ): void => {
+    const key = `${gx},${gz}`;
+    if (blocked.has(key) || isBlocked(parsed, gx, gz)) return;
+    blocked.add(key);
+    props.place(
+      kind,
+      new THREE.Vector3(
+        gx * TILE_SIZE + TILE_SIZE / 2,
+        0,
+        gz * TILE_SIZE + TILE_SIZE / 2
+      ),
+      rotY,
+      scale
+    );
+  };
+  if (mapDef.name === "The Farmhouse") {
+    const N = 0;
+    const E = -Math.PI / 2;
+    const S = Math.PI;
+    const W = Math.PI / 2;
+
+    // Hand-authored anchor pieces give each room a readable purpose; random
+    // scatter still fills gaps after these reserved cells are placed.
+    placeSignatureProp("bed", 4, 2, W, 1.15);
+    placeSignatureProp("bathtub", 9, 2, N, 1.15);
+    placeSignatureProp("shelf", 16, 2, S, 1.25);
+    placeSignatureProp("bed", 22, 2, E, 1.05);
+
+    placeSignatureProp("counter", 28, 2, S, 1.35);
+    placeSignatureProp("counter", 31, 2, S, 1.35);
+    placeSignatureProp("counter", 34, 2, S, 1.35);
+    placeSignatureProp("table", 32, 7, 0, 1.3);
+    placeSignatureProp("chair", 31, 7, E, 1.15);
+    placeSignatureProp("chair", 33, 7, W, 1.15);
+
+    placeSignatureProp("rug", 17, 12, 0, 1.45);
+    placeSignatureProp("sofa", 16, 13, N, 1.25);
+    placeSignatureProp("table", 18, 12, Math.PI / 2, 1.15);
+    placeSignatureProp("lamp", 21, 14, 0, 1.1);
+
+    placeSignatureProp("shelf", 8, 13, S, 1.2);
+    placeSignatureProp("bed", 3, 17, E, 1.05);
+    placeSignatureProp("counter", 32, 17, S, 1.2);
+    placeSignatureProp("counter", 36, 17, S, 1.2);
+    placeSignatureProp("sofa", 10, 21, S, 1.2);
+  }
   for (let gz = 0; gz < parsed.height; gz++) {
     for (let gx = 0; gx < parsed.width; gx++) {
       if (blocked.has(`${gx},${gz}`)) continue;

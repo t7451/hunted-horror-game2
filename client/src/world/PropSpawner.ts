@@ -23,6 +23,10 @@ export type PropKind =
   | "bookstack"
   | "painting"
   | "rug"
+  | "bed"
+  | "sofa"
+  | "counter"
+  | "bathtub"
   | "clutter";
 
 type PropDef = {
@@ -47,6 +51,10 @@ const PROPS: Record<PropKind, PropDef> = {
   bookstack: { maxInstances: 48, yOffset: 0, build: buildBookstack },
   painting: { maxInstances: 56, yOffset: 0, build: buildPainting },
   rug: { maxInstances: 32, yOffset: 0, build: buildRug },
+  bed: { maxInstances: 12, yOffset: 0, build: buildBed },
+  sofa: { maxInstances: 12, yOffset: 0, build: buildSofa },
+  counter: { maxInstances: 36, yOffset: 0, build: buildCounter },
+  bathtub: { maxInstances: 8, yOffset: 0, build: buildBathtub },
   clutter: { maxInstances: 112, yOffset: 0, build: buildClutter },
 };
 
@@ -481,6 +489,80 @@ function buildRug() {
       color: 0x3a1820,
       roughness: 0.95,
       metalness: 0.0,
+    })
+  );
+}
+
+function buildBed() {
+  const boxes: BoxSpec[] = [
+    { x: 0, y: 0.18, z: 0, w: 1.3, h: 0.22, d: 2.0 },
+    { x: 0, y: 0.36, z: 0.08, w: 1.22, h: 0.2, d: 1.65 },
+    { x: 0, y: 0.52, z: -0.65, w: 1.1, h: 0.16, d: 0.35 },
+    { x: 0, y: 0.62, z: -1.05, w: 1.38, h: 0.9, d: 0.12 },
+    { x: 0, y: 0.34, z: 1.04, w: 1.34, h: 0.32, d: 0.1 },
+  ];
+  return mergeBoxes(
+    boxes,
+    new THREE.MeshStandardMaterial({
+      color: 0x5a3028,
+      roughness: 0.88,
+      metalness: 0.02,
+    })
+  );
+}
+
+function buildSofa() {
+  const boxes: BoxSpec[] = [
+    { x: 0, y: 0.28, z: 0, w: 1.8, h: 0.3, d: 0.78 },
+    { x: 0, y: 0.68, z: -0.34, w: 1.9, h: 0.82, d: 0.16 },
+    { x: -0.94, y: 0.52, z: 0.03, w: 0.18, h: 0.58, d: 0.78 },
+    { x: 0.94, y: 0.52, z: 0.03, w: 0.18, h: 0.58, d: 0.78 },
+    { x: -0.45, y: 0.52, z: 0.08, w: 0.75, h: 0.18, d: 0.62 },
+    { x: 0.45, y: 0.52, z: 0.08, w: 0.75, h: 0.18, d: 0.62 },
+  ];
+  return mergeBoxes(
+    boxes,
+    new THREE.MeshStandardMaterial({
+      color: 0x3a1820,
+      roughness: 0.92,
+      metalness: 0.01,
+    })
+  );
+}
+
+function buildCounter() {
+  const boxes: BoxSpec[] = [
+    { x: 0, y: 0.42, z: 0, w: 1.3, h: 0.78, d: 0.58 },
+    { x: 0, y: 0.84, z: 0, w: 1.42, h: 0.08, d: 0.66 },
+    { x: -0.24, y: 0.45, z: 0.31, w: 0.38, h: 0.42, d: 0.035 },
+    { x: 0.24, y: 0.45, z: 0.31, w: 0.38, h: 0.42, d: 0.035 },
+    { x: 0, y: 1.18, z: -0.26, w: 1.2, h: 0.55, d: 0.12 },
+  ];
+  return mergeBoxes(
+    boxes,
+    new THREE.MeshStandardMaterial({
+      color: 0x4a321f,
+      roughness: 0.82,
+      metalness: 0.04,
+    })
+  );
+}
+
+function buildBathtub() {
+  const boxes: BoxSpec[] = [
+    { x: 0, y: 0.22, z: 0, w: 1.35, h: 0.24, d: 0.72 },
+    { x: 0, y: 0.52, z: -0.39, w: 1.38, h: 0.58, d: 0.12 },
+    { x: 0, y: 0.52, z: 0.39, w: 1.38, h: 0.58, d: 0.12 },
+    { x: -0.72, y: 0.52, z: 0, w: 0.12, h: 0.58, d: 0.72 },
+    { x: 0.72, y: 0.52, z: 0, w: 0.12, h: 0.58, d: 0.72 },
+    { x: 0.48, y: 0.92, z: -0.32, w: 0.14, h: 0.18, d: 0.08 },
+  ];
+  return mergeBoxes(
+    boxes,
+    new THREE.MeshStandardMaterial({
+      color: 0xb8b0a0,
+      roughness: 0.5,
+      metalness: 0.02,
     })
   );
 }
