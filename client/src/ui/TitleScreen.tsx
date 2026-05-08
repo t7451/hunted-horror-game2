@@ -37,11 +37,11 @@ export function TitleScreen({
   const difficultyOptions = MAP_KEYS.map(key => ({ key, ...MAPS[key] }));
 
   return (
-    <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-black px-4 py-8 text-white">
+    <div className="relative flex min-h-screen flex-col items-center overflow-x-hidden overflow-y-auto bg-black px-4 py-8 text-white touch-auto" style={{ height: "100dvh" }}>
       {/* Atmospheric drifting radial gradient */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-40"
+        className="pointer-events-none fixed inset-0 opacity-40"
         style={{
           background:
             "radial-gradient(ellipse at 30% 40%, #1a0808 0%, #050202 50%, #000 100%)",
@@ -51,7 +51,7 @@ export function TitleScreen({
       {/* Subtle red scanlines (CRT decay) */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-20 mix-blend-screen"
+        className="pointer-events-none fixed inset-0 opacity-20 mix-blend-screen"
         style={{
           background:
             "repeating-linear-gradient(0deg, transparent 0 2px, rgba(255,80,80,0.05) 2px 3px)",
