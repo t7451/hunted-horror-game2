@@ -126,6 +126,19 @@ export type MinimapState = {
   tiles: string[][];
 };
 
+// Scale the (0..1) UVs of a PlaneGeometry by (sx, sy). Used so a single big
+// floor/ceiling plane gets the texture repeated per-tile rather than once
+// across the whole world. Combined with material.tex.repeat = (tiling, tiling)
+// each TILE_SIZE-wide cell ends up with `tiling` repeats — the same density
+// walls receive on their TILE_SIZE-wide faces.
+function scalePlaneUVs(geo: THREE.PlaneGeometry, sx: number, sy: number): void {
+  const uv = geo.attributes.uv;
+  for (let i = 0; i < uv.count; i++) {
+    uv.setXY(i, uv.getX(i) * sx, uv.getY(i) * sy);
+  }
+  uv.needsUpdate = true;
+}
+
 // Tiny seedable PRNG so prop / cobweb placement is stable across mounts
 // of the same map (no popping when the user re-enters the house).
 function mulberry32(seed: number): () => number {
@@ -313,19 +326,21 @@ export function startGame(
   const worldW = parsed.width * TILE_SIZE;
   const worldD = parsed.height * TILE_SIZE;
 
-  const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(worldW, worldD),
-    floorMat
-  );
+  // Floor / ceiling: single planes spanning the whole world. Without UV
+  // scaling the material's tex.repeat=(tiling, tiling) would stretch the
+  // texture across ~150m of floor; scale UVs so one tile of texture density
+  // matches a TILE_SIZE-wide cell, the same way walls (4m boxes) get it.
+  const floorGeo = new THREE.PlaneGeometry(worldW, worldD);
+  scalePlaneUVs(floorGeo, parsed.width, parsed.height);
+  const floor = new THREE.Mesh(floorGeo, floorMat);
   floor.rotation.x = -Math.PI / 2;
   floor.position.set(worldW / 2, 0, worldD / 2);
   floor.receiveShadow = shadowsEnabled;
   scene.add(floor);
 
-  const ceiling = new THREE.Mesh(
-    new THREE.PlaneGeometry(worldW, worldD),
-    ceilingMat
-  );
+  const ceilingGeo = new THREE.PlaneGeometry(worldW, worldD);
+  scalePlaneUVs(ceilingGeo, parsed.width, parsed.height);
+  const ceiling = new THREE.Mesh(ceilingGeo, ceilingMat);
   ceiling.rotation.x = Math.PI / 2;
   ceiling.position.set(worldW / 2, WALL_HEIGHT, worldD / 2);
   scene.add(ceiling);
