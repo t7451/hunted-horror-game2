@@ -141,8 +141,10 @@ function paintWoodPlanks(f: Fields, base: RGB, dark: RGB, opts: PlankOpts): void
       const grainNoise = fbm2(along * 0.05, across * 0.18, 3, plankIdx + 7);
       const grain = grainBase * 0.55 + grainNoise * 0.45;
 
-      // Per-plank brightness shift (some planks are darker than others).
-      const plankShift = (plankSeed - 0.5) * 0.18;
+      // Per-plank brightness shift (some planks are darker than others), plus
+      // slow blotchy aging along the board so adjacent planks do not read flat.
+      const age = fbm2(across * 0.025 + plankSeed * 40, along * 0.012, 3, 73);
+      const plankShift = (plankSeed - 0.5) * 0.28 + (age - 0.5) * 0.16;
 
       const k = clamp01(0.32 + grain * 0.62 + plankShift);
       let r = dark[0] + (base[0] - dark[0]) * k;
@@ -162,29 +164,30 @@ function paintWoodPlanks(f: Fields, base: RGB, dark: RGB, opts: PlankOpts): void
           r += (210 - r) * wf * 0.20;
           g += (175 - g) * wf * 0.20;
           b += (140 - b) * wf * 0.20;
-          f.rough[i] = 0.55 + (1 - wf) * 0.35;
+          f.rough[i] = 0.50 + (1 - wf) * 0.35;
         } else {
-          f.rough[i] = 0.92;
+          f.rough[i] = 0.9;
         }
       } else {
         f.rough[i] = polished ? 0.7 : 0.86;
       }
+      f.rough[i] = clamp01(f.rough[i] + (grainNoise - 0.5) * 0.08 + (plankSeed - 0.5) * 0.06);
 
       f.r[i] = r;
       f.g[i] = g;
       f.b[i] = b;
-      f.height[i] = (grain - 0.5) * 0.18;
+      f.height[i] = (grain - 0.5) * 0.22 + (age - 0.5) * 0.08;
 
       // Plank seam: dark recessed strip at plank boundaries.
-      const SEAM_W = 0.04;
-      if (edgeDist < SEAM_W) {
-        const t = (SEAM_W - edgeDist) / SEAM_W; // 1 at seam center, 0 at edge of seam zone
-        const mul = 1 - t * 0.78;
+      const seamW = worn ? 0.06 : 0.04;
+      if (edgeDist < seamW) {
+        const t = (seamW - edgeDist) / seamW; // 1 at seam center, 0 at edge of seam zone
+        const mul = 1 - t * (worn ? 0.88 : 0.78);
         f.r[i] *= mul;
         f.g[i] *= mul;
         f.b[i] *= mul;
-        f.height[i] = -t * 0.7;
-        f.ao[i] = 1 - t * 0.7;
+        f.height[i] = -t * (worn ? 0.92 : 0.7);
+        f.ao[i] = 1 - t * (worn ? 0.8 : 0.7);
         f.rough[i] = 0.96;
       }
 
@@ -193,12 +196,73 @@ function paintWoodPlanks(f: Fields, base: RGB, dark: RGB, opts: PlankOpts): void
       const buttDist = Math.min(buttPhase, plankWidth * 3.2 - buttPhase);
       if (buttDist < 1.6) {
         const t = (1.6 - buttDist) / 1.6;
-        const mul = 1 - t * 0.7;
+        const mul = 1 - t * (worn ? 0.82 : 0.7);
         f.r[i] *= mul;
         f.g[i] *= mul;
         f.b[i] *= mul;
-        f.height[i] = Math.min(f.height[i], -t * 0.5);
-        f.ao[i] *= 1 - t * 0.5;
+        f.height[i] = Math.min(f.height[i], -t * (worn ? 0.7 : 0.5));
+        f.ao[i] *= 1 - t * (worn ? 0.65 : 0.5);
+      }
+
+      // Hairline splits running with the grain. Coordinate-keyed so the texture
+      // stays tileable and cheap, but broken up enough to avoid barcode lines.
+      if (worn) {
+        const splitCenter = 0.22 + hash1(plankIdx * 23.1) * 0.56;
+        const splitDist = Math.abs(acrossInPlank - splitCenter);
+        const splitBreak = fbm2(along * 0.018, plankIdx * 31.1, 2, 89);
+        if (splitDist < 0.012 && splitBreak > 0.46) {
+          const t = (0.012 - splitDist) / 0.012;
+          const mul = 1 - t * 0.55;
+          f.r[i] *= mul;
+          f.g[i] *= mul;
+          f.b[i] *= mul;
+          f.height[i] = Math.min(f.height[i], -t * 0.42);
+          f.ao[i] *= 1 - t * 0.28;
+          f.rough[i] = Math.min(1.0, f.rough[i] + t * 0.12);
+        }
+      }
+    }
+  }
+
+  if (worn) paintFloorScratches(f, vertical);
+}
+
+function paintFloorScratches(f: Fields, vertical: boolean): void {
+  const rng = mulberry32(101);
+  const SCRATCHES = 34;
+  for (let s = 0; s < SCRATCHES; s++) {
+    const baseAcross = rng() * SIZE;
+    const baseAlong = rng() * SIZE;
+    const len = 24 + rng() * 86;
+    const drift = (rng() - 0.5) * 0.32;
+    const width = rng() < 0.22 ? 2 : 1;
+    const lightScratch = rng() < 0.6;
+    const wobble = rng() * Math.PI * 2;
+
+    for (let p = 0; p < len; p++) {
+      const across = baseAcross + drift * p + Math.sin(p * 0.16 + wobble) * 0.8;
+      const along = baseAlong + p;
+      for (let w = -width; w <= width; w++) {
+        const a = (1 - Math.abs(w) / (width + 0.5)) * (1 - p / len) * 0.85;
+        if (a <= 0) continue;
+        const x = vertical ? wrapInt(Math.round(across + w)) : wrapInt(Math.round(along));
+        const y = vertical ? wrapInt(Math.round(along)) : wrapInt(Math.round(across + w));
+        const i = y * SIZE + x;
+        if (lightScratch) {
+          f.r[i] += (205 - f.r[i]) * a * 0.22;
+          f.g[i] += (170 - f.g[i]) * a * 0.18;
+          f.b[i] += (125 - f.b[i]) * a * 0.12;
+          f.height[i] += a * 0.08;
+          f.rough[i] = Math.max(0.42, f.rough[i] - a * 0.16);
+        } else {
+          const mul = 1 - a * 0.34;
+          f.r[i] *= mul;
+          f.g[i] *= mul;
+          f.b[i] *= mul;
+          f.height[i] = Math.min(f.height[i], -a * 0.28);
+          f.ao[i] *= 1 - a * 0.18;
+          f.rough[i] = Math.min(1.0, f.rough[i] + a * 0.16);
+        }
       }
     }
   }
@@ -223,27 +287,32 @@ function paintPlaster(
       f.g[i] = base[1] * kk;
       f.b[i] = base[2] * kk;
       f.height[i] = (big - 0.5) * 0.6 + (fine - 0.5) * 0.15;
-      f.rough[i] = roughBase + (fine - 0.5) * 0.06;
+      f.rough[i] = clamp01(roughBase + (fine - 0.5) * 0.08 + (big - 0.5) * 0.04);
     }
   }
 
   // Brownish water stains.
   if (stainStrength > 0) {
+    const threshold = stainStrength >= 0.5 ? 0.48 : 0.55;
     for (let y = 0; y < SIZE; y++) {
       for (let x = 0; x < SIZE; x++) {
         const i = y * SIZE + x;
         const stain = fbm2(x * 0.008, y * 0.008, 5, 41);
-        if (stain > 0.55) {
-          const t = ((stain - 0.55) / 0.45) * stainStrength;
+        if (stain > threshold) {
+          const t = ((stain - threshold) / (1 - threshold)) * stainStrength;
           // Pull toward a brownish-yellow stain color.
           f.r[i] = f.r[i] * (1 - t) + 96 * t;
           f.g[i] = f.g[i] * (1 - t) + 70 * t;
           f.b[i] = f.b[i] * (1 - t) + 38 * t;
-          f.rough[i] = Math.min(1.0, f.rough[i] + t * 0.04);
+          f.height[i] = Math.min(f.height[i], -t * 0.12);
+          f.ao[i] *= 1 - t * 0.12;
+          f.rough[i] = Math.min(1.0, f.rough[i] + t * 0.08);
         }
       }
     }
   }
+
+  if (stainStrength >= 0.5) paintCeilingMoldDamage(f);
 
   // Network of cracks: random-walk dark thin lines, AO darkens them strongly.
   if (cracks) {
@@ -268,6 +337,54 @@ function paintPlaster(
           paintCrackPixel(f, bx, by, 0.6);
         }
         paintCrackPixel(f, cx, cy, 1.0);
+      }
+    }
+  }
+}
+
+function paintCeilingMoldDamage(f: Fields): void {
+  // Broad mildew blooms: muted green-black, rough, slightly recessed.
+  for (let y = 0; y < SIZE; y++) {
+    for (let x = 0; x < SIZE; x++) {
+      const i = y * SIZE + x;
+      const mold = fbm2(x * 0.013, y * 0.013, 5, 67);
+      const speckle = valueNoise2(x, y, 3, 121);
+      if (mold > 0.6 || (mold > 0.53 && speckle > 0.78)) {
+        const t = clamp01((mold - 0.53) / 0.47) * (0.55 + speckle * 0.25);
+        f.r[i] = f.r[i] * (1 - t) + 24 * t;
+        f.g[i] = f.g[i] * (1 - t) + 31 * t;
+        f.b[i] = f.b[i] * (1 - t) + 21 * t;
+        f.height[i] = Math.min(f.height[i], -t * 0.18);
+        f.ao[i] *= 1 - t * 0.18;
+        f.rough[i] = Math.min(1.0, f.rough[i] + t * 0.12);
+      }
+    }
+  }
+
+  // Water rings and soft pooled centers, deterministic and tile-wrapped.
+  const rng = mulberry32(202);
+  for (let r = 0; r < 7; r++) {
+    const cx = Math.floor(rng() * SIZE);
+    const cy = Math.floor(rng() * SIZE);
+    const rx = 18 + rng() * 34;
+    const ry = 10 + rng() * 24;
+    const radius = Math.ceil(Math.max(rx, ry) * 1.35);
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        const d = Math.hypot(dx / rx, dy / ry);
+        if (d > 1.25) continue;
+        const xi = wrapInt(cx + dx);
+        const yi = wrapInt(cy + dy);
+        const i = yi * SIZE + xi;
+        const ring = clamp01(1 - Math.abs(d - 1) * 5.0);
+        const pool = d < 0.82 ? (0.82 - d) / 0.82 : 0;
+        const t = ring * 0.55 + pool * 0.16;
+        f.r[i] = f.r[i] * (1 - t) + 82 * t;
+        f.g[i] = f.g[i] * (1 - t) + 61 * t;
+        f.b[i] = f.b[i] * (1 - t) + 35 * t;
+        f.height[i] = Math.min(f.height[i], -(ring * 0.22 + pool * 0.08));
+        f.ao[i] *= 1 - t * 0.22;
+        f.rough[i] = Math.min(1.0, f.rough[i] + t * 0.16);
       }
     }
   }
@@ -311,26 +428,42 @@ function paintTiles(f: Fields, base: RGB, grout: RGB): void {
       const tileSeed = hash1(tx * 31.7 + ty * 17.3);
       // Surface texture on the tile face: subtle noise + the occasional crack.
       const surface = fbm2(x * 0.07, y * 0.07, 3, 21);
+      const grime = fbm2(x * 0.025, y * 0.025, 3, 77);
       const k = 0.85 + (surface - 0.5) * 0.16 + (tileSeed - 0.5) * 0.08;
       const kk = clamp01(k);
 
       if (edge < GROUT_W) {
         // Grout: darker, recessed, rougher, AO-darkened.
         const t = 1 - edge / GROUT_W;
-        const aoMul = 1 - t * 0.6;
-        f.r[i] = grout[0] * (0.9 + (surface - 0.5) * 0.1);
-        f.g[i] = grout[1] * (0.9 + (surface - 0.5) * 0.1);
-        f.b[i] = grout[2] * (0.9 + (surface - 0.5) * 0.1);
-        f.height[i] = -0.7 * t;
-        f.ao[i] = aoMul;
-        f.rough[i] = 0.96;
+        const corner = edgeX < GROUT_W * 1.8 && edgeY < GROUT_W * 1.8 ? 0.18 : 0;
+        const speckle = hash2(x, y, 131) > 0.82 ? 0.2 : 0;
+        const grimeMul = Math.max(0.22, 0.58 + (surface - 0.5) * 0.12 - grime * 0.18 - corner - speckle);
+        f.r[i] = grout[0] * grimeMul;
+        f.g[i] = grout[1] * grimeMul;
+        f.b[i] = grout[2] * grimeMul;
+        f.height[i] = -0.72 * t - grime * 0.12 - corner * 0.2;
+        f.ao[i] = clamp01(1 - t * 0.68 - grime * 0.18 - corner);
+        f.rough[i] = 0.97 + grime * 0.03;
       } else {
         f.r[i] = base[0] * kk;
         f.g[i] = base[1] * kk;
         f.b[i] = base[2] * kk;
-        f.height[i] = (surface - 0.5) * 0.05;
+        f.height[i] = (surface - 0.5) * 0.08;
         // Tile faces are smoother (a little ceramic gloss).
-        f.rough[i] = 0.55 + (surface - 0.5) * 0.08;
+        f.rough[i] = 0.5 + (surface - 0.5) * 0.12 + (tileSeed - 0.5) * 0.05;
+
+        // Dirty feathering beside grout lines so the grid reads grimy rather
+        // than cleanly stamped.
+        if (edge < GROUT_W + 8) {
+          const t = (GROUT_W + 8 - edge) / 8;
+          const dirt = clamp01(t * (0.3 + grime * 0.55));
+          f.r[i] = f.r[i] * (1 - dirt) + 38 * dirt;
+          f.g[i] = f.g[i] * (1 - dirt) + 32 * dirt;
+          f.b[i] = f.b[i] * (1 - dirt) + 25 * dirt;
+          f.height[i] -= dirt * 0.08;
+          f.ao[i] *= 1 - dirt * 0.18;
+          f.rough[i] = Math.min(1.0, f.rough[i] + dirt * 0.28);
+        }
 
         // Stain patches — yellowed grime that pools on horizontal tiles.
         const stain = fbm2(x * 0.012, y * 0.012, 4, 53);
@@ -342,6 +475,75 @@ function paintTiles(f: Fields, base: RGB, grout: RGB): void {
           f.rough[i] = Math.min(1.0, f.rough[i] + t * 0.25);
         }
       }
+    }
+  }
+
+  paintTileDamage(f, TILE, GROUT_W);
+}
+
+function paintTileDamage(f: Fields, tileSize: number, groutW: number): void {
+  const rng = mulberry32(151);
+
+  for (let c = 0; c < 8; c++) {
+    let x = rng() * SIZE;
+    let y = rng() * SIZE;
+    let angle = rng() * Math.PI * 2;
+    const len = 18 + rng() * 34;
+    for (let s = 0; s < len; s++) {
+      angle += (rng() - 0.5) * 0.22;
+      x += Math.cos(angle);
+      y += Math.sin(angle);
+      const inX = wrapInt(Math.round(x)) % tileSize;
+      const inY = wrapInt(Math.round(y)) % tileSize;
+      if (inX <= groutW || inY <= groutW) continue;
+      paintTileCrackPixel(f, x, y, 0.65);
+    }
+  }
+
+  for (let chip = 0; chip < 18; chip++) {
+    const vertical = rng() < 0.5;
+    const line = Math.floor(rng() * (SIZE / tileSize)) * tileSize;
+    const offset = (rng() < 0.5 ? 1 : -1) * (groutW + 2 + rng() * 5);
+    const cx = vertical ? line + offset : rng() * SIZE;
+    const cy = vertical ? rng() * SIZE : line + offset;
+    paintTileChip(f, cx, cy, 3 + rng() * 5, 2 + rng() * 4);
+  }
+}
+
+function paintTileCrackPixel(f: Fields, x: number, y: number, intensity: number): void {
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const dist = Math.max(Math.abs(dx), Math.abs(dy));
+      const t = (dist === 0 ? 1.0 : 0.35) * intensity;
+      const xi = wrapInt(Math.round(x) + dx);
+      const yi = wrapInt(Math.round(y) + dy);
+      const i = yi * SIZE + xi;
+      const mul = 1 - t * 0.5;
+      f.r[i] *= mul;
+      f.g[i] *= mul;
+      f.b[i] *= mul;
+      f.height[i] = Math.min(f.height[i], -t * 0.34);
+      f.ao[i] *= 1 - t * 0.25;
+      f.rough[i] = Math.min(1.0, f.rough[i] + t * 0.2);
+    }
+  }
+}
+
+function paintTileChip(f: Fields, cx: number, cy: number, rx: number, ry: number): void {
+  for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++) {
+    for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++) {
+      const d = Math.hypot((x - cx) / rx, (y - cy) / ry);
+      if (d > 1) continue;
+      const xi = wrapInt(x);
+      const yi = wrapInt(y);
+      const i = yi * SIZE + xi;
+      const t = 1 - d;
+      f.r[i] = f.r[i] * (1 - t * 0.65) + 35 * t * 0.65;
+      f.g[i] = f.g[i] * (1 - t * 0.65) + 31 * t * 0.65;
+      f.b[i] = f.b[i] * (1 - t * 0.65) + 27 * t * 0.65;
+      f.height[i] = Math.min(f.height[i], -t * 0.48);
+      f.ao[i] *= 1 - t * 0.38;
+      f.rough[i] = Math.min(1.0, f.rough[i] + t * 0.32);
     }
   }
 }
@@ -372,8 +574,8 @@ function paintWallpaper(f: Fields, base: RGB, light: RGB, dark: RGB): void {
       f.r[i] += gShift;
       f.g[i] += gShift * 0.9;
       f.b[i] += gShift * 0.7;
-      f.height[i] = (grain - 0.5) * 0.08;
-      f.rough[i] = 0.92 + (grain - 0.5) * 0.04;
+      f.height[i] = (grain - 0.5) * 0.1 + motif * 0.025;
+      f.rough[i] = 0.9 + (grain - 0.5) * 0.08;
     }
   }
 
@@ -382,37 +584,86 @@ function paintWallpaper(f: Fields, base: RGB, light: RGB, dark: RGB): void {
     for (let x = 0; x < SIZE; x++) {
       const i = y * SIZE + x;
       const stain = fbm2(x * 0.009, y * 0.009, 5, 27);
-      if (stain > 0.58) {
-        const t = ((stain - 0.58) / 0.42) * 0.7;
+      const drip = fbm2(x * 0.045, y * 0.004, 3, 29);
+      if (stain > 0.53 || (stain > 0.46 && drip > 0.64)) {
+        const t = clamp01((stain - 0.46) / 0.54) * (0.62 + drip * 0.34);
         f.r[i] = f.r[i] * (1 - t) + dark[0] * t;
         f.g[i] = f.g[i] * (1 - t) + dark[1] * t;
         f.b[i] = f.b[i] * (1 - t) + dark[2] * t;
-        f.rough[i] = Math.min(1.0, f.rough[i] + t * 0.05);
+        f.height[i] = Math.min(f.height[i], -t * 0.1);
+        f.ao[i] *= 1 - t * 0.1;
+        f.rough[i] = Math.min(1.0, f.rough[i] + t * 0.1);
       }
     }
   }
 
   // Tear damage: a few horizontal rip strips where the paper has peeled.
   const rng = mulberry32(13);
-  const TEARS = 3;
+  const TEARS = 5;
   for (let t = 0; t < TEARS; t++) {
     const cy = Math.floor(rng() * SIZE);
     const startX = Math.floor(rng() * SIZE);
-    const len = 18 + Math.floor(rng() * 32);
-    const thickness = 1 + Math.floor(rng() * 2);
+    const len = 32 + Math.floor(rng() * 58);
+    const thickness = 2 + Math.floor(rng() * 3);
     for (let s = 0; s < len; s++) {
       const xi = wrapInt(startX + s);
-      for (let dy = -thickness; dy <= thickness; dy++) {
+      const wave = Math.floor(Math.sin(s * 0.34 + t) * 3 + Math.sin(s * 0.11) * 2);
+      for (let dy = -thickness - 2; dy <= thickness + 2; dy++) {
         const yi = wrapInt(cy + dy + Math.floor(Math.sin(s * 0.4 + t) * 2));
         const i = yi * SIZE + xi;
-        const dist = Math.abs(dy);
-        const a = 1 - dist / (thickness + 0.5);
-        // Reveal a darker substrate underneath.
-        f.r[i] = f.r[i] * (1 - a * 0.7) + 36 * a * 0.7;
-        f.g[i] = f.g[i] * (1 - a * 0.7) + 26 * a * 0.7;
-        f.b[i] = f.b[i] * (1 - a * 0.7) + 18 * a * 0.7;
-        f.height[i] = Math.min(f.height[i], -a * 0.6);
-        f.ao[i] *= 1 - a * 0.5;
+        const dist = Math.abs(dy + wave * 0.15);
+        if (dist <= thickness) {
+          const a = 1 - dist / (thickness + 0.5);
+          // Reveal a darker substrate underneath.
+          f.r[i] = f.r[i] * (1 - a * 0.82) + 30 * a * 0.82;
+          f.g[i] = f.g[i] * (1 - a * 0.82) + 22 * a * 0.82;
+          f.b[i] = f.b[i] * (1 - a * 0.82) + 15 * a * 0.82;
+          f.height[i] = Math.min(f.height[i], -a * 0.8);
+          f.ao[i] *= 1 - a * 0.6;
+          f.rough[i] = Math.min(1.0, f.rough[i] + a * 0.1);
+        } else {
+          // Raised curled paper lip catches flashlight as a thin ragged edge.
+          const a = 1 - (dist - thickness) / 2.5;
+          f.r[i] += (125 - f.r[i]) * a * 0.22;
+          f.g[i] += (92 - f.g[i]) * a * 0.2;
+          f.b[i] += (60 - f.b[i]) * a * 0.16;
+          f.height[i] += a * 0.26;
+          f.rough[i] = Math.max(0.68, f.rough[i] - a * 0.08);
+        }
+      }
+    }
+  }
+
+  paintWallpaperPeelPatch(f, 60, 190, 30, 20, dark);
+  paintWallpaperPeelPatch(f, 185, 82, 24, 34, dark);
+}
+
+function paintWallpaperPeelPatch(f: Fields, cx: number, cy: number, rx: number, ry: number, dark: RGB): void {
+  for (let y = cy - ry - 3; y <= cy + ry + 3; y++) {
+    for (let x = cx - rx - 3; x <= cx + rx + 3; x++) {
+      const dx = (x - cx) / rx;
+      const dy = (y - cy) / ry;
+      const noise = valueNoise2(x, y, 12, 177) * 0.22;
+      const d = Math.hypot(dx, dy) + noise;
+      if (d > 1.12) continue;
+      const xi = wrapInt(x);
+      const yi = wrapInt(y);
+      const i = yi * SIZE + xi;
+      if (d < 0.92) {
+        const a = clamp01((0.92 - d) / 0.55);
+        f.r[i] = f.r[i] * (1 - a * 0.78) + dark[0] * a * 0.78;
+        f.g[i] = f.g[i] * (1 - a * 0.78) + dark[1] * a * 0.78;
+        f.b[i] = f.b[i] * (1 - a * 0.78) + dark[2] * a * 0.78;
+        f.height[i] = Math.min(f.height[i], -a * 0.5);
+        f.ao[i] *= 1 - a * 0.32;
+        f.rough[i] = Math.min(1.0, f.rough[i] + a * 0.12);
+      } else {
+        const edge = clamp01((1.12 - d) / 0.2);
+        f.r[i] += (116 - f.r[i]) * edge * 0.28;
+        f.g[i] += (82 - f.g[i]) * edge * 0.24;
+        f.b[i] += (50 - f.b[i]) * edge * 0.18;
+        f.height[i] += edge * 0.22;
+        f.rough[i] = Math.max(0.7, f.rough[i] - edge * 0.08);
       }
     }
   }
