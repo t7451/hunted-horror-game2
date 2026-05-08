@@ -3,6 +3,12 @@ import { buildLoadManifest } from "../loaders/loadManifest";
 import { preloadAssets } from "../loaders/AssetPreloader";
 import { useIsMobile } from "../hooks/useMobile";
 import { requestFullscreen } from "../util/fullscreen";
+import { AnalogPanel, ChromaticText, useAnalogTension } from "./analog";
+
+function asciiBar(percent: number, width = 24): string {
+  const filled = Math.round((percent / 100) * width);
+  return `[${"█".repeat(filled)}${"·".repeat(width - filled)}]`;
+}
 
 const TIPS = [
   "Don't run if The Observer is near.",
@@ -25,6 +31,7 @@ export type LoadingScreenProps = {
 };
 
 export default function LoadingScreen({ onReady }: LoadingScreenProps) {
+  useAnalogTension(0.4);
   const isMobile = useIsMobile();
   const [progress, setProgress] = useState(0);
   const [phase, setPhase] = useState<string>("Building the house");
@@ -78,6 +85,8 @@ export default function LoadingScreen({ onReady }: LoadingScreenProps) {
     window.setTimeout(onReady, 300);
   };
 
+  const percent = Math.round(progress * 100);
+
   return (
     <div
       className={`absolute inset-0 z-50 flex flex-col items-center justify-center bg-black text-white transition-opacity duration-300 ${
@@ -92,37 +101,27 @@ export default function LoadingScreen({ onReady }: LoadingScreenProps) {
         >
           HUNTED BY THE OBSERVER
         </h1>
-        <div className="mt-3 text-xs uppercase tracking-[0.3em] opacity-60">
-          {phase}
-        </div>
 
-        <div className="mt-8 w-[min(90vw,520px)]">
-          <div className="relative h-1 w-full overflow-hidden rounded bg-white/10">
-            <div
-              className="absolute inset-y-0 left-0 bg-red-700 transition-[width] duration-200 ease-out"
-              style={{ width: `${Math.round(progress * 100)}%` }}
-            />
-            <div
-              className="absolute inset-y-0 left-0 w-12 -skew-x-12 bg-gradient-to-r from-transparent via-white/40 to-transparent"
-              style={{
-                transform: `translateX(${progress * 540}px) skewX(-12deg)`,
-                opacity: ready ? 0 : 0.7,
-                transition: "opacity 200ms ease-out",
-              }}
-            />
+        <AnalogPanel className="mt-8 w-[min(92vw,520px)]">
+          <div className="mb-2 flex items-center justify-between">
+            <ChromaticText className="text-xs tracking-[0.3em] uppercase">
+              Loading Tape
+            </ChromaticText>
+            <span className="font-mono text-xs text-white/60">{percent}%</span>
           </div>
-          <div className="mt-2 flex justify-between text-[10px] uppercase tracking-widest opacity-40">
-            <span>{Math.round(progress * 100)}%</span>
-            <span>{ready ? "ready" : "loading"}</span>
+          <div className="font-mono text-sm tracking-widest text-white/80">
+            {asciiBar(percent)}
           </div>
-        </div>
-
-        <div
-          className="mt-10 max-w-md text-center text-sm italic opacity-60"
-          aria-live="polite"
-        >
-          {TIPS[tipIdx]}
-        </div>
+          <div className="mt-2 text-[10px] uppercase tracking-widest opacity-40 text-right">
+            <span>{ready ? "ready" : phase}</span>
+          </div>
+          <div
+            className="mt-4 max-w-md text-center text-sm italic opacity-60"
+            aria-live="polite"
+          >
+            {TIPS[tipIdx]}
+          </div>
+        </AnalogPanel>
 
         <button
           type="button"
