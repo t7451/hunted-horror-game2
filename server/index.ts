@@ -5,7 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import Anthropic from "@anthropic-ai/sdk";
-import { MAPS, type MapKey } from "../shared/maps.ts";
+import { MAPS, type MapDef, type MapKey } from "../shared/maps.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -46,9 +46,7 @@ const DIFFICULTY_BONUS: Record<string, number> = {
 // ═══════════════════════════════════════════════════════════════
 
 // Shared with the client so single-player rendering and multiplayer simulation stay in sync.
-type ServerMapDef = (typeof MAPS)[MapKey];
-
-function getMapForDifficulty(difficulty: string): ServerMapDef {
+function getMapForDifficulty(difficulty: string): MapDef {
   return MAPS[difficulty as MapKey] ?? MAPS.normal;
 }
 
@@ -60,7 +58,7 @@ function tileCenter(r: number, c: number) {
   return { x: c * TILE + TILE / 2, z: r * TILE + TILE / 2 };
 }
 
-function parseMap(mapData: ServerMapDef) {
+function parseMap(mapData: MapDef) {
   const raw = mapData.raw;
   const H = raw.length;
   const W = raw[0].length;

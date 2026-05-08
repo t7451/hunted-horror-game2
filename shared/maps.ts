@@ -88,7 +88,7 @@ export const MAPS: Record<MapKey, MapDef> = {
       "W.........W.....W,,,,,,,,,,,,W;;;;;;;;;;;W",
       "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
     ],
-    // Observer patrols the upstairs rooms, parlor, kitchen, cellar approach and porch run.
+    // Observer patrols the bedrooms, parlor, kitchen, cellar approach and porch run.
     patrolWaypoints: [
       { x: 6, z: 3 },
       { x: 18, z: 3 },
