@@ -34,8 +34,8 @@ const LIVE_FRACTION = 0.65;
 const FLICKER_FRACTION = 0.35;
 
 const LIGHT_COLOR = 0xffb055; // warm tungsten
-const LIGHT_INTENSITY = 1.15;
-const LIGHT_DISTANCE = 9.0;
+const LIGHT_INTENSITY = 1.4;
+const LIGHT_DISTANCE = 11.5;
 const LIGHT_DECAY = 2;
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -99,7 +99,7 @@ export function buildCeilingFixtures(
   const bulbLitMat = new THREE.MeshStandardMaterial({
     color: 0xfff4d4,
     emissive: 0xffaa44,
-    emissiveIntensity: 2.8,
+    emissiveIntensity: 3.4,
     roughness: 0.3,
     metalness: 0.0,
   });
@@ -111,7 +111,7 @@ export function buildCeilingFixtures(
   const glowMat = new THREE.MeshStandardMaterial({
     color: 0xfff0c0,
     emissive: 0xffaa44,
-    emissiveIntensity: 1.6,
+    emissiveIntensity: 2.1,
     roughness: 0.5,
     metalness: 0.0,
     side: THREE.FrontSide,

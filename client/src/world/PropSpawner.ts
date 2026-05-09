@@ -310,17 +310,20 @@ function buildTable() {
 function buildLamp() {
   return mergeBoxes(
     [
-      { x: 0, y: 0.05, z: 0, w: 0.3, h: 0.06, d: 0.3 },
-      { x: 0, y: 0.72, z: 0, w: 0.04, h: 1.38, d: 0.04 },
-      { x: 0, y: 1.32, z: 0, w: 0.12, h: 0.04, d: 0.12 },
-      { x: 0, y: 1.47, z: 0, w: 0.42, h: 0.28, d: 0.42 },
+      { x: 0, y: 0.02, z: 0, w: 0.36, h: 0.04, d: 0.36 }, // base plate
+      { x: 0, y: 0.07, z: 0, w: 0.27, h: 0.06, d: 0.27 }, // base collar
+      { x: 0, y: 0.74, z: 0, w: 0.05, h: 1.34, d: 0.05 }, // pole
+      { x: 0, y: 1.35, z: 0, w: 0.15, h: 0.05, d: 0.15 }, // top collar
+      { x: 0, y: 1.48, z: 0, w: 0.50, h: 0.26, d: 0.50 }, // shade body
+      { x: 0, y: 1.60, z: 0, w: 0.40, h: 0.03, d: 0.40 }, // shade cap
+      { x: 0, y: 1.34, z: 0, w: 0.12, h: 0.09, d: 0.12 }, // bulb
     ],
     new THREE.MeshStandardMaterial({
-      color: 0xffe8b0,
+      color: 0xb8a07f,
       emissive: 0xffaa55,
-      emissiveIntensity: 0.35,
-      roughness: 0.45,
-      metalness: 0.25,
+      emissiveIntensity: 0.18,
+      roughness: 0.52,
+      metalness: 0.16,
     })
   );
 }
