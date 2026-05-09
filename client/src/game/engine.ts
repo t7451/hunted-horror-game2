@@ -351,7 +351,7 @@ export function startGame(
   // Adaptive renderer DPR — drops on sustained <30fps, rises on >55fps.
   const adaptiveQuality = new AdaptiveQuality(renderer, isMobile ? 1.5 : 2.0);
   // Distance-based light culler — practicals dim/disable beyond ~18 tiles.
-  const lightCuller = new LightCuller(isMobile ? 14 : 20);
+  const lightCuller = new LightCuller((isMobile ? 14 : 20) * TILE_SIZE);
   let lastPropCullAt = 0;
 
   // KTX2 texture pipeline: getMaterial() returns procedural fallbacks
@@ -1300,8 +1300,8 @@ export function startGame(
         const light = createPractical({
           position: new THREE.Vector3(px, 1.55, pz),
           color: 0xffb066,
-          intensity: 0.55,
-          distance: 5,
+          intensity: 0.95,
+          distance: 7.5,
         });
         scene.add(light);
         lightCuller.register(light);

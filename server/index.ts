@@ -13,6 +13,12 @@ import {
   type MapDef,
   type MapKey,
 } from "../shared/maps.ts";
+import {
+  buildRenderDiagnostics,
+  getRenderPreset,
+  getRenderHelperScripts,
+  listRenderPresets,
+} from "./renderHelpers.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -715,6 +721,49 @@ async function startServer() {
     });
   });
   app.options("/status", (_req, res) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.sendStatus(204);
+  });
+  app.get("/render/presets", (req, res) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.set("Cache-Control", "no-store");
+    const tier = typeof req.query.tier === "string" ? req.query.tier : undefined;
+    if (tier) {
+      res.json({
+        preset: getRenderPreset(tier),
+        helperScripts: getRenderHelperScripts(),
+      });
+      return;
+    }
+    res.json({
+      presets: listRenderPresets(),
+      helperScripts: getRenderHelperScripts(),
+    });
+  });
+  app.options("/render/presets", (_req, res) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.sendStatus(204);
+  });
+  app.get("/render/diagnostics", (_req, res) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.set("Cache-Control", "no-store");
+    const players = Array.from(sessions.values()).reduce(
+      (n, gs) => n + Object.keys(gs.players).length,
+      0
+    );
+    res.json(
+      buildRenderDiagnostics({
+        sessions: sessions.size,
+        players,
+        uptime: process.uptime(),
+      })
+    );
+  });
+  app.options("/render/diagnostics", (_req, res) => {
     res.set("Access-Control-Allow-Origin", "*");
     res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
     res.sendStatus(204);
