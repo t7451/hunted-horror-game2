@@ -70,6 +70,11 @@ type Slot = {
 };
 
 const PROP_CULL_DIST = 32;
+const LAMP_SHADE_WAVE_BASE = 18;
+const LAMP_SHADE_WAVE_FREQ = 0.34;
+const LAMP_SHADE_WAVE_AMPLITUDE = 12;
+const LAMP_SHADE_OPACITY_BASE = 0.06;
+const LAMP_SHADE_OPACITY_SCALE = 1 / 255;
 let lampShadeTexture: THREE.CanvasTexture | null = null;
 
 function getLampShadeTexture(): THREE.CanvasTexture {
@@ -86,8 +91,13 @@ function getLampShadeTexture(): THREE.CanvasTexture {
   ctx.fillStyle = "#c2ad86";
   ctx.fillRect(0, 0, 128, 128);
   for (let y = 0; y < 128; y++) {
-    const band = 18 + Math.sin(y * 0.34) * 12;
-    ctx.fillStyle = `rgba(55,36,18,${(0.06 + band / 255).toFixed(3)})`;
+    const band =
+      LAMP_SHADE_WAVE_BASE +
+      Math.sin(y * LAMP_SHADE_WAVE_FREQ) * LAMP_SHADE_WAVE_AMPLITUDE;
+    ctx.fillStyle = `rgba(55,36,18,${(
+      LAMP_SHADE_OPACITY_BASE +
+      band * LAMP_SHADE_OPACITY_SCALE
+    ).toFixed(3)})`;
     ctx.fillRect(0, y, 128, 1);
   }
   for (let x = 0; x < 128; x += 4) {

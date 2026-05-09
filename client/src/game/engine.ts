@@ -78,6 +78,7 @@ const NOTE_OBJECTIVE_RATIO_BY_DIFFICULTY: Record<number, number> = {
   2: 0.5,
   3: 0.67,
 };
+const DEFAULT_NOTE_OBJECTIVE_RATIO = 0.5;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rendering backend for HUNTED BY CLAUDE.
@@ -1138,7 +1139,8 @@ export function startGame(
           1,
           Math.ceil(
             totalNotes *
-              (NOTE_OBJECTIVE_RATIO_BY_DIFFICULTY[mapDef.difficulty] ?? 0.5)
+              (NOTE_OBJECTIVE_RATIO_BY_DIFFICULTY[mapDef.difficulty] ??
+                DEFAULT_NOTE_OBJECTIVE_RATIO)
           )
         )
       : 0;
@@ -2224,7 +2226,7 @@ export function startGame(
             events.onHint?.(`${keyMeshes.length} key(s) still missing.`);
           } else {
             events.onHint?.(
-              `${Math.max(0, notesRequired - notesCollected)} evidence note(s) still needed.`
+              `${notesRequired - notesCollected} evidence note(s) still needed.`
             );
           }
         }
