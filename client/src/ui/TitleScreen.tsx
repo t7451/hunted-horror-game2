@@ -30,11 +30,16 @@ interface Props {
     quality: GraphicsQuality;
     sensitivity: number;
     daily?: boolean;
+    mode?: "solo" | "multi";
+    playerName?: string;
+    roomCode?: string;
   }) => void;
   webglSupported: boolean;
   volume: number;
   onVolume: (v: number) => void;
 }
+
+type MultiTab = "none" | "create" | "join";
 
 export function TitleScreen({
   onEnter,
@@ -45,6 +50,9 @@ export function TitleScreen({
   const [difficulty, setDifficulty] = useState<MapKey>("easy");
   const [quality, setQuality] = useState<GraphicsQuality>("auto");
   const [sensitivity, setSensitivity] = useState(1);
+  const [multiTab, setMultiTab] = useState<MultiTab>("none");
+  const [playerName, setPlayerName] = useState("");
+  const [joinCode, setJoinCode] = useState("");
 
   const { canInstall, accept: acceptInstall, dismiss: dismissInstall } = useInstallPrompt();
   const isMobile = useIsMobile();
@@ -152,10 +160,94 @@ export function TitleScreen({
       <AnalogButton
         variant="primary"
         disabled={!webglSupported}
-        onClick={() => onEnter({ difficulty, quality, sensitivity })}
+        onClick={() => onEnter({ difficulty, quality, sensitivity, mode: "solo" })}
       >
         Enter the House
       </AnalogButton>
+
+      {/* ── Multiplayer lobby ── */}
+      <div className="mt-3 w-[min(92vw,520px)]">
+        <div className="mb-2 flex gap-2">
+          <button
+            type="button"
+            disabled={!webglSupported}
+            onClick={() => setMultiTab(t => (t === "create" ? "none" : "create"))}
+            className={`flex-1 rounded border px-3 py-2 text-xs font-semibold uppercase tracking-widest transition-colors disabled:opacity-40 ${
+              multiTab === "create"
+                ? "border-red-400 bg-red-950/60 text-red-200"
+                : "border-white/20 bg-black/40 hover:border-white/40"
+            }`}
+          >
+            Create Lobby
+          </button>
+          <button
+            type="button"
+            disabled={!webglSupported}
+            onClick={() => setMultiTab(t => (t === "join" ? "none" : "join"))}
+            className={`flex-1 rounded border px-3 py-2 text-xs font-semibold uppercase tracking-widest transition-colors disabled:opacity-40 ${
+              multiTab === "join"
+                ? "border-red-400 bg-red-950/60 text-red-200"
+                : "border-white/20 bg-black/40 hover:border-white/40"
+            }`}
+          >
+            Join Lobby
+          </button>
+        </div>
+
+        {(multiTab === "create" || multiTab === "join") && (
+          <div className="rounded border border-white/10 bg-black/40 px-4 py-3 space-y-3">
+            <label className="block">
+              <div className="mb-1 text-[10px] uppercase tracking-widest opacity-60">
+                Your Name
+              </div>
+              <input
+                type="text"
+                maxLength={24}
+                value={playerName}
+                onChange={e => setPlayerName(e.target.value)}
+                placeholder="Player"
+                className="w-full rounded border border-white/20 bg-black/60 px-3 py-2 text-sm focus:border-red-400/60 focus:outline-none"
+              />
+            </label>
+
+            {multiTab === "join" && (
+              <label className="block">
+                <div className="mb-1 text-[10px] uppercase tracking-widest opacity-60">
+                  Room Code
+                </div>
+                <input
+                  type="text"
+                  maxLength={4}
+                  value={joinCode}
+                  onChange={e => setJoinCode(e.target.value.toUpperCase())}
+                  placeholder="ABCD"
+                  className="w-full rounded border border-white/20 bg-black/60 px-3 py-2 font-mono text-sm uppercase tracking-widest focus:border-red-400/60 focus:outline-none"
+                />
+              </label>
+            )}
+
+            <AnalogButton
+              variant="primary"
+              disabled={
+                !webglSupported ||
+                (multiTab === "join" && joinCode.trim().length < 1)
+              }
+              onClick={() =>
+                onEnter({
+                  difficulty,
+                  quality,
+                  sensitivity,
+                  mode: "multi",
+                  playerName: playerName.trim() || "Player",
+                  roomCode: multiTab === "join" ? joinCode.trim() : undefined,
+                })
+              }
+            >
+              {multiTab === "create" ? "Create Lobby" : "Join Lobby"}
+            </AnalogButton>
+          </div>
+        )}
+      </div>
 
       <DailyChallengeButton
         onEnter={onEnter}
