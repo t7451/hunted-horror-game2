@@ -593,7 +593,7 @@ export function startGame(
     const floorTilesForGrime: { x: number; z: number }[] = [];
     for (let gz2 = 0; gz2 < parsed.height; gz2++) {
       for (let gx2 = 0; gx2 < parsed.width; gx2++) {
-        if (isDecorFloorTile(parsed.tiles[gz2][gx2])) {
+        if (isDecorFloorTile(parsed.tiles[gz2]?.[gx2] ?? "D")) {
           floorTilesForGrime.push({ x: gx2, z: gz2 });
         }
       }
