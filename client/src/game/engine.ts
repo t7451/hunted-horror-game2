@@ -351,8 +351,9 @@ export function startGame(
   // Adaptive renderer DPR — drops on sustained <30fps, rises on >55fps.
   const adaptiveQuality = new AdaptiveQuality(renderer, isMobile ? 1.5 : 2.0);
   // Distance-based light culler — practicals dim/disable beyond ~18 tiles.
-  // LightCuller uses world units (not tile counts). Keep this wide enough to
-  // prevent rooms from going unnaturally dark while still culling distant lights.
+  // LightCuller uses world units (not tile counts): 32 ≈ 8 tiles on mobile,
+  // 44 ≈ 11 tiles on desktop (TILE_SIZE=4). Keep this wide enough to prevent
+  // rooms from going unnaturally dark while still culling distant lights.
   const lightCuller = new LightCuller(isMobile ? 32 : 44);
   let lastPropCullAt = 0;
 
