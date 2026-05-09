@@ -43,6 +43,7 @@ const PRESETS: Record<RenderTier, RenderPreset> = {
     notes: "Highest fidelity profile with stronger practical lights.",
   },
 };
+const HIGH_TIER_MAX_PLAYERS_PER_SESSION = 4;
 
 export function normalizeRenderTier(value?: string): RenderTier {
   if (value === "low" || value === "mid" || value === "high") return value;
@@ -78,7 +79,8 @@ export function buildRenderDiagnostics(input: {
   uptime: number;
 }) {
   const load = input.players / Math.max(1, input.sessions);
-  const recommendedTier: RenderTier = load > 4 ? "mid" : "high";
+  const recommendedTier: RenderTier =
+    load > HIGH_TIER_MAX_PLAYERS_PER_SESSION ? "mid" : "high";
   return {
     ...input,
     avgPlayersPerSession: Number(load.toFixed(2)),

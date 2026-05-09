@@ -351,7 +351,9 @@ export function startGame(
   // Adaptive renderer DPR — drops on sustained <30fps, rises on >55fps.
   const adaptiveQuality = new AdaptiveQuality(renderer, isMobile ? 1.5 : 2.0);
   // Distance-based light culler — practicals dim/disable beyond ~18 tiles.
-  const lightCuller = new LightCuller((isMobile ? 14 : 20) * TILE_SIZE);
+  // LightCuller uses world units (not tile counts). Keep this wide enough to
+  // prevent rooms from going unnaturally dark while still culling distant lights.
+  const lightCuller = new LightCuller(isMobile ? 32 : 44);
   let lastPropCullAt = 0;
 
   // KTX2 texture pipeline: getMaterial() returns procedural fallbacks
