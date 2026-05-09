@@ -1552,7 +1552,12 @@ export function startGame(
   let dangerState: "safe" | "near" | "critical" = "safe";
   let isHiding = false;
   let timeLeft = mapDef.timer;
-  const NOTE_TIME_BONUS = mapDef.difficulty === 1 ? 6 : mapDef.difficulty === 2 ? 4 : 3;
+  const NOTE_TIME_BONUS_BY_DIFFICULTY: Record<number, number> = {
+    1: 6,
+    2: 4,
+    3: 3,
+  };
+  const NOTE_TIME_BONUS = NOTE_TIME_BONUS_BY_DIFFICULTY[mapDef.difficulty] ?? 3;
   // Flashlight battery — drains while flashlight is on. Pickup batteries
   // (parsed.batteries) refill it. Drains slow enough that a full map needs
   // ~3 batteries to keep the cone bright; running out doesn't kill, just
