@@ -30,6 +30,10 @@ export function MultiplayerLobby({
   onCancel,
 }: Props) {
   const wsRef = useRef<WebSocket | null>(null);
+  // Track whether the WS was handed off to the parent so cleanup doesn't close it.
+  const handedOffRef = useRef(false);
+  // Track intentional disconnections (cancel/handoff) to suppress spurious error UI.
+  const intentionalCloseRef = useRef(false);
   const [status, setStatus] = useState<"connecting" | "lobby" | "error">("connecting");
   const [errorMsg, setErrorMsg] = useState("");
   const [myRoomCode, setMyRoomCode] = useState(joinCode ?? "");
@@ -73,11 +77,9 @@ export function MultiplayerLobby({
         } else if (msg.type === "lobbyUpdate") {
           const list = Array.isArray(msg.players) ? (msg.players as LobbyPlayer[]) : [];
           setPlayers(list);
-          // If server transitioned lobby to playing (shouldn't happen without explicit start, but guard)
-          if (msg.phase === "playing") {
-            onGameStart(ws, localPlayerIdRef.current);
-          }
         } else if (msg.type === "gameStart") {
+          handedOffRef.current = true;
+          intentionalCloseRef.current = true;
           onGameStart(ws, localPlayerIdRef.current);
         } else if (msg.type === "error") {
           setStatus("error");
@@ -89,19 +91,25 @@ export function MultiplayerLobby({
     });
 
     ws.addEventListener("error", () => {
-      setStatus("error");
-      setErrorMsg("Connection to server failed. Is the game server running?");
+      if (!intentionalCloseRef.current) {
+        setStatus("error");
+        setErrorMsg("Connection to server failed. Is the game server running?");
+      }
     });
 
     ws.addEventListener("close", () => {
-      if (status !== "lobby") {
+      if (!intentionalCloseRef.current) {
         setStatus("error");
         setErrorMsg("Disconnected from server.");
       }
     });
 
     return () => {
-      ws.close();
+      intentionalCloseRef.current = true;
+      // Only close the WebSocket if it hasn't been handed off to the parent.
+      if (!handedOffRef.current) {
+        ws.close();
+      }
       wsRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -109,6 +117,12 @@ export function MultiplayerLobby({
 
   const startGame = () => {
     wsRef.current?.send(JSON.stringify({ type: "startGame" }));
+  };
+
+  const handleCancel = () => {
+    intentionalCloseRef.current = true;
+    wsRef.current?.close();
+    onCancel();
   };
 
   const copyCode = async () => {
@@ -137,7 +151,7 @@ export function MultiplayerLobby({
       {status === "error" && (
         <AnalogPanel className="w-[min(92vw,480px)]">
           <div className="mb-3 text-center text-sm text-red-400">{errorMsg}</div>
-          <AnalogButton variant="ghost" onClick={onCancel}>
+          <AnalogButton variant="ghost" onClick={handleCancel}>
             Back to Menu
           </AnalogButton>
         </AnalogPanel>
@@ -210,7 +224,7 @@ export function MultiplayerLobby({
                 Waiting for host to start…
               </div>
             )}
-            <AnalogButton variant="ghost" onClick={onCancel}>
+            <AnalogButton variant="ghost" onClick={handleCancel}>
               Leave Lobby
             </AnalogButton>
           </div>

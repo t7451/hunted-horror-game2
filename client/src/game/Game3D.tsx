@@ -326,7 +326,9 @@ export default function Game3D({
                 name: p.name,
               }));
             handle.setRemotePlayers(remotes);
-            if (msg.entity) handle.setEnemy({ x: msg.entity.x, z: msg.entity.z });
+            if (msg.entity?.x != null && msg.entity?.z != null) {
+              handle.setEnemy({ x: msg.entity.x as number, z: msg.entity.z as number });
+            }
           }
         } catch {
           // ignore malformed frames

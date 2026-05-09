@@ -223,6 +223,8 @@ interface GameState {
   hideSpots: { x: number; z: number }[];
   exitTile: { x: number; z: number };
   nextTauntAt: number;
+  /** Set only for multi sessions; used to clean up roomCodes on session end. */
+  roomCode?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -237,9 +239,11 @@ const roomCodes = new Map<string, string>();
 
 function generateRoomCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const buf = new Uint32Array(4);
+  crypto.getRandomValues(buf);
   let code = "";
   for (let i = 0; i < 4; i++) {
-    code += chars[Math.floor(Math.random() * chars.length)];
+    code += chars[buf[i] % chars.length];
   }
   return code;
 }
@@ -492,6 +496,7 @@ function handleJoin(ws: WebSocket, msg: Record<string, string>) {
       while (roomCodes.has(code)) code = generateRoomCode();
       roomCode = code;
       gs = createGameState("multi", `session_${Math.random().toString(36).slice(2, 9)}`, difficulty);
+      gs.roomCode = code;
       roomCodes.set(code, gs.sessionId);
       sessions.set(gs.sessionId, gs);
       playerSession.set(ws, gs.sessionId);
@@ -659,10 +664,8 @@ function handleDisconnect(ws: WebSocket) {
         setTimeout(() => {
           if (sessions.has(sid) && Object.keys(sessions.get(sid)!.players).length === 0) {
             sessions.delete(sid);
-            // Remove the room code mapping for this session
-            for (const [code, sessionId] of roomCodes) {
-              if (sessionId === sid) roomCodes.delete(code);
-            }
+            // O(1) room code cleanup via the code stored on the GameState
+            if (gs.roomCode) roomCodes.delete(gs.roomCode);
           }
         }, 30_000);
       }

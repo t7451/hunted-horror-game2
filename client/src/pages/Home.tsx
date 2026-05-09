@@ -34,6 +34,7 @@ interface GameOptions {
 export default function Home() {
   const [opts, setOpts] = useState<GameOptions | null>(null);
   const [volume, setVolume] = useState(0.8);
+  const [lobbyReady, setLobbyReady] = useState(false);
   const webglSupported = detectWebGL();
   // For multiplayer: the WebSocket opened by MultiplayerLobby is handed off
   // to Game3D so it doesn't open a second connection.
@@ -50,6 +51,7 @@ export default function Home() {
   const returnToTitle = () => {
     multiWsRef.current = null;
     multiPlayerIdRef.current = "";
+    setLobbyReady(false);
     setOpts(null);
   };
 
@@ -57,7 +59,7 @@ export default function Home() {
   if (!opts) {
     return (
       <TitleScreen
-        onEnter={setOpts}
+        onEnter={o => { setLobbyReady(false); setOpts(o); }}
         webglSupported={webglSupported}
         volume={volume}
         onVolume={setVolume}
@@ -66,7 +68,7 @@ export default function Home() {
   }
 
   // Multiplayer lobby (pre-game waiting room)
-  if (opts.mode === "multi" && !multiWsRef.current) {
+  if (opts.mode === "multi" && !lobbyReady) {
     return (
       <MultiplayerLobby
         difficulty={opts.difficulty}
@@ -75,8 +77,7 @@ export default function Home() {
         onGameStart={(ws, localPlayerId) => {
           multiWsRef.current = ws;
           multiPlayerIdRef.current = localPlayerId;
-          // Force a re-render to move on to Game3D
-          setOpts(o => (o ? { ...o } : o));
+          setLobbyReady(true);
         }}
         onCancel={returnToTitle}
       />
