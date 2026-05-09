@@ -248,6 +248,11 @@ function generateRoomCode(): string {
   return code;
 }
 
+/** Generates a cryptographically random hex token for player/session IDs. */
+function generateId(): string {
+  return crypto.randomUUID().replace(/-/g, "").slice(0, 9);
+}
+
 function createGameState(mode: string, sessionId: string, difficulty = "normal"): GameState {
   const mapKey = resolveMapKey(difficulty);
   const mapData = MAPS[mapKey];
@@ -465,7 +470,7 @@ function updateGame(gs: GameState, dt: number) {
 // ═══════════════════════════════════════════════════════════════
 
 function handleJoin(ws: WebSocket, msg: Record<string, string>) {
-  const playerId = `player_${Math.random().toString(36).slice(2, 9)}`;
+  const playerId = `player_${generateId()}`;
   playerIdMap.set(ws, playerId);
 
   const difficulty = resolveMapKey(msg.difficulty || "normal");
@@ -493,9 +498,10 @@ function handleJoin(ws: WebSocket, msg: Record<string, string>) {
       // Create a new multi lobby
       isHost = true;
       let code = generateRoomCode();
-      while (roomCodes.has(code)) code = generateRoomCode();
+      let attempts = 0;
+      while (roomCodes.has(code) && attempts++ < 100) code = generateRoomCode();
       roomCode = code;
-      gs = createGameState("multi", `session_${Math.random().toString(36).slice(2, 9)}`, difficulty);
+      gs = createGameState("multi", `session_${generateId()}`, difficulty);
       gs.roomCode = code;
       roomCodes.set(code, gs.sessionId);
       sessions.set(gs.sessionId, gs);
@@ -503,7 +509,7 @@ function handleJoin(ws: WebSocket, msg: Record<string, string>) {
     }
   } else {
     // Solo: create a fresh session and auto-start
-    gs = createGameState("solo", `session_${Math.random().toString(36).slice(2, 9)}`, difficulty);
+    gs = createGameState("solo", `session_${generateId()}`, difficulty);
     sessions.set(gs.sessionId, gs);
     playerSession.set(ws, gs.sessionId);
   }
