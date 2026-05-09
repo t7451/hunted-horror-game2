@@ -74,6 +74,10 @@ interface Props {
   initialSensitivity: number;
   initialVolume: number;
   isDaily?: boolean;
+  /** For multiplayer: the WebSocket already established by the lobby screen. */
+  multiWs?: WebSocket;
+  /** For multiplayer: the local player ID assigned by the server during lobby. */
+  localPlayerId?: string;
   onReturnToTitle: () => void;
   onVolumeChange?: (v: number) => void;
 }
@@ -84,12 +88,16 @@ export default function Game3D({
   initialSensitivity,
   initialVolume,
   isDaily,
+  multiWs,
+  localPlayerId,
   onReturnToTitle,
   onVolumeChange,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const engineRef = useRef<EngineHandle | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  // Tracks the local player ID so we can filter it from remote-player broadcasts.
+  const localPlayerIdRef = useRef<string>(localPlayerId ?? "");
   // Read by onCaught/onEscape callbacks, which capture state at engine init.
   const timeLeftRef = useRef<number | null>(null);
   const [status, setStatus] = useState<Status>("loading");
@@ -282,29 +290,35 @@ export default function Game3D({
     // Best-effort multiplayer wiring. If no server is reachable (e.g. on a
     // static Netlify deploy without the websocket gateway), we silently
     // remain in single-player mode rather than failing the render.
-    const wsUrl = buildWsUrl();
     let ws: WebSocket | null = null;
     let stateTimer: number | null = null;
-    try {
-      ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-      ws.addEventListener("open", () => {
-        ws?.send(JSON.stringify({ type: "join", difficulty }));
-        stateTimer = window.setInterval(() => {
-          if (!handle || ws?.readyState !== WebSocket.OPEN) return;
-          const s = handle.getPlayerState();
-          ws.send(
-            JSON.stringify({ type: "move", x: s.x, z: s.z, rotY: s.rotY })
-          );
-        }, 80);
-      });
-      ws.addEventListener("message", ev => {
+    let ownedWs = false; // whether we created the WS (so we close it on cleanup)
+
+    const wireWs = (socket: WebSocket) => {
+      ws = socket;
+      wsRef.current = socket;
+      stateTimer = window.setInterval(() => {
+        if (!handle || socket.readyState !== WebSocket.OPEN) return;
+        const s = handle.getPlayerState();
+        socket.send(
+          JSON.stringify({ type: "move", x: s.x, z: s.z, rotY: s.rotY })
+        );
+      }, 80);
+      socket.addEventListener("message", ev => {
         try {
           const msg = JSON.parse(typeof ev.data === "string" ? ev.data : "");
-          if (msg.type === "state" && Array.isArray(msg.players)) {
-            const remotes: RemotePlayer[] = msg.players
-              .filter((p: RemotePlayer & { self?: boolean }) => !p.self)
-              .map((p: RemotePlayer) => ({
+          if (
+            msg.type === "state" &&
+            msg.players &&
+            typeof msg.players === "object" &&
+            !Array.isArray(msg.players)
+          ) {
+            const myId = localPlayerIdRef.current;
+            const remotes: RemotePlayer[] = (
+              Object.values(msg.players) as Array<RemotePlayer & { id: string }>
+            )
+              .filter(p => p.id !== myId)
+              .map(p => ({
                 id: p.id,
                 x: p.x,
                 z: p.z,
@@ -312,27 +326,47 @@ export default function Game3D({
                 name: p.name,
               }));
             handle.setRemotePlayers(remotes);
-            if (msg.enemy) handle.setEnemy({ x: msg.enemy.x, z: msg.enemy.z });
+            if (msg.entity) handle.setEnemy({ x: msg.entity.x, z: msg.entity.z });
           }
         } catch {
           // ignore malformed frames
         }
       });
-      ws.addEventListener("error", () =>
+      socket.addEventListener("error", () =>
         setHint("Multiplayer offline · local Observer enabled")
       );
-    } catch {
-      setHint("Multiplayer offline · local Observer enabled");
+    };
+
+    if (multiWs && multiWs.readyState !== WebSocket.CLOSED) {
+      // Re-use the WebSocket that was established during the multiplayer lobby.
+      wireWs(multiWs);
+    } else {
+      // Solo or fallback: open a fresh connection and join as solo.
+      try {
+        const wsUrl = buildWsUrl();
+        const freshWs = new WebSocket(wsUrl);
+        ownedWs = true;
+        freshWs.addEventListener("open", () => {
+          freshWs.send(
+            JSON.stringify({ type: "join", mode: "solo", difficulty, name: "Player" })
+          );
+        });
+        wireWs(freshWs);
+      } catch {
+        setHint("Multiplayer offline · local Observer enabled");
+      }
     }
 
     return () => {
       if (stateTimer != null) window.clearInterval(stateTimer);
-      ws?.close();
+      // Only close a WebSocket we opened ourselves; a multiWs handed in from
+      // the lobby is the caller's responsibility to manage.
+      if (ownedWs) ws?.close();
       wsRef.current = null;
       handle?.dispose();
       engineRef.current = null;
     };
-  }, [difficulty, isMobile, quality, selectedMap.timer, sensitivity, status]);
+  }, [difficulty, isMobile, multiWs, quality, selectedMap.timer, sensitivity, status]);
 
   useEffect(() => {
     if (status !== "playing") return;

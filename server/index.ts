@@ -176,6 +176,7 @@ interface Player {
   name: string;
   x: number;
   z: number;
+  rotY: number;
   alive: boolean;
   hiding: boolean;
   keys: number;
@@ -231,6 +232,17 @@ interface GameState {
 const sessions = new Map<string, GameState>();
 const playerSession = new Map<WebSocket, string>();
 const playerIdMap = new Map<WebSocket, string>();
+// room code (e.g. "A3BX") → sessionId, for multiplayer lobby joins
+const roomCodes = new Map<string, string>();
+
+function generateRoomCode(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+  for (let i = 0; i < 4; i++) {
+    code += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return code;
+}
 
 function createGameState(mode: string, sessionId: string, difficulty = "normal"): GameState {
   const mapKey = resolveMapKey(difficulty);
@@ -285,10 +297,9 @@ function broadcastToSession(gs: GameState, msg: object) {
   }
 }
 
-function sendToPlayer(player: Player, msg: object) {
-  if (player.ws && player.ws.readyState === WebSocket.OPEN) {
-    player.ws.send(JSON.stringify(msg));
-  }
+function broadcastLobbyUpdate(gs: GameState) {
+  const players = Object.values(gs.players).map(p => ({ id: p.id, name: p.name }));
+  broadcastToSession(gs, { type: "lobbyUpdate", players, phase: gs.phase });
 }
 
 function buildStateBroadcast(gs: GameState) {
@@ -454,11 +465,45 @@ function handleJoin(ws: WebSocket, msg: Record<string, string>) {
   playerIdMap.set(ws, playerId);
 
   const difficulty = resolveMapKey(msg.difficulty || "normal");
-  const gs = createGameState(msg.mode || "solo", `session_${Math.random().toString(36).slice(2, 9)}`, difficulty);
-  sessions.set(gs.sessionId, gs);
-  playerSession.set(ws, gs.sessionId);
+  const playerName = String(msg.name || "Player").slice(0, 24);
+  const mode = msg.mode || "solo";
 
-  const parsed = parseMap(MAPS[difficulty]);
+  let gs: GameState;
+  let isHost = false;
+  let roomCode: string | undefined;
+
+  if (mode === "multi") {
+    const joinCode = String(msg.roomCode || "").toUpperCase().trim();
+    if (joinCode && roomCodes.has(joinCode)) {
+      // Join an existing multi lobby
+      const sid = roomCodes.get(joinCode)!;
+      const existing = sessions.get(sid);
+      if (!existing || existing.phase !== "lobby") {
+        ws.send(JSON.stringify({ type: "error", message: "Room not found or game already started" }));
+        playerIdMap.delete(ws);
+        return;
+      }
+      gs = existing;
+      playerSession.set(ws, sid);
+    } else {
+      // Create a new multi lobby
+      isHost = true;
+      let code = generateRoomCode();
+      while (roomCodes.has(code)) code = generateRoomCode();
+      roomCode = code;
+      gs = createGameState("multi", `session_${Math.random().toString(36).slice(2, 9)}`, difficulty);
+      roomCodes.set(code, gs.sessionId);
+      sessions.set(gs.sessionId, gs);
+      playerSession.set(ws, gs.sessionId);
+    }
+  } else {
+    // Solo: create a fresh session and auto-start
+    gs = createGameState("solo", `session_${Math.random().toString(36).slice(2, 9)}`, difficulty);
+    sessions.set(gs.sessionId, gs);
+    playerSession.set(ws, gs.sessionId);
+  }
+
+  const parsed = parseMap(MAPS[resolveMapKey(gs.difficulty)]);
 
   // Spawn player away from Claude
   let spawnX = parsed.playerSpawn.x;
@@ -475,9 +520,10 @@ function handleJoin(ws: WebSocket, msg: Record<string, string>) {
 
   gs.players[playerId] = {
     id: playerId,
-    name: msg.name || "Player",
+    name: playerName,
     x: spawnX,
     z: spawnZ,
+    rotY: 0,
     alive: true,
     hiding: false,
     keys: 0,
@@ -485,9 +531,9 @@ function handleJoin(ws: WebSocket, msg: Record<string, string>) {
     ws,
   };
 
-  gs.spawnProtectionEnd = Date.now() + (SPAWN_PROTECTION_DURATION[difficulty] ?? 10000);
+  gs.spawnProtectionEnd = Date.now() + (SPAWN_PROTECTION_DURATION[gs.difficulty] ?? 10000);
 
-  // Send init immediately
+  // Send init with phase + room info so the client knows what to show
   ws.send(
     JSON.stringify({
       type: "init",
@@ -496,20 +542,17 @@ function handleJoin(ws: WebSocket, msg: Record<string, string>) {
       tileSize: TILE,
       hideSpots: gs.hideSpots,
       exitTile: gs.exitTile,
+      phase: gs.phase,
+      roomCode,   // defined only for the host of a new multi session
+      isHost,
     })
   );
 
-  ws.send(
-    JSON.stringify({
-      type: "playerJoined",
-      id: playerId,
-      name: msg.name || "Player",
-      mode: msg.mode || "solo",
-    })
-  );
-
-  // Auto-start solo games
-  if (msg.mode === "solo" || !msg.mode) {
+  if (mode === "multi") {
+    // Let all lobby members know the updated player list
+    broadcastLobbyUpdate(gs);
+  } else {
+    // Auto-start solo games
     gs.phase = "playing";
     gs.startTime = Date.now();
     ws.send(JSON.stringify({ type: "gameStart", gameId: gs.sessionId }));
@@ -525,6 +568,7 @@ function handleMove(ws: WebSocket, msg: Record<string, number>) {
   const p = gs.players[pid];
   if (typeof msg.x === "number") p.x = msg.x;
   if (typeof msg.z === "number") p.z = msg.z;
+  if (typeof msg.rotY === "number") p.rotY = msg.rotY;
   if (typeof msg.noise === "number") p.noise = msg.noise;
 }
 
@@ -603,13 +647,22 @@ function handleDisconnect(ws: WebSocket) {
   if (sid && pid) {
     const gs = sessions.get(sid);
     if (gs) {
-      broadcastToSession(gs, { type: "playerLeft", id: pid });
       delete gs.players[pid];
+      if (gs.mode === "multi" && gs.phase === "lobby") {
+        // In lobby phase, notify remaining players of updated list
+        broadcastLobbyUpdate(gs);
+      } else {
+        broadcastToSession(gs, { type: "playerLeft", id: pid });
+      }
       if (Object.keys(gs.players).length === 0) {
         // Clean up empty sessions after a delay
         setTimeout(() => {
           if (sessions.has(sid) && Object.keys(sessions.get(sid)!.players).length === 0) {
             sessions.delete(sid);
+            // Remove the room code mapping for this session
+            for (const [code, sessionId] of roomCodes) {
+              if (sessionId === sid) roomCodes.delete(code);
+            }
           }
         }, 30_000);
       }
@@ -668,6 +721,8 @@ async function startServer() {
               if (gs && gs.phase === "lobby") {
                 gs.phase = "playing";
                 gs.startTime = Date.now();
+                // Reset spawn protection so it counts from actual game start
+                gs.spawnProtectionEnd = Date.now() + (SPAWN_PROTECTION_DURATION[gs.difficulty] ?? 10000);
                 broadcastToSession(gs, { type: "gameStart", gameId: sid });
               }
             }
