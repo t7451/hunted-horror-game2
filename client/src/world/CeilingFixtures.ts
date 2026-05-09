@@ -144,7 +144,7 @@ export function buildCeilingFixtures(
       // Only walkable non-door tiles
       if (tile === "W" || tile === "D") continue;
 
-      // Require at least one open cardinal neighbour so medium-size rooms and
+      // Require at least one open cardinal neighbor so medium-size rooms and
       // broad hall junctions still receive overhead fixtures.
       let openNeighbors = 0;
       const dirs: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];

@@ -1212,7 +1212,12 @@ export function startGame(
     return null;
   };
   // Per-room budget: we don't have proper room volumes yet, so cap globally.
-  const PROP_DENSITY = quality === "low" ? 0.32 : quality === "mid" ? 0.38 : 0.42;
+  const PROP_DENSITY_BY_QUALITY: Record<"low" | "mid" | "high", number> = {
+    low: 0.32,
+    mid: 0.38,
+    high: 0.42,
+  };
+  const PROP_DENSITY = PROP_DENSITY_BY_QUALITY[quality];
   const MAX_LAMP_LIGHTS = quality === "high" ? 18 : 14;
   let lampLightCount = 0;
   const placeSignatureProp = (
