@@ -73,6 +73,12 @@ const NOTE_TIME_BONUS_BY_DIFFICULTY: Record<number, number> = {
   2: 4,
   3: 3,
 };
+const NOTE_OBJECTIVE_RATIO_BY_DIFFICULTY: Record<number, number> = {
+  1: 0.34,
+  2: 0.5,
+  3: 0.67,
+};
+const DEFAULT_NOTE_OBJECTIVE_RATIO = 0.5;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rendering backend for HUNTED BY CLAUDE.
@@ -103,6 +109,7 @@ export type EngineEvents = {
     timer: number;
     mapName: string;
     notesTotal: number;
+    notesRequired: number;
     batteriesTotal: number;
   }) => void;
   onKeyPickup?: (remaining: number) => void;
@@ -1129,6 +1136,17 @@ export function startGame(
   scene.add(noteGroup);
 
   const totalNotes = noteMeshes.length;
+  const notesRequired =
+    totalNotes > 0
+      ? Math.max(
+          1,
+          Math.ceil(
+            totalNotes *
+              (NOTE_OBJECTIVE_RATIO_BY_DIFFICULTY[mapDef.difficulty] ??
+                DEFAULT_NOTE_OBJECTIVE_RATIO)
+          )
+        )
+      : 0;
   let notesCollected = 0;
 
   // Prop dressing — theme-weighted prop selection over the full kind set.
@@ -1199,8 +1217,13 @@ export function startGame(
     return null;
   };
   // Per-room budget: we don't have proper room volumes yet, so cap globally.
-  const PROP_DENSITY = 0.3; // bumped up to fill the larger Phase-2 maps
-  const MAX_LAMP_LIGHTS = 12;
+  const PROP_DENSITY_BY_QUALITY: Record<"low" | "mid" | "high", number> = {
+    low: 0.32,
+    mid: 0.38,
+    high: 0.42,
+  };
+  const PROP_DENSITY = PROP_DENSITY_BY_QUALITY[quality] ?? PROP_DENSITY_BY_QUALITY.mid;
+  const MAX_LAMP_LIGHTS = quality === "high" ? 18 : 14;
   let lampLightCount = 0;
   const placeSignatureProp = (
     kind: PropKind,
@@ -1653,6 +1676,7 @@ export function startGame(
     timer: mapDef.timer,
     mapName: mapDef.name,
     notesTotal: totalNotes,
+    notesRequired,
     batteriesTotal: batteryMeshes.length,
   });
   events.onTimer?.(lastTimerSecond);
@@ -2182,9 +2206,9 @@ export function startGame(
         events.onTimer?.(lastTimerSecond);
         events.onNotesChange?.(notesCollected, totalNotes);
         events.onHint?.(
-          notesCollected === totalNotes
-            ? `All notes collected. +${NOTE_TIME_BONUS}s gained.`
-            : `Note ${notesCollected}/${totalNotes}. +${NOTE_TIME_BONUS}s.`
+          notesCollected >= notesRequired
+            ? `Evidence secured (${notesCollected}/${totalNotes}). +${NOTE_TIME_BONUS}s.`
+            : `Evidence ${notesCollected}/${notesRequired} · +${NOTE_TIME_BONUS}s.`
         );
         Haptics.pickup();
       }
@@ -2195,13 +2219,19 @@ export function startGame(
       const dx = ex - camera.position.x;
       const dz = ez - camera.position.z;
       const exitDistSq = dx * dx + dz * dz;
-      if (keyMeshes.length === 0) {
+      if (keyMeshes.length === 0 && notesCollected >= notesRequired) {
         if (exitDistSq < 2 * 2) events.onEscape?.();
       } else if (exitDistSq < 2.2 * 2.2) {
         const now = performance.now();
         if (now - lastExitHintAt > 1800) {
           lastExitHintAt = now;
-          events.onHint?.(`${keyMeshes.length} key(s) still missing.`);
+          if (keyMeshes.length > 0) {
+            events.onHint?.(`${keyMeshes.length} key(s) still missing.`);
+          } else {
+            events.onHint?.(
+              `${notesRequired - notesCollected} evidence note(s) still needed.`
+            );
+          }
         }
       }
     }
@@ -2786,7 +2816,7 @@ export function startGame(
       keys: keyMeshes.map(k => ({ x: k.position.x, z: k.position.z })),
       exitX: parsed.exit ? parsed.exit.x * TILE_SIZE + TILE_SIZE / 2 : 0,
       exitZ: parsed.exit ? parsed.exit.z * TILE_SIZE + TILE_SIZE / 2 : 0,
-      exitOpen: keyMeshes.length === 0,
+      exitOpen: keyMeshes.length === 0 && notesCollected >= notesRequired,
       mapWidth: parsed.width,
       mapHeight: parsed.height,
       tileSize: TILE_SIZE,

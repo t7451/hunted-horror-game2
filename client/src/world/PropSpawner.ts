@@ -70,6 +70,49 @@ type Slot = {
 };
 
 const PROP_CULL_DIST = 32;
+const LAMP_SHADE_WAVE_BASE = 18;
+const LAMP_SHADE_WAVE_FREQ = 0.34;
+const LAMP_SHADE_WAVE_AMPLITUDE = 12;
+const LAMP_SHADE_OPACITY_BASE = 0.06;
+const LAMP_SHADE_OPACITY_SCALE = 1 / 255;
+let lampShadeTexture: THREE.CanvasTexture | null = null;
+
+function getLampShadeTexture(): THREE.CanvasTexture {
+  if (lampShadeTexture) return lampShadeTexture;
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    lampShadeTexture = new THREE.CanvasTexture(canvas);
+    return lampShadeTexture;
+  }
+
+  ctx.fillStyle = "#c2ad86";
+  ctx.fillRect(0, 0, 128, 128);
+  for (let y = 0; y < 128; y++) {
+    const band =
+      LAMP_SHADE_WAVE_BASE +
+      Math.sin(y * LAMP_SHADE_WAVE_FREQ) * LAMP_SHADE_WAVE_AMPLITUDE;
+    ctx.fillStyle = `rgba(55,36,18,${(
+      LAMP_SHADE_OPACITY_BASE +
+      band * LAMP_SHADE_OPACITY_SCALE
+    ).toFixed(3)})`;
+    ctx.fillRect(0, y, 128, 1);
+  }
+  for (let x = 0; x < 128; x += 4) {
+    ctx.fillStyle = "rgba(70,48,26,0.10)";
+    ctx.fillRect(x, 0, 1, 128);
+  }
+
+  lampShadeTexture = new THREE.CanvasTexture(canvas);
+  lampShadeTexture.wrapS = THREE.RepeatWrapping;
+  lampShadeTexture.wrapT = THREE.RepeatWrapping;
+  lampShadeTexture.repeat.set(1.2, 2.6);
+  lampShadeTexture.colorSpace = THREE.SRGBColorSpace;
+  lampShadeTexture.needsUpdate = true;
+  return lampShadeTexture;
+}
 
 type PlacedInstance = { x: number; z: number; matrix: THREE.Matrix4 };
 
@@ -319,6 +362,7 @@ function buildLamp() {
       { x: 0, y: 1.34, z: 0, w: 0.12, h: 0.09, d: 0.12 }, // bulb
     ],
     new THREE.MeshStandardMaterial({
+      map: getLampShadeTexture(),
       color: 0xb8a07f,
       emissive: 0xffaa55,
       emissiveIntensity: 0.18,

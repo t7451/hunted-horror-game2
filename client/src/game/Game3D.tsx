@@ -105,6 +105,7 @@ export default function Game3D({
     collected: 0,
     total: 0,
   });
+  const [notesRequired, setNotesRequired] = useState(0);
   const [danger, setDanger] = useState<Danger>("safe");
   const [hidden, setHidden] = useState(false);
   const [director, setDirector] = useState<DirectorUpdate>(INITIAL_DIRECTOR);
@@ -188,6 +189,7 @@ export default function Game3D({
     setDanger("safe");
     setHidden(false);
     setDirector(INITIAL_DIRECTOR);
+    setNotesRequired(0);
     setHint(isMobile ? MOBILE_START_HINT : DESKTOP_START_HINT);
 
     let handle: EngineHandle | null = null;
@@ -202,11 +204,12 @@ export default function Game3D({
             setKeysLeft(info.keys);
             setTimeLeft(info.timer);
             setNotes({ collected: 0, total: info.notesTotal });
+            setNotesRequired(info.notesRequired);
             setBatteryPct(100);
             setHint(
               isMobile
-                ? `${info.mapName}: collect keys, then reach the green exit. Drag to look.`
-                : `${info.mapName}: collect every key, then reach the green exit.`
+                ? `${info.mapName}: collect keys + ${info.notesRequired} evidence notes, then reach the green exit.`
+                : `${info.mapName}: collect every key and ${info.notesRequired} evidence notes, then reach the green exit.`
             );
           },
           onKeyPickup: remaining => {
@@ -214,7 +217,7 @@ export default function Game3D({
             setPickupFlashAt(performance.now());
             setHint(
               remaining === 0
-                ? "All keys found. The exit is open."
+                ? "All keys found. Gather required evidence notes, then head for the exit."
                 : "Key collected."
             );
           },
@@ -411,7 +414,12 @@ export default function Game3D({
             }
           >
             <div>
-              Objective: {keysLeft === 0 ? "Reach the exit" : "Find every key"}
+              Objective:{" "}
+              {keysLeft === 0
+                ? notesRequired > 0 && notes.collected < notesRequired
+                  ? "Collect evidence notes"
+                  : "Reach the exit"
+                : "Find every key"}
             </div>
             <div>Keys remaining: {keysLeft ?? "—"}</div>
             <div>Cans: {throwables}/3 (F to throw)</div>
@@ -445,7 +453,8 @@ export default function Game3D({
             </div>
             {notes.total > 0 && (
               <div>
-                Notes: {notes.collected}/{notes.total}
+                Notes: {notes.collected}/{notes.total}{" "}
+                {notesRequired > 0 ? `(need ${notesRequired})` : ""}
               </div>
             )}
             {!isMobile && (
