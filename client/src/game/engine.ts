@@ -5,6 +5,7 @@ import {
   TILE_SIZE,
   WALL_HEIGHT,
   isBlocked,
+  isDecorFloorTile,
   validateParsedMap,
   type MapKey,
   type MapDef,
@@ -522,7 +523,7 @@ export function startGame(
     const floorTiles: { x: number; z: number }[] = [];
     for (let z = 0; z < parsed.height; z++) {
       for (let x = 0; x < parsed.width; x++) {
-        if (parsed.tiles[z][x] === ".") floorTiles.push({ x, z });
+        if (isDecorFloorTile(parsed.tiles[z][x])) floorTiles.push({ x, z });
       }
     }
     const stainCount = Math.max(4, Math.floor(floorTiles.length / 12));
@@ -586,7 +587,7 @@ export function startGame(
     const floorTilesForGrime: { x: number; z: number }[] = [];
     for (let gz2 = 0; gz2 < parsed.height; gz2++) {
       for (let gx2 = 0; gx2 < parsed.width; gx2++) {
-        if (parsed.tiles[gz2]?.[gx2] === ".") {
+        if (isDecorFloorTile(parsed.tiles[gz2]?.[gx2] ?? "W")) {
           floorTilesForGrime.push({ x: gx2, z: gz2 });
         }
       }
@@ -668,7 +669,7 @@ export function startGame(
           const nz = z + d.dz;
           if (nz < 0 || nz >= parsed.height || nx < 0 || nx >= parsed.width)
             continue;
-          if (parsed.tiles[nz][nx] !== ".") continue;
+          if (!isDecorFloorTile(parsed.tiles[nz][nx])) continue;
           const wx =
             x * TILE_SIZE + TILE_SIZE / 2 + d.dx * (TILE_SIZE / 2 - 0.04);
           const wz =
@@ -1551,6 +1552,7 @@ export function startGame(
   let dangerState: "safe" | "near" | "critical" = "safe";
   let isHiding = false;
   let timeLeft = mapDef.timer;
+  const NOTE_TIME_BONUS = mapDef.difficulty === 1 ? 6 : mapDef.difficulty === 2 ? 4 : 3;
   // Flashlight battery — drains while flashlight is on. Pickup batteries
   // (parsed.batteries) refill it. Drains slow enough that a full map needs
   // ~3 batteries to keep the cone bright; running out doesn't kill, just
@@ -2166,11 +2168,14 @@ export function startGame(
         noteGroup.remove(n);
         noteMeshes.splice(i, 1);
         notesCollected++;
+        timeLeft += NOTE_TIME_BONUS;
+        lastTimerSecond = Math.ceil(timeLeft);
+        events.onTimer?.(lastTimerSecond);
         events.onNotesChange?.(notesCollected, totalNotes);
         events.onHint?.(
           notesCollected === totalNotes
-            ? "All notes collected."
-            : `Note ${notesCollected}/${totalNotes}.`
+            ? `All notes collected. +${NOTE_TIME_BONUS}s gained.`
+            : `Note ${notesCollected}/${totalNotes}. +${NOTE_TIME_BONUS}s.`
         );
         Haptics.pickup();
       }

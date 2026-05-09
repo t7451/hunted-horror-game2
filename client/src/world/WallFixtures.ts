@@ -4,7 +4,7 @@
 // edges. Cheap instanced primitives, big perceived detail.
 
 import * as THREE from "three";
-import type { ParsedMap } from "@shared/maps";
+import { isDecorFloorTile, type ParsedMap } from "@shared/maps";
 
 const FIXTURE_DENSITY = 0.1;
 const MAX_FIXTURE_SITES = 140;
@@ -524,7 +524,7 @@ export class WallFixtures {
 
     for (let z = 0; z < parsed.height; z++) {
       for (let x = 0; x < parsed.width; x++) {
-        if (parsed.tiles[z][x] !== ".") continue;
+        if (!isDecorFloorTile(parsed.tiles[z][x])) continue;
         for (const n of NEIGHBORS) {
           if (fixtureSites >= MAX_FIXTURE_SITES) break;
           const nx = x + n.dx;

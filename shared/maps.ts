@@ -9,6 +9,11 @@
 
 export type SurfaceKind = "wood" | "carpet" | "stone" | "creaky";
 
+/** Tiles that should be treated as open floor for decorative dressing. */
+export function isDecorFloorTile(tile: string): boolean {
+  return tile !== "W" && tile !== "D";
+}
+
 /** Return the FootstepSystem surface kind for a map tile char. */
 export function getSurface(tile: string): SurfaceKind {
   switch (tile) {
