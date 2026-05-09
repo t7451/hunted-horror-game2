@@ -3,8 +3,8 @@ import { AnalogPanel, ChromaticText } from "./analog";
 
 const STEPS = [
   {
-    title: "Find the keys",
-    body: "Glowing keys are scattered through the house. Collect every one before time runs out.",
+    title: "Find keys and evidence",
+    body: "Collect all glowing keys and enough scattered notes to satisfy the evidence objective before time runs out.",
     icon: "🔑",
   },
   {
@@ -14,7 +14,7 @@ const STEPS = [
   },
   {
     title: "Reach the green door",
-    body: "When all keys are collected, the exit unlocks. Watch the minimap — the blue dot is The Observer.",
+    body: "The exit opens only after keys and required notes are secured. Watch the minimap — the blue dot is The Observer.",
     icon: "🚪",
   },
 ];

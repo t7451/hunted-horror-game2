@@ -14,10 +14,11 @@
 
 import * as THREE from "three";
 import { WALL_HEIGHT, type ParsedMap } from "@shared/maps.ts";
+import { getMaterial } from "../materials/MaterialFactory";
 
 // ── Layout constants ─────────────────────────────────────────────────────────
 
-const FIXTURE_SPACING = 3; // place at every 3rd tile (12 m)
+const FIXTURE_SPACING = 2; // place at every 2nd tile (8 m)
 
 // Fixture geometry dimensions
 const CORD_LEN = 0.52;
@@ -29,13 +30,13 @@ const PLATE_W = 0.14;
 const PLATE_H = 0.04;
 
 // Fraction of placed fixtures that receive a live PointLight
-const LIVE_FRACTION = 0.65;
+const LIVE_FRACTION = 0.78;
 // Fraction of live fixtures that flicker
 const FLICKER_FRACTION = 0.35;
 
 const LIGHT_COLOR = 0xffb055; // warm tungsten
-const LIGHT_INTENSITY = 1.15;
-const LIGHT_DISTANCE = 9.0;
+const LIGHT_INTENSITY = 1.35;
+const LIGHT_DISTANCE = 10.5;
 const LIGHT_DECAY = 2;
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -68,7 +69,7 @@ export function buildCeilingFixtures(
     return { group, lights, flickerLights, dispose: () => {} };
   }
 
-  const maxLights = quality === "high" ? 24 : 14;
+  const maxLights = quality === "high" ? 36 : 22;
   const radialSegs = quality === "high" ? 10 : 7;
 
   // ── Shared geometries ──────────────────────────────────────────────────────
@@ -91,11 +92,14 @@ export function buildCeilingFixtures(
   geoList.push(plateGeo, cordGeo, shadeGeo, capGeo, bulbGeo, glowDiskGeo);
 
   // ── Shared materials ───────────────────────────────────────────────────────
-  const metalMat = new THREE.MeshStandardMaterial({
-    color: 0x2e2820,
-    roughness: 0.55,
-    metalness: 0.55,
-  });
+  const metalMat = getMaterial("baseboard_trim").clone();
+  metalMat.color.setHex(0x5d5242);
+  metalMat.roughness = 0.62;
+  metalMat.metalness = 0.28;
+  const shadeMat = getMaterial("door_wood").clone();
+  shadeMat.color.setHex(0xc7ad86);
+  shadeMat.roughness = 0.78;
+  shadeMat.metalness = 0.05;
   const bulbLitMat = new THREE.MeshStandardMaterial({
     color: 0xfff4d4,
     emissive: 0xffaa44,
@@ -119,7 +123,7 @@ export function buildCeilingFixtures(
     opacity: 0.85,
     depthWrite: false,
   });
-  matList.push(metalMat, bulbLitMat, bulbDeadMat, glowMat);
+  matList.push(metalMat, shadeMat, bulbLitMat, bulbDeadMat, glowMat);
 
   // ── Placement ──────────────────────────────────────────────────────────────
   // Clamp shade bottom below ceiling: cord bottom + shade_height
@@ -140,15 +144,15 @@ export function buildCeilingFixtures(
       // Only walkable non-door tiles
       if (tile === "W" || tile === "D") continue;
 
-      // Require ≥ 2 open cardinal neighbours so we don't dangle in a corridor
-      // junction with no real room behind it.
+      // Require at least one open cardinal neighbour so medium-size rooms and
+      // broad hall junctions still receive overhead fixtures.
       let openNeighbors = 0;
       const dirs: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
       for (const [dx, dz] of dirs) {
         const t = parsed.tiles[tz + dz]?.[tx + dx];
         if (t && t !== "W" && t !== "D") openNeighbors++;
       }
-      if (openNeighbors < 2) continue;
+      if (openNeighbors < 1) continue;
 
       const fx = (tx + 0.5) * tileSize;
       const fz = (tz + 0.5) * tileSize;
@@ -169,7 +173,7 @@ export function buildCeilingFixtures(
       group.add(cord);
 
       // Shade body (open cone)
-      const shade = new THREE.Mesh(shadeGeo, metalMat);
+      const shade = new THREE.Mesh(shadeGeo, shadeMat);
       shade.position.set(fx, SHADE_CENTER_Y, fz);
       shade.matrixAutoUpdate = false;
       shade.updateMatrix();
