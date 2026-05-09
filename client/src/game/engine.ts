@@ -68,6 +68,12 @@ const LIGHT_DEBUG =
   typeof window !== "undefined" &&
   new URLSearchParams(window.location.search).has("lightdebug");
 
+const NOTE_TIME_BONUS_BY_DIFFICULTY: Record<number, number> = {
+  1: 6,
+  2: 4,
+  3: 3,
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Rendering backend for HUNTED BY CLAUDE.
 // Uses Three.js (a comprehensive 3D JavaScript framework) to deliver a
@@ -587,7 +593,7 @@ export function startGame(
     const floorTilesForGrime: { x: number; z: number }[] = [];
     for (let gz2 = 0; gz2 < parsed.height; gz2++) {
       for (let gx2 = 0; gx2 < parsed.width; gx2++) {
-        if (isDecorFloorTile(parsed.tiles[gz2]?.[gx2] ?? "W")) {
+        if (isDecorFloorTile(parsed.tiles[gz2][gx2])) {
           floorTilesForGrime.push({ x: gx2, z: gz2 });
         }
       }
@@ -1552,11 +1558,6 @@ export function startGame(
   let dangerState: "safe" | "near" | "critical" = "safe";
   let isHiding = false;
   let timeLeft = mapDef.timer;
-  const NOTE_TIME_BONUS_BY_DIFFICULTY: Record<number, number> = {
-    1: 6,
-    2: 4,
-    3: 3,
-  };
   const NOTE_TIME_BONUS = NOTE_TIME_BONUS_BY_DIFFICULTY[mapDef.difficulty] ?? 3;
   // Flashlight battery — drains while flashlight is on. Pickup batteries
   // (parsed.batteries) refill it. Drains slow enough that a full map needs
