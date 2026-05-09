@@ -45,8 +45,6 @@ const MOBILE_START_HINT =
   "Drag left pad to move · swipe the screen to look · use sprint/hide buttons";
 const DESKTOP_CONTROL_HINT =
   "WASD/Arrows move · Mouse look · Shift sprint · E hide near closets";
-const MOBILE_CONTROL_HINT =
-  "Drag left pad to move · swipe view to look · sprint / hide buttons";
 const JOYSTICK_RADIUS_FACTOR = 0.36;
 // Input shaping — see shapeJoystick. Values picked from Batch 10 spec to
 // kill stick drift, give precise sub-walk control, and saturate before the
@@ -398,7 +396,19 @@ export default function Game3D({
             }`}
           />
           <div
-            className={`absolute top-3 left-3 max-w-sm text-xs font-mono px-3 py-2 rounded border ${DANGER_STYLES[danger]}`}
+            className={`absolute font-mono rounded border ${DANGER_STYLES[danger]} ${
+              isMobile
+                ? "left-2 right-2 max-w-[min(72vw,280px)] px-2.5 py-1.5 text-[11px] leading-tight"
+                : "top-3 left-3 max-w-sm px-3 py-2 text-xs"
+            }`}
+            style={
+              isMobile
+                ? {
+                    top: "calc(var(--safe-top) + 10px)",
+                    left: "calc(var(--safe-left) + 8px)",
+                  }
+                : undefined
+            }
           >
             <div>
               Objective: {keysLeft === 0 ? "Reach the exit" : "Find every key"}
@@ -438,24 +448,30 @@ export default function Game3D({
                 Notes: {notes.collected}/{notes.total}
               </div>
             )}
-            <div>
-              Stealth:{" "}
-              {hidden
-                ? "hidden"
-                : danger === "safe"
-                  ? "clear"
-                  : "The Observer is close"}
-            </div>
-            <div>
-              AI Director: {Math.round(director.tension * 100)}% tension · pace{" "}
-              {director.enemySpeedMultiplier.toFixed(2)}x
-            </div>
-            <div className="opacity-60">Mode: {director.reason}</div>
+            {!isMobile && (
+              <>
+                <div>
+                  Stealth:{" "}
+                  {hidden
+                    ? "hidden"
+                    : danger === "safe"
+                      ? "clear"
+                      : "The Observer is close"}
+                </div>
+                <div>
+                  AI Director: {Math.round(director.tension * 100)}% tension ·
+                  pace {director.enemySpeedMultiplier.toFixed(2)}x
+                </div>
+                <div className="opacity-60">Mode: {director.reason}</div>
+              </>
+            )}
             <div className="mt-1 opacity-70">{hint}</div>
           </div>
-          <div className="pointer-events-none absolute bottom-3 left-1/2 w-[min(92vw,520px)] -translate-x-1/2 rounded bg-black/50 px-3 py-2 text-center text-xs opacity-80">
-            {isMobile ? MOBILE_CONTROL_HINT : DESKTOP_CONTROL_HINT}
-          </div>
+          {!isMobile && (
+            <div className="pointer-events-none absolute bottom-3 left-1/2 w-[min(92vw,520px)] -translate-x-1/2 rounded bg-black/50 px-3 py-2 text-center text-xs opacity-80">
+              {DESKTOP_CONTROL_HINT}
+            </div>
+          )}
           {danger !== "safe" && (
             <div className="pointer-events-none absolute top-1/2 right-4 -translate-y-1/2 text-[10px] uppercase tracking-[0.35em] text-red-200/50 [writing-mode:vertical-rl]">
               {danger === "critical" ? "do not turn around" : "he heard you"}
