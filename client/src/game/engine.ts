@@ -1219,7 +1219,7 @@ export function startGame(
     mid: 0.38,
     high: 0.42,
   };
-  const PROP_DENSITY = PROP_DENSITY_BY_QUALITY[quality];
+  const PROP_DENSITY = PROP_DENSITY_BY_QUALITY[quality] ?? PROP_DENSITY_BY_QUALITY.mid;
   const MAX_LAMP_LIGHTS = quality === "high" ? 18 : 14;
   let lampLightCount = 0;
   const placeSignatureProp = (
