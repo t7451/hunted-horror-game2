@@ -967,9 +967,6 @@ export function startGame(
   // looking at undifferentiated wood-floor boxes. Tiles consumed here are
   // pushed into `blocked` so the random prop pass below doesn't stack on top.
   {
-    const roomRng = mulberry32(
-      ((options.seed ?? 0x484e54) ^ 0x524f4f4d) >>> 0
-    );
     type RoomTile = { x: number; z: number };
     type Room = {
       tiles: RoomTile[];
@@ -1081,7 +1078,8 @@ export function startGame(
     // should hug a wall. Returns null if no candidate is free.
     const pickWallTile = (
       room: Room,
-      preferWall: boolean
+      preferWall: boolean,
+      rng: () => number
     ): { x: number; z: number; out: { dx: number; dz: number } | null } | null => {
       const candidates: { x: number; z: number; out: { dx: number; dz: number } | null }[] = [];
       for (const t of room.tiles) {
@@ -1092,7 +1090,7 @@ export function startGame(
         candidates.push({ x: t.x, z: t.z, out });
       }
       if (candidates.length === 0) return null;
-      return candidates[Math.floor(roomRng() * candidates.length)];
+      return candidates[Math.floor(rng() * candidates.length)];
     };
 
     const placeAgainstWall = (
@@ -1100,11 +1098,12 @@ export function startGame(
       x: number,
       z: number,
       out: { dx: number; dz: number } | null,
+      rng: () => number,
       inset = TILE_SIZE / 2 - 0.45
-    ): void => {
+    ): boolean => {
       const cx = x * TILE_SIZE + TILE_SIZE / 2;
       const cz = z * TILE_SIZE + TILE_SIZE / 2;
-      let rotY = roomRng() * Math.PI * 2;
+      let rotY = rng() * Math.PI * 2;
       let px = cx;
       let pz = cz;
       if (out) {
@@ -1113,31 +1112,36 @@ export function startGame(
         // Furniture local +Z faces away from wall, so rotate so +Z = -out.
         rotY = Math.atan2(-out.dx, -out.dz);
       }
-      props.place(kind, new THREE.Vector3(px, 0, pz), rotY);
+      // Only reserve the tile when a prop was actually placed — otherwise
+      // a kind that hit maxInstances would permanently lock out the tile
+      // from the fallback random prop pass.
+      if (!props.place(kind, new THREE.Vector3(px, 0, pz), rotY)) return false;
       occupy(x, z);
+      return true;
     };
 
-    const placeCenter = (kind: PropKind, x: number, z: number): void => {
+    const placeCenter = (kind: PropKind, x: number, z: number, rng: () => number): boolean => {
       const cx = x * TILE_SIZE + TILE_SIZE / 2;
       const cz = z * TILE_SIZE + TILE_SIZE / 2;
-      props.place(kind, new THREE.Vector3(cx, 0, cz), roomRng() * Math.PI * 2);
+      if (!props.place(kind, new THREE.Vector3(cx, 0, cz), rng() * Math.PI * 2))
+        return false;
       occupy(x, z);
+      return true;
     };
 
-    const dressRoom = (room: Room, kind: RoomKind): void => {
+    const dressRoom = (room: Room, kind: RoomKind, rng: () => number): void => {
       const area = room.tiles.length;
       const tryWall = (k: PropKind, inset?: number): boolean => {
-        const t = pickWallTile(room, true);
+        const t = pickWallTile(room, true, rng);
         if (!t) return false;
-        placeAgainstWall(k, t.x, t.z, t.out, inset);
-        return true;
+        return placeAgainstWall(k, t.x, t.z, t.out, rng, inset);
       };
       const tryAny = (k: PropKind): boolean => {
-        const t = pickWallTile(room, false);
+        const t = pickWallTile(room, false, rng);
         if (!t) return false;
-        if (t.out) placeAgainstWall(k, t.x, t.z, t.out);
-        else placeCenter(k, t.x, t.z);
-        return true;
+        return t.out
+          ? placeAgainstWall(k, t.x, t.z, t.out, rng)
+          : placeCenter(k, t.x, t.z, rng);
       };
       switch (kind) {
         case "bedroom":
@@ -1159,7 +1163,7 @@ export function startGame(
         case "parlor":
           tryWall("fireplace", TILE_SIZE / 2 - 0.3);
           tryWall("sofa", TILE_SIZE / 2 - 0.5);
-          if (area > 8 && roomRng() < 0.6) tryWall("pianoUpright", TILE_SIZE / 2 - 0.3);
+          if (area > 8 && rng() < 0.6) tryWall("pianoUpright", TILE_SIZE / 2 - 0.3);
           break;
         case "dining":
           tryAny("diningTable");
@@ -1178,12 +1182,23 @@ export function startGame(
       }
     };
 
+    const baseRoomSeed = ((options.seed ?? 0x484e54) ^ 0x524f4f4d) >>> 0;
     rooms.forEach((room, i) => {
       if (i === largestIdx) return;
       if (room.tiles.length < 3) return;
-      // Stable per-room seed so picks don't shift when adjacent rooms grow.
-      const kind = palette[Math.floor(roomRng() * palette.length)];
-      dressRoom(room, kind);
+      // Per-room RNG keyed off the room's bounding box so each room's picks
+      // are independent — earlier rooms can't reshuffle later rooms' kinds
+      // or furniture by consuming extra random draws.
+      const roomSeed =
+        (baseRoomSeed ^
+          (room.minX * 73856093) ^
+          (room.minZ * 19349663) ^
+          (room.maxX * 83492791) ^
+          (room.maxZ * 50331653)) >>>
+        0;
+      const rng = mulberry32(roomSeed);
+      const kind = palette[Math.floor(rng() * palette.length)];
+      dressRoom(room, kind, rng);
     });
   }
 

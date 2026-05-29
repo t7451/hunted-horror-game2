@@ -120,13 +120,13 @@ export class PropSpawner {
     position: THREE.Vector3,
     rotationY = 0,
     scale = 1
-  ): void {
+  ): boolean {
     const slot = this.ensure(kind);
     if (slot.count >= slot.capacity) {
       console.warn(
         `[props] ${kind} full at ${slot.capacity}; skipping placement`
       );
-      return;
+      return false;
     }
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion().setFromEuler(
@@ -144,6 +144,7 @@ export class PropSpawner {
       this.placed.set(kind, list);
     }
     list.push({ x: p.x, z: p.z, matrix: m.clone() });
+    return true;
   }
 
   /**
