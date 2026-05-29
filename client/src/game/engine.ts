@@ -959,6 +959,234 @@ export function startGame(
   if (parsed.exit) blocked.add(`${parsed.exit.x},${parsed.exit.z}`);
   blocked.add(`${parsed.spawn.x},${parsed.spawn.z}`);
 
+  // ── Room dressing ──────────────────────────────────────────────────────────
+  // Flood-fill enclosed rooms (walls bound, doors bound — each room is the
+  // patch of walkable tiles between doorways/walls). Assign each a type from
+  // a per-theme palette, then place 1-N pieces of room-defining furniture so
+  // the player can see "this is a kitchen", "this is a bedroom" instead of
+  // looking at undifferentiated wood-floor boxes. Tiles consumed here are
+  // pushed into `blocked` so the random prop pass below doesn't stack on top.
+  {
+    const roomRng = mulberry32(
+      ((options.seed ?? 0x484e54) ^ 0x524f4f4d) >>> 0
+    );
+    type RoomTile = { x: number; z: number };
+    type Room = {
+      tiles: RoomTile[];
+      minX: number;
+      maxX: number;
+      minZ: number;
+      maxZ: number;
+    };
+    const roomId = new Int16Array(parsed.width * parsed.height).fill(-1);
+    const rooms: Room[] = [];
+    const idx = (x: number, z: number) => z * parsed.width + x;
+    const isRoomFloor = (x: number, z: number): boolean => {
+      if (x < 0 || z < 0 || x >= parsed.width || z >= parsed.height) return false;
+      const t = parsed.tiles[z][x];
+      // Walls and doors bound rooms. K/H/B/N/S/X live on walkable floor — fold
+      // them into the same room. Unknown chars (future furniture tiles) too.
+      return t !== "W" && t !== "D";
+    };
+    for (let z = 0; z < parsed.height; z++) {
+      for (let x = 0; x < parsed.width; x++) {
+        if (!isRoomFloor(x, z) || roomId[idx(x, z)] !== -1) continue;
+        const id = rooms.length;
+        const room: Room = {
+          tiles: [],
+          minX: x,
+          maxX: x,
+          minZ: z,
+          maxZ: z,
+        };
+        const stack: RoomTile[] = [{ x, z }];
+        roomId[idx(x, z)] = id;
+        while (stack.length > 0) {
+          const t = stack.pop()!;
+          room.tiles.push(t);
+          if (t.x < room.minX) room.minX = t.x;
+          if (t.x > room.maxX) room.maxX = t.x;
+          if (t.z < room.minZ) room.minZ = t.z;
+          if (t.z > room.maxZ) room.maxZ = t.z;
+          const neigh = [
+            { x: t.x + 1, z: t.z },
+            { x: t.x - 1, z: t.z },
+            { x: t.x, z: t.z + 1 },
+            { x: t.x, z: t.z - 1 },
+          ];
+          for (const n of neigh) {
+            if (!isRoomFloor(n.x, n.z)) continue;
+            const i = idx(n.x, n.z);
+            if (roomId[i] !== -1) continue;
+            roomId[i] = id;
+            stack.push(n);
+          }
+        }
+        rooms.push(room);
+      }
+    }
+    // Skip the single largest room (typically the corridor/exit hall — too
+    // long to make sense as a single themed space). It still gets random
+    // dressing.
+    let largestIdx = -1;
+    let largestSize = -1;
+    rooms.forEach((r, i) => {
+      if (r.tiles.length > largestSize) {
+        largestSize = r.tiles.length;
+        largestIdx = i;
+      }
+    });
+
+    // Wall direction from an interior floor tile: returns a unit vector
+    // pointing toward the nearest wall, used to back furniture against it.
+    const wallOutward = (
+      gx: number,
+      gz: number
+    ): { dx: number; dz: number } | null => {
+      const dirs = [
+        { dx: 1, dz: 0 },
+        { dx: -1, dz: 0 },
+        { dx: 0, dz: 1 },
+        { dx: 0, dz: -1 },
+      ];
+      for (const d of dirs) {
+        if (isBlocked(parsed, gx + d.dx, gz + d.dz)) return d;
+      }
+      return null;
+    };
+
+    type RoomKind =
+      | "bedroom"
+      | "kitchen"
+      | "bathroom"
+      | "parlor"
+      | "dining"
+      | "study"
+      | "storage";
+    const palettesByTheme: Record<string, RoomKind[]> = {
+      kitchen: ["bedroom", "kitchen", "bathroom", "parlor", "dining", "study"],
+      house: ["bedroom", "study", "dining", "parlor", "storage", "bedroom"],
+      nightmare: ["storage", "storage", "study", "bathroom"],
+    };
+    const palette =
+      palettesByTheme[mapDef.theme] ?? palettesByTheme.kitchen;
+
+    const placedRoomTiles = new Set<string>();
+    const occupy = (x: number, z: number): void => {
+      placedRoomTiles.add(`${x},${z}`);
+      blocked.add(`${x},${z}`);
+    };
+
+    // Pick an interior tile that prefers wall-adjacency for furniture that
+    // should hug a wall. Returns null if no candidate is free.
+    const pickWallTile = (
+      room: Room,
+      preferWall: boolean
+    ): { x: number; z: number; out: { dx: number; dz: number } | null } | null => {
+      const candidates: { x: number; z: number; out: { dx: number; dz: number } | null }[] = [];
+      for (const t of room.tiles) {
+        if (placedRoomTiles.has(`${t.x},${t.z}`)) continue;
+        if (blocked.has(`${t.x},${t.z}`)) continue;
+        const out = wallOutward(t.x, t.z);
+        if (preferWall && !out) continue;
+        candidates.push({ x: t.x, z: t.z, out });
+      }
+      if (candidates.length === 0) return null;
+      return candidates[Math.floor(roomRng() * candidates.length)];
+    };
+
+    const placeAgainstWall = (
+      kind: PropKind,
+      x: number,
+      z: number,
+      out: { dx: number; dz: number } | null,
+      inset = TILE_SIZE / 2 - 0.45
+    ): void => {
+      const cx = x * TILE_SIZE + TILE_SIZE / 2;
+      const cz = z * TILE_SIZE + TILE_SIZE / 2;
+      let rotY = roomRng() * Math.PI * 2;
+      let px = cx;
+      let pz = cz;
+      if (out) {
+        px = cx + out.dx * inset;
+        pz = cz + out.dz * inset;
+        // Furniture local +Z faces away from wall, so rotate so +Z = -out.
+        rotY = Math.atan2(-out.dx, -out.dz);
+      }
+      props.place(kind, new THREE.Vector3(px, 0, pz), rotY);
+      occupy(x, z);
+    };
+
+    const placeCenter = (kind: PropKind, x: number, z: number): void => {
+      const cx = x * TILE_SIZE + TILE_SIZE / 2;
+      const cz = z * TILE_SIZE + TILE_SIZE / 2;
+      props.place(kind, new THREE.Vector3(cx, 0, cz), roomRng() * Math.PI * 2);
+      occupy(x, z);
+    };
+
+    const dressRoom = (room: Room, kind: RoomKind): void => {
+      const area = room.tiles.length;
+      const tryWall = (k: PropKind, inset?: number): boolean => {
+        const t = pickWallTile(room, true);
+        if (!t) return false;
+        placeAgainstWall(k, t.x, t.z, t.out, inset);
+        return true;
+      };
+      const tryAny = (k: PropKind): boolean => {
+        const t = pickWallTile(room, false);
+        if (!t) return false;
+        if (t.out) placeAgainstWall(k, t.x, t.z, t.out);
+        else placeCenter(k, t.x, t.z);
+        return true;
+      };
+      switch (kind) {
+        case "bedroom":
+          tryWall("bed", TILE_SIZE / 2 - 0.55);
+          tryWall("wardrobe", TILE_SIZE / 2 - 0.32);
+          if (area > 6) tryWall("nightstand", TILE_SIZE / 2 - 0.25);
+          break;
+        case "kitchen":
+          tryWall("stove", TILE_SIZE / 2 - 0.4);
+          tryWall("fridge", TILE_SIZE / 2 - 0.4);
+          tryWall("kitchenCounter", TILE_SIZE / 2 - 0.35);
+          if (area > 6) tryWall("sink", TILE_SIZE / 2 - 0.3);
+          break;
+        case "bathroom":
+          tryWall("bathtub", TILE_SIZE / 2 - 0.45);
+          tryWall("toilet", TILE_SIZE / 2 - 0.32);
+          if (area > 4) tryWall("sink", TILE_SIZE / 2 - 0.3);
+          break;
+        case "parlor":
+          tryWall("fireplace", TILE_SIZE / 2 - 0.3);
+          tryWall("sofa", TILE_SIZE / 2 - 0.5);
+          if (area > 8 && roomRng() < 0.6) tryWall("pianoUpright", TILE_SIZE / 2 - 0.3);
+          break;
+        case "dining":
+          tryAny("diningTable");
+          tryWall("kitchenCounter", TILE_SIZE / 2 - 0.35);
+          break;
+        case "study":
+          tryWall("shelf", TILE_SIZE / 2 - 0.25);
+          tryWall("shelf", TILE_SIZE / 2 - 0.25);
+          if (area > 5) tryAny("table");
+          break;
+        case "storage":
+          tryWall("shelf", TILE_SIZE / 2 - 0.25);
+          tryAny("crate");
+          tryAny("barrel");
+          break;
+      }
+    };
+
+    rooms.forEach((room, i) => {
+      if (i === largestIdx) return;
+      if (room.tiles.length < 3) return;
+      // Stable per-room seed so picks don't shift when adjacent rooms grow.
+      const kind = palette[Math.floor(roomRng() * palette.length)];
+      dressRoom(room, kind);
+    });
+  }
+
   const propRng = mulberry32((options.seed ?? 0x484e54) ^ 0x484e54);
   // Theme-weighted prop tables. Order matches kinds[] for cumulative draw.
   const PROP_KIND_ORDER: PropKind[] = [

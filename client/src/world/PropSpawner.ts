@@ -23,7 +23,24 @@ export type PropKind =
   | "bookstack"
   | "painting"
   | "rug"
-  | "clutter";
+  | "clutter"
+  // Room-defining furniture — placed by engine.ts roomDressing pass to give
+  // each enclosed room a recognizable identity (bedroom / kitchen / bath /
+  // parlor / dining / study). Geometry is still merged-box primitives so
+  // each kind costs one draw call regardless of population.
+  | "bed"
+  | "wardrobe"
+  | "nightstand"
+  | "kitchenCounter"
+  | "stove"
+  | "fridge"
+  | "sink"
+  | "bathtub"
+  | "toilet"
+  | "fireplace"
+  | "sofa"
+  | "diningTable"
+  | "pianoUpright";
 
 type PropDef = {
   /** Max instances reserved on the InstancedMesh. */
@@ -48,6 +65,19 @@ const PROPS: Record<PropKind, PropDef> = {
   painting: { maxInstances: 56, yOffset: 0, build: buildPainting },
   rug: { maxInstances: 32, yOffset: 0, build: buildRug },
   clutter: { maxInstances: 112, yOffset: 0, build: buildClutter },
+  bed: { maxInstances: 16, yOffset: 0, build: buildBed },
+  wardrobe: { maxInstances: 18, yOffset: 0, build: buildWardrobe },
+  nightstand: { maxInstances: 24, yOffset: 0, build: buildNightstand },
+  kitchenCounter: { maxInstances: 24, yOffset: 0, build: buildKitchenCounter },
+  stove: { maxInstances: 8, yOffset: 0, build: buildStove },
+  fridge: { maxInstances: 8, yOffset: 0, build: buildFridge },
+  sink: { maxInstances: 12, yOffset: 0, build: buildSink },
+  bathtub: { maxInstances: 6, yOffset: 0, build: buildBathtub },
+  toilet: { maxInstances: 6, yOffset: 0, build: buildToilet },
+  fireplace: { maxInstances: 6, yOffset: 0, build: buildFireplace },
+  sofa: { maxInstances: 12, yOffset: 0, build: buildSofa },
+  diningTable: { maxInstances: 8, yOffset: 0, build: buildDiningTable },
+  pianoUpright: { maxInstances: 4, yOffset: 0, build: buildPianoUpright },
 };
 
 type Slot = {
@@ -498,6 +528,384 @@ function buildClutter() {
       color: 0x3a3028,
       roughness: 0.95,
       metalness: 0.05,
+    })
+  );
+}
+
+// ── Room-defining furniture ─────────────────────────────────────────────────
+// All share the merged-box approach. Local origin is centered on the tile
+// floor; caller orients with rotationY so a wall-hugging side faces -Z.
+
+function buildBed() {
+  // Single bed: frame + mattress + pillow + headboard. Footprint ~1.0 × 2.0m.
+  const fw = 1.05;
+  const fd = 2.0;
+  const frameH = 0.32;
+  const mattH = 0.18;
+  const boxes: BoxSpec[] = [
+    // Frame
+    { x: 0, y: frameH / 2, z: 0, w: fw, h: frameH, d: fd },
+    // Mattress (slightly inset)
+    { x: 0, y: frameH + mattH / 2, z: 0.02, w: fw - 0.08, h: mattH, d: fd - 0.08 },
+    // Pillow at -Z end (head of bed)
+    { x: 0, y: frameH + mattH + 0.04, z: -fd / 2 + 0.25, w: fw - 0.18, h: 0.08, d: 0.32 },
+    // Headboard rising above pillow
+    { x: 0, y: frameH + 0.55, z: -fd / 2 - 0.03, w: fw + 0.05, h: 0.9, d: 0.06 },
+    // Foot board
+    { x: 0, y: frameH + 0.18, z: fd / 2 + 0.03, w: fw + 0.05, h: 0.36, d: 0.05 },
+  ];
+  const merged = mergeBoxes(
+    boxes,
+    new THREE.MeshStandardMaterial({
+      color: 0x4a2818,
+      roughness: 0.85,
+      metalness: 0.04,
+    })
+  );
+  // Tint the mattress/pillow surface a bit lighter by overriding with a
+  // separate group? mergeBoxes is single-material, so we accept the dark
+  // wood look — under flashlight it reads as a sheet-stripped bed (apt for
+  // an abandoned farmhouse).
+  return merged;
+}
+
+function buildWardrobe() {
+  const w = 1.1;
+  const h = 1.95;
+  const d = 0.55;
+  const boxes: BoxSpec[] = [
+    // Main body
+    { x: 0, y: h / 2, z: 0, w, h, d },
+    // Recessed door panels (proud strips form the gap)
+    { x: -w / 4, y: h * 0.55, z: d / 2 + 0.005, w: 0.04, h: h * 0.7, d: 0.02 },
+    { x: w / 4, y: h * 0.55, z: d / 2 + 0.005, w: 0.04, h: h * 0.7, d: 0.02 },
+    { x: 0, y: h * 0.55, z: d / 2 + 0.005, w: 0.04, h: h * 0.7, d: 0.02 },
+    // Top cornice
+    { x: 0, y: h - 0.04, z: 0, w: w + 0.08, h: 0.08, d: d + 0.08 },
+    // Knobs
+    { x: -0.18, y: h * 0.55, z: d / 2 + 0.04, w: 0.04, h: 0.04, d: 0.04 },
+    { x: 0.18, y: h * 0.55, z: d / 2 + 0.04, w: 0.04, h: 0.04, d: 0.04 },
+  ];
+  return mergeBoxes(
+    boxes,
+    new THREE.MeshStandardMaterial({
+      color: 0x2a1810,
+      roughness: 0.82,
+      metalness: 0.05,
+    })
+  );
+}
+
+function buildNightstand() {
+  const w = 0.45;
+  const d = 0.4;
+  const h = 0.6;
+  const boxes: BoxSpec[] = [
+    { x: 0, y: h / 2, z: 0, w, h, d },
+    // Drawer relief
+    { x: 0, y: h * 0.65, z: d / 2 + 0.005, w: w - 0.06, h: 0.14, d: 0.02 },
+    { x: 0, y: h * 0.35, z: d / 2 + 0.005, w: w - 0.06, h: 0.14, d: 0.02 },
+    // Knobs
+    { x: 0, y: h * 0.65, z: d / 2 + 0.03, w: 0.04, h: 0.04, d: 0.04 },
+    { x: 0, y: h * 0.35, z: d / 2 + 0.03, w: 0.04, h: 0.04, d: 0.04 },
+    // Top
+    { x: 0, y: h + 0.02, z: 0, w: w + 0.05, h: 0.04, d: d + 0.05 },
+  ];
+  return mergeBoxes(
+    boxes,
+    new THREE.MeshStandardMaterial({
+      color: 0x3a2418,
+      roughness: 0.85,
+      metalness: 0.04,
+    })
+  );
+}
+
+function buildKitchenCounter() {
+  // L-cabinet section: lower cupboard with countertop. 1.2 × 0.6m base, 0.9m tall.
+  const w = 1.2;
+  const d = 0.6;
+  const cabH = 0.85;
+  const boxes: BoxSpec[] = [
+    // Cupboard body
+    { x: 0, y: cabH / 2, z: 0, w, h: cabH, d },
+    // Toe kick recess (shorter strip at bottom-front looks like a kick board)
+    { x: 0, y: 0.05, z: d / 2 - 0.04, w: w - 0.06, h: 0.1, d: 0.04 },
+    // Cabinet door reveals
+    { x: -w / 4, y: cabH * 0.55, z: d / 2 + 0.005, w: w / 2 - 0.08, h: cabH * 0.7, d: 0.02 },
+    { x: w / 4, y: cabH * 0.55, z: d / 2 + 0.005, w: w / 2 - 0.08, h: cabH * 0.7, d: 0.02 },
+    // Knobs
+    { x: -0.08, y: cabH * 0.55, z: d / 2 + 0.04, w: 0.05, h: 0.05, d: 0.05 },
+    { x: 0.08, y: cabH * 0.55, z: d / 2 + 0.04, w: 0.05, h: 0.05, d: 0.05 },
+    // Countertop overhang
+    { x: 0, y: cabH + 0.025, z: 0, w: w + 0.06, h: 0.05, d: d + 0.06 },
+  ];
+  return mergeBoxes(
+    boxes,
+    new THREE.MeshStandardMaterial({
+      color: 0x3a261c,
+      roughness: 0.78,
+      metalness: 0.06,
+    })
+  );
+}
+
+function buildStove() {
+  // Cast-iron range: body, burner plate, oven door, back splash with hood.
+  const w = 0.85;
+  const d = 0.7;
+  const bodyH = 0.9;
+  const boxes: BoxSpec[] = [
+    { x: 0, y: bodyH / 2, z: 0, w, h: bodyH, d },
+    // Top burner plate (proud)
+    { x: 0, y: bodyH + 0.03, z: 0, w: w + 0.04, h: 0.06, d: d + 0.02 },
+    // Oven door window
+    { x: 0, y: bodyH * 0.35, z: d / 2 + 0.005, w: w - 0.18, h: bodyH * 0.45, d: 0.02 },
+    // Handle bar
+    { x: 0, y: bodyH * 0.62, z: d / 2 + 0.04, w: w - 0.22, h: 0.04, d: 0.04 },
+    // Back splash rising
+    { x: 0, y: bodyH + 0.4, z: -d / 2 + 0.04, w, h: 0.7, d: 0.08 },
+    // Hood overhang at top of splash
+    { x: 0, y: bodyH + 0.78, z: -d / 2 + 0.18, w: w + 0.1, h: 0.1, d: 0.32 },
+    // Burner discs
+    { x: -0.18, y: bodyH + 0.07, z: -0.1, w: 0.18, h: 0.04, d: 0.18 },
+    { x: 0.18, y: bodyH + 0.07, z: -0.1, w: 0.18, h: 0.04, d: 0.18 },
+    { x: -0.18, y: bodyH + 0.07, z: 0.18, w: 0.18, h: 0.04, d: 0.18 },
+    { x: 0.18, y: bodyH + 0.07, z: 0.18, w: 0.18, h: 0.04, d: 0.18 },
+  ];
+  return mergeBoxes(
+    boxes,
+    new THREE.MeshStandardMaterial({
+      color: 0x1a1614,
+      roughness: 0.6,
+      metalness: 0.55,
+    })
+  );
+}
+
+function buildFridge() {
+  // Squat icebox: tall body, two doors, hinges, lift handle.
+  const w = 0.78;
+  const d = 0.7;
+  const h = 1.85;
+  const boxes: BoxSpec[] = [
+    { x: 0, y: h / 2, z: 0, w, h, d },
+    // Door split: freezer top, fridge bottom
+    { x: 0, y: h * 0.75, z: d / 2 + 0.005, w: w - 0.06, h: h * 0.35, d: 0.03 },
+    { x: 0, y: h * 0.3, z: d / 2 + 0.005, w: w - 0.06, h: h * 0.55, d: 0.03 },
+    // Vertical handles
+    { x: w / 2 - 0.08, y: h * 0.78, z: d / 2 + 0.05, w: 0.04, h: 0.18, d: 0.04 },
+    { x: w / 2 - 0.08, y: h * 0.33, z: d / 2 + 0.05, w: 0.04, h: 0.28, d: 0.04 },
+    // Top brow
+    { x: 0, y: h + 0.04, z: 0, w: w + 0.04, h: 0.08, d: d + 0.04 },
+  ];
+  return mergeBoxes(
+    boxes,
+    new THREE.MeshStandardMaterial({
+      color: 0x6e6a60,
+      roughness: 0.55,
+      metalness: 0.35,
+    })
+  );
+}
+
+function buildSink() {
+  // Porcelain basin on a counter base with backsplash and faucet.
+  const w = 0.9;
+  const d = 0.55;
+  const baseH = 0.78;
+  const boxes: BoxSpec[] = [
+    // Base cabinet
+    { x: 0, y: baseH / 2, z: 0, w, h: baseH, d },
+    // Counter top
+    { x: 0, y: baseH + 0.04, z: 0, w: w + 0.05, h: 0.07, d: d + 0.05 },
+    // Basin rim (slightly proud square)
+    { x: 0, y: baseH + 0.08, z: 0.02, w: w - 0.2, h: 0.04, d: d - 0.18 },
+    // Backsplash
+    { x: 0, y: baseH + 0.3, z: -d / 2 + 0.03, w: w + 0.05, h: 0.5, d: 0.04 },
+    // Faucet riser + spout
+    { x: 0, y: baseH + 0.22, z: -d / 2 + 0.12, w: 0.05, h: 0.32, d: 0.05 },
+    { x: 0, y: baseH + 0.36, z: -d / 2 + 0.22, w: 0.05, h: 0.05, d: 0.22 },
+  ];
+  return mergeBoxes(
+    boxes,
+    new THREE.MeshStandardMaterial({
+      color: 0xb8b2a2,
+      roughness: 0.5,
+      metalness: 0.2,
+    })
+  );
+}
+
+function buildBathtub() {
+  // Cast-iron claw-foot tub: hollow basin approximated with a thick rim.
+  const w = 0.8;
+  const d = 1.55;
+  const tubH = 0.5;
+  const wall = 0.08;
+  const boxes: BoxSpec[] = [
+    // Bottom slab
+    { x: 0, y: 0.06, z: 0, w, h: 0.12, d },
+    // Side walls
+    { x: -w / 2 + wall / 2, y: tubH / 2, z: 0, w: wall, h: tubH, d },
+    { x: w / 2 - wall / 2, y: tubH / 2, z: 0, w: wall, h: tubH, d },
+    // End walls
+    { x: 0, y: tubH / 2, z: -d / 2 + wall / 2, w, h: tubH, d: wall },
+    { x: 0, y: tubH / 2, z: d / 2 - wall / 2, w, h: tubH, d: wall },
+    // Rim
+    { x: 0, y: tubH + 0.02, z: 0, w: w + 0.04, h: 0.04, d: d + 0.04 },
+    // Claw feet
+    { x: -w / 2 + 0.06, y: 0.05, z: -d / 2 + 0.1, w: 0.1, h: 0.1, d: 0.1 },
+    { x: w / 2 - 0.06, y: 0.05, z: -d / 2 + 0.1, w: 0.1, h: 0.1, d: 0.1 },
+    { x: -w / 2 + 0.06, y: 0.05, z: d / 2 - 0.1, w: 0.1, h: 0.1, d: 0.1 },
+    { x: w / 2 - 0.06, y: 0.05, z: d / 2 - 0.1, w: 0.1, h: 0.1, d: 0.1 },
+  ];
+  return mergeBoxes(
+    boxes,
+    new THREE.MeshStandardMaterial({
+      color: 0xc0bdb0,
+      roughness: 0.45,
+      metalness: 0.15,
+    })
+  );
+}
+
+function buildToilet() {
+  // Bowl base, water tank with lid, seat ring.
+  const boxes: BoxSpec[] = [
+    // Bowl
+    { x: 0, y: 0.22, z: 0, w: 0.42, h: 0.36, d: 0.55 },
+    // Seat
+    { x: 0, y: 0.42, z: 0, w: 0.46, h: 0.06, d: 0.55 },
+    // Tank
+    { x: 0, y: 0.7, z: -0.22, w: 0.46, h: 0.5, d: 0.18 },
+    // Tank lid
+    { x: 0, y: 0.96, z: -0.22, w: 0.5, h: 0.05, d: 0.22 },
+    // Pedestal foot
+    { x: 0, y: 0.04, z: 0, w: 0.34, h: 0.08, d: 0.34 },
+  ];
+  return mergeBoxes(
+    boxes,
+    new THREE.MeshStandardMaterial({
+      color: 0xd8d2c2,
+      roughness: 0.5,
+      metalness: 0.1,
+    })
+  );
+}
+
+function buildFireplace() {
+  // Brick mantle: surround + opening + hearth + mantle shelf.
+  const w = 1.6;
+  const d = 0.5;
+  const h = 1.5;
+  const boxes: BoxSpec[] = [
+    // Hearth (floor stone slab in front)
+    { x: 0, y: 0.05, z: d / 2 + 0.18, w: w + 0.1, h: 0.1, d: 0.35 },
+    // Left jamb
+    { x: -w / 2 + 0.18, y: h / 2, z: 0, w: 0.36, h, d },
+    // Right jamb
+    { x: w / 2 - 0.18, y: h / 2, z: 0, w: 0.36, h, d },
+    // Header above opening
+    { x: 0, y: h - 0.2, z: 0, w, h: 0.4, d },
+    // Back of firebox (recessed)
+    { x: 0, y: h * 0.4, z: -d / 2 + 0.08, w: w - 0.72, h: h - 0.65, d: 0.06 },
+    // Mantle shelf
+    { x: 0, y: h + 0.06, z: 0.04, w: w + 0.14, h: 0.08, d: d + 0.16 },
+    // Chimney breast rising above mantle
+    { x: 0, y: h + 0.6, z: -0.04, w: w - 0.3, h: 1.0, d: d - 0.12 },
+  ];
+  return mergeBoxes(
+    boxes,
+    new THREE.MeshStandardMaterial({
+      color: 0x4a2a1c,
+      roughness: 0.96,
+      metalness: 0.02,
+    })
+  );
+}
+
+function buildSofa() {
+  // Two-seater: base cushion + back + two armrests.
+  const w = 1.8;
+  const d = 0.85;
+  const seatH = 0.42;
+  const boxes: BoxSpec[] = [
+    // Seat base
+    { x: 0, y: seatH / 2, z: 0, w, h: seatH, d },
+    // Seat cushion (slightly inset)
+    { x: 0, y: seatH + 0.07, z: 0.05, w: w - 0.3, h: 0.14, d: d - 0.2 },
+    // Backrest
+    { x: 0, y: seatH + 0.35, z: -d / 2 + 0.12, w, h: 0.7, d: 0.22 },
+    // Armrests
+    { x: -w / 2 + 0.1, y: seatH + 0.12, z: 0, w: 0.2, h: 0.28, d },
+    { x: w / 2 - 0.1, y: seatH + 0.12, z: 0, w: 0.2, h: 0.28, d },
+  ];
+  return mergeBoxes(
+    boxes,
+    new THREE.MeshStandardMaterial({
+      color: 0x3a1f1a,
+      roughness: 0.92,
+      metalness: 0.03,
+    })
+  );
+}
+
+function buildDiningTable() {
+  // Long dining table: top + four sturdier legs + skirt.
+  const topW = 2.0;
+  const topD = 0.95;
+  const topH = 0.08;
+  const legW = 0.12;
+  const legH = 0.78;
+  const halfX = topW / 2 - legW / 2 - 0.04;
+  const halfZ = topD / 2 - legW / 2 - 0.04;
+  const skirtY = legH - 0.08;
+  const boxes: BoxSpec[] = [
+    { x: 0, y: legH + topH / 2, z: 0, w: topW, h: topH, d: topD },
+    { x: -halfX, y: legH / 2, z: -halfZ, w: legW, h: legH, d: legW },
+    { x: halfX, y: legH / 2, z: -halfZ, w: legW, h: legH, d: legW },
+    { x: -halfX, y: legH / 2, z: halfZ, w: legW, h: legH, d: legW },
+    { x: halfX, y: legH / 2, z: halfZ, w: legW, h: legH, d: legW },
+    // Skirt
+    { x: 0, y: skirtY, z: -halfZ + 0.04, w: topW - legW * 2, h: 0.1, d: 0.04 },
+    { x: 0, y: skirtY, z: halfZ - 0.04, w: topW - legW * 2, h: 0.1, d: 0.04 },
+    { x: -halfX + 0.04, y: skirtY, z: 0, w: 0.04, h: 0.1, d: topD - legW * 2 },
+    { x: halfX - 0.04, y: skirtY, z: 0, w: 0.04, h: 0.1, d: topD - legW * 2 },
+  ];
+  return mergeBoxes(
+    boxes,
+    new THREE.MeshStandardMaterial({
+      color: 0x2a1810,
+      roughness: 0.82,
+      metalness: 0.05,
+    })
+  );
+}
+
+function buildPianoUpright() {
+  // Upright piano: tall body + protruding keyboard + lid + side panels.
+  const w = 1.45;
+  const d = 0.55;
+  const h = 1.25;
+  const boxes: BoxSpec[] = [
+    // Main cabinet
+    { x: 0, y: h / 2, z: 0, w, h, d },
+    // Lid (slight top overhang)
+    { x: 0, y: h + 0.03, z: 0, w: w + 0.06, h: 0.06, d: d + 0.06 },
+    // Keyboard shelf protrudes
+    { x: 0, y: h * 0.45, z: d / 2 + 0.12, w: w - 0.1, h: 0.06, d: 0.24 },
+    // Key bed (ivory strip)
+    { x: 0, y: h * 0.46, z: d / 2 + 0.2, w: w - 0.18, h: 0.02, d: 0.1 },
+    // Pedal lyre + pedals
+    { x: 0, y: 0.06, z: d / 2 + 0.14, w: 0.18, h: 0.03, d: 0.12 },
+  ];
+  return mergeBoxes(
+    boxes,
+    new THREE.MeshStandardMaterial({
+      color: 0x14100c,
+      roughness: 0.42,
+      metalness: 0.12,
     })
   );
 }
