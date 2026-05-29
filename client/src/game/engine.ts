@@ -1129,7 +1129,34 @@ export function startGame(
       return true;
     };
 
+    // Surface char keyed to room kind — FootstepSystem reads parsed.tiles
+    // every step, so mutating here automatically gives kitchens stone-like
+    // clack, bedrooms a softer carpet thud, etc. The visual overlay pass
+    // below re-renders these tiles with a matching material.
+    const SURFACE_BY_KIND: Record<RoomKind, string | null> = {
+      bedroom: ",",
+      kitchen: ":",
+      bathroom: ":",
+      parlor: ",",
+      dining: null,
+      study: ",",
+      storage: null,
+    };
+    const markSurface = (room: Room, kind: RoomKind): void => {
+      const surface = SURFACE_BY_KIND[kind];
+      if (!surface) return;
+      for (const t of room.tiles) {
+        // Only repaint plain wood floor — keys/notes/etc. keep their tile
+        // semantics so parseMap consumers (which read the original parsed
+        // arrays) still see them at their original positions.
+        if (parsed.tiles[t.z][t.x] === ".") {
+          parsed.tiles[t.z][t.x] = surface;
+        }
+      }
+    };
+
     const dressRoom = (room: Room, kind: RoomKind, rng: () => number): void => {
+      markSurface(room, kind);
       const area = room.tiles.length;
       const tryWall = (k: PropKind, inset?: number): boolean => {
         const t = pickWallTile(room, true, rng);
@@ -1200,6 +1227,97 @@ export function startGame(
       const kind = palette[Math.floor(rng() * palette.length)];
       dressRoom(room, kind, rng);
     });
+
+    // ── Themed floor overlays ────────────────────────────────────────────
+    // Render a thin patch quad over every tile whose surface has been
+    // repainted to ',' (carpet) or ':' (kitchen/bath tile). One merged mesh
+    // per surface kind, sitting 0.01m above the base wood floor with
+    // polygon offset so flashlight rays don't z-fight. Without this the
+    // footstep audio would change in kitchens but the floor would still
+    // look like wood.
+    const overlaySpec: { surface: string; material: THREE.Material; tiling: number }[] = [
+      {
+        surface: ",",
+        // Per-material instance for the overlay so we can use FrontSide
+        // (downward facing) without disturbing the global wood-floor mat.
+        material: (() => {
+          const base = getMaterial("carpet_runner");
+          const m = base.clone();
+          m.polygonOffset = true;
+          m.polygonOffsetFactor = -1;
+          m.polygonOffsetUnits = -1;
+          return m;
+        })(),
+        tiling: 1,
+      },
+      {
+        surface: ":",
+        material: (() => {
+          const base = getMaterial("tile_kitchen_dirty");
+          const m = base.clone();
+          m.polygonOffset = true;
+          m.polygonOffsetFactor = -1;
+          m.polygonOffsetUnits = -1;
+          return m;
+        })(),
+        tiling: 1,
+      },
+    ];
+
+    for (const { surface, material } of overlaySpec) {
+      // Collect tiles, then build one merged BufferGeometry: positions,
+      // normals (all +Y), and per-tile UVs that match the base material's
+      // tex.repeat to keep tile texture density consistent with the wall
+      // and base-floor materials.
+      const tileList: { x: number; z: number }[] = [];
+      for (let z = 0; z < parsed.height; z++) {
+        for (let x = 0; x < parsed.width; x++) {
+          if (parsed.tiles[z][x] === surface) tileList.push({ x, z });
+        }
+      }
+      if (tileList.length === 0) continue;
+      const positions = new Float32Array(tileList.length * 6 * 3);
+      const normals = new Float32Array(tileList.length * 6 * 3);
+      const uvs = new Float32Array(tileList.length * 6 * 2);
+      const Y = 0.01;
+      for (let i = 0; i < tileList.length; i++) {
+        const t = tileList[i];
+        const x0 = t.x * TILE_SIZE;
+        const x1 = x0 + TILE_SIZE;
+        const z0 = t.z * TILE_SIZE;
+        const z1 = z0 + TILE_SIZE;
+        // Two triangles (CCW from above, so normals face +Y).
+        const verts = [
+          [x0, Y, z1, 0, 1],
+          [x1, Y, z1, 1, 1],
+          [x1, Y, z0, 1, 0],
+          [x0, Y, z1, 0, 1],
+          [x1, Y, z0, 1, 0],
+          [x0, Y, z0, 0, 0],
+        ];
+        for (let v = 0; v < 6; v++) {
+          const p = i * 18 + v * 3;
+          positions[p + 0] = verts[v][0];
+          positions[p + 1] = verts[v][1];
+          positions[p + 2] = verts[v][2];
+          normals[p + 0] = 0;
+          normals[p + 1] = 1;
+          normals[p + 2] = 0;
+          const u = i * 12 + v * 2;
+          uvs[u + 0] = verts[v][3];
+          uvs[u + 1] = verts[v][4];
+        }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      geo.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+      geo.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
+      geo.computeBoundingSphere();
+      const mesh = new THREE.Mesh(geo, material);
+      mesh.receiveShadow = shadowsEnabled;
+      mesh.name = `floor_overlay_${surface}`;
+      scene.add(mesh);
+    }
   }
 
   const propRng = mulberry32((options.seed ?? 0x484e54) ^ 0x484e54);

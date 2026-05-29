@@ -19,7 +19,8 @@ export type MaterialName =
   | "tile_kitchen_dirty"
   | "ceiling_plaster"
   | "door_wood"
-  | "baseboard_trim";
+  | "baseboard_trim"
+  | "carpet_runner";
 
 type TextureSet = {
   // JPG paths (populated by scripts/fetch-textures.mjs source jpgs).
@@ -110,6 +111,18 @@ const TEXTURE_SETS: Record<MaterialName, TextureSet> = {
     normal: "/assets/textures/props/baseboard_trim_01_2k_normal.ktx2",
     orm:    "/assets/textures/props/baseboard_trim_01_2k_orm.ktx2",
     tiling: 4,
+  },
+  // No texture binaries committed for carpet — uses the procedural fallback
+  // (paintCarpet in proceduralTextures.ts). Paths are reserved for the same
+  // KTX2/JPG drop-in convention as the other materials.
+  carpet_runner: {
+    albedoJpg: "/assets/textures/floors/carpet_runner_albedo.jpg",
+    normalJpg: "/assets/textures/floors/carpet_runner_normal.jpg",
+    ormJpg:    "/assets/textures/floors/carpet_runner_orm.jpg",
+    albedo: "/assets/textures/floors/carpet_runner_01_2k_albedo.ktx2",
+    normal: "/assets/textures/floors/carpet_runner_01_2k_normal.ktx2",
+    orm:    "/assets/textures/floors/carpet_runner_01_2k_orm.ktx2",
+    tiling: 2,
   },
 };
 

@@ -106,6 +106,9 @@ export function generateProceduralMaps(name: MaterialName): ProceduralMapCanvase
         polished: true,
       });
       break;
+    case "carpet_runner":
+      paintCarpet(f, hex(0x3a1820), hex(0x14080a));
+      break;
   }
   return {
     albedoCanvas: writeAlbedo(f),
@@ -533,6 +536,43 @@ function writeAlbedo(f: Fields): HTMLCanvasElement {
   }
   ctx.putImageData(img, 0, 0);
   return canvas;
+}
+
+// Woven carpet runner: warp/weft cross-hatch with sparse worn patches and
+// soft pile fuzz. Reads as a deep-red wool runner under flashlight.
+function paintCarpet(f: Fields, base: RGB, dark: RGB): void {
+  // Pile fibers form a fine cross-hatch; oscillate small high-freq sines
+  // on both axes and bias the height field so light grazes them.
+  const FIBER = 6;
+  for (let y = 0; y < SIZE; y++) {
+    for (let x = 0; x < SIZE; x++) {
+      const i = y * SIZE + x;
+      const warp = Math.sin((x / FIBER) * Math.PI * 2);
+      const weft = Math.sin((y / FIBER) * Math.PI * 2);
+      const weave = (warp + weft) * 0.5; // -1..1
+      // Slow pile color variation so the whole rug isn't one flat red.
+      const tint = fbm2(x * 0.015, y * 0.015, 3, 41);
+      const wear = fbm2(x * 0.032, y * 0.032, 4, 73);
+      // Base color blend toward the darker shade in the weft troughs.
+      const k = clamp01(0.62 + weave * 0.18 + (tint - 0.5) * 0.22);
+      let r = dark[0] + (base[0] - dark[0]) * k;
+      let g = dark[1] + (base[1] - dark[1]) * k;
+      let b = dark[2] + (base[2] - dark[2]) * k;
+      // Worn bare patches: lift toward a faded gray-brown.
+      if (wear > 0.7) {
+        const t = (wear - 0.7) / 0.3;
+        r = r * (1 - t * 0.5) + 70 * t * 0.5;
+        g = g * (1 - t * 0.5) + 55 * t * 0.5;
+        b = b * (1 - t * 0.5) + 42 * t * 0.5;
+      }
+      f.r[i] = r;
+      f.g[i] = g;
+      f.b[i] = b;
+      f.height[i] = weave * 0.35 + (tint - 0.5) * 0.08;
+      f.rough[i] = 0.96;
+      f.ao[i] = 1 - Math.max(0, -weave) * 0.18;
+    }
+  }
 }
 
 // Sobel-derived normal map from the height field. Wraps at edges so the
