@@ -1163,6 +1163,405 @@ export function startGame(
   if (parsed.exit) blocked.add(`${parsed.exit.x},${parsed.exit.z}`);
   blocked.add(`${parsed.spawn.x},${parsed.spawn.z}`);
 
+  // ── Room dressing ──────────────────────────────────────────────────────────
+  // Flood-fill enclosed rooms (walls bound, doors bound — each room is the
+  // patch of walkable tiles between doorways/walls). Assign each a type from
+  // a per-theme palette, then place 1-N pieces of room-defining furniture so
+  // the player can see "this is a kitchen", "this is a bedroom" instead of
+  // looking at undifferentiated wood-floor boxes. Tiles consumed here are
+  // pushed into `blocked` so the random prop pass below doesn't stack on top.
+  {
+    type RoomTile = { x: number; z: number };
+    type Room = {
+      tiles: RoomTile[];
+      minX: number;
+      maxX: number;
+      minZ: number;
+      maxZ: number;
+    };
+    const roomId = new Int16Array(parsed.width * parsed.height).fill(-1);
+    const rooms: Room[] = [];
+    const idx = (x: number, z: number) => z * parsed.width + x;
+    const isRoomFloor = (x: number, z: number): boolean => {
+      if (x < 0 || z < 0 || x >= parsed.width || z >= parsed.height) return false;
+      const t = parsed.tiles[z][x];
+      // Walls and doors bound rooms. K/H/B/N/S/X live on walkable floor — fold
+      // them into the same room. Unknown chars (future furniture tiles) too.
+      return t !== "W" && t !== "D";
+    };
+    for (let z = 0; z < parsed.height; z++) {
+      for (let x = 0; x < parsed.width; x++) {
+        if (!isRoomFloor(x, z) || roomId[idx(x, z)] !== -1) continue;
+        const id = rooms.length;
+        const room: Room = {
+          tiles: [],
+          minX: x,
+          maxX: x,
+          minZ: z,
+          maxZ: z,
+        };
+        const stack: RoomTile[] = [{ x, z }];
+        roomId[idx(x, z)] = id;
+        while (stack.length > 0) {
+          const t = stack.pop()!;
+          room.tiles.push(t);
+          if (t.x < room.minX) room.minX = t.x;
+          if (t.x > room.maxX) room.maxX = t.x;
+          if (t.z < room.minZ) room.minZ = t.z;
+          if (t.z > room.maxZ) room.maxZ = t.z;
+          const neigh = [
+            { x: t.x + 1, z: t.z },
+            { x: t.x - 1, z: t.z },
+            { x: t.x, z: t.z + 1 },
+            { x: t.x, z: t.z - 1 },
+          ];
+          for (const n of neigh) {
+            if (!isRoomFloor(n.x, n.z)) continue;
+            const i = idx(n.x, n.z);
+            if (roomId[i] !== -1) continue;
+            roomId[i] = id;
+            stack.push(n);
+          }
+        }
+        rooms.push(room);
+      }
+    }
+    // Skip the single largest room (typically the corridor/exit hall — too
+    // long to make sense as a single themed space). It still gets random
+    // dressing.
+    let largestIdx = -1;
+    let largestSize = -1;
+    rooms.forEach((r, i) => {
+      if (r.tiles.length > largestSize) {
+        largestSize = r.tiles.length;
+        largestIdx = i;
+      }
+    });
+
+    // Wall direction from an interior floor tile: returns a unit vector
+    // pointing toward the nearest wall, used to back furniture against it.
+    const wallOutward = (
+      gx: number,
+      gz: number
+    ): { dx: number; dz: number } | null => {
+      const dirs = [
+        { dx: 1, dz: 0 },
+        { dx: -1, dz: 0 },
+        { dx: 0, dz: 1 },
+        { dx: 0, dz: -1 },
+      ];
+      for (const d of dirs) {
+        if (isBlocked(parsed, gx + d.dx, gz + d.dz)) return d;
+      }
+      return null;
+    };
+
+    type RoomKind =
+      | "bedroom"
+      | "kitchen"
+      | "bathroom"
+      | "parlor"
+      | "dining"
+      | "study"
+      | "storage";
+    const palettesByTheme: Record<string, RoomKind[]> = {
+      kitchen: ["bedroom", "kitchen", "bathroom", "parlor", "dining", "study"],
+      house: ["bedroom", "study", "dining", "parlor", "storage", "bedroom"],
+      nightmare: ["storage", "storage", "study", "bathroom"],
+    };
+    const palette =
+      palettesByTheme[mapDef.theme] ?? palettesByTheme.kitchen;
+
+    const placedRoomTiles = new Set<string>();
+    const occupy = (x: number, z: number): void => {
+      placedRoomTiles.add(`${x},${z}`);
+      blocked.add(`${x},${z}`);
+    };
+
+    // Pick an interior tile that prefers wall-adjacency for furniture that
+    // should hug a wall. Returns null if no candidate is free.
+    const pickWallTile = (
+      room: Room,
+      preferWall: boolean,
+      rng: () => number
+    ): { x: number; z: number; out: { dx: number; dz: number } | null } | null => {
+      const candidates: { x: number; z: number; out: { dx: number; dz: number } | null }[] = [];
+      for (const t of room.tiles) {
+        if (placedRoomTiles.has(`${t.x},${t.z}`)) continue;
+        if (blocked.has(`${t.x},${t.z}`)) continue;
+        const out = wallOutward(t.x, t.z);
+        if (preferWall && !out) continue;
+        candidates.push({ x: t.x, z: t.z, out });
+      }
+      if (candidates.length === 0) return null;
+      return candidates[Math.floor(rng() * candidates.length)];
+    };
+
+    const placeAgainstWall = (
+      kind: PropKind,
+      x: number,
+      z: number,
+      out: { dx: number; dz: number } | null,
+      rng: () => number,
+      inset = TILE_SIZE / 2 - 0.45
+    ): boolean => {
+      const cx = x * TILE_SIZE + TILE_SIZE / 2;
+      const cz = z * TILE_SIZE + TILE_SIZE / 2;
+      let rotY = rng() * Math.PI * 2;
+      let px = cx;
+      let pz = cz;
+      if (out) {
+        px = cx + out.dx * inset;
+        pz = cz + out.dz * inset;
+        // Furniture local +Z faces away from wall, so rotate so +Z = -out.
+        rotY = Math.atan2(-out.dx, -out.dz);
+      }
+      // Only reserve the tile when a prop was actually placed — otherwise
+      // a kind that hit maxInstances would permanently lock out the tile
+      // from the fallback random prop pass.
+      if (!props.place(kind, new THREE.Vector3(px, 0, pz), rotY)) return false;
+      occupy(x, z);
+      return true;
+    };
+
+    const placeCenter = (kind: PropKind, x: number, z: number, rng: () => number): boolean => {
+      const cx = x * TILE_SIZE + TILE_SIZE / 2;
+      const cz = z * TILE_SIZE + TILE_SIZE / 2;
+      if (!props.place(kind, new THREE.Vector3(cx, 0, cz), rng() * Math.PI * 2))
+        return false;
+      occupy(x, z);
+      return true;
+    };
+
+    // Surface char keyed to room kind — FootstepSystem reads parsed.tiles
+    // every step, so mutating here automatically gives kitchens stone-like
+    // clack, bedrooms a softer carpet thud, etc. The visual overlay pass
+    // below re-renders these tiles with a matching material.
+    const SURFACE_BY_KIND: Record<RoomKind, string | null> = {
+      bedroom: ",",
+      kitchen: ":",
+      bathroom: ":",
+      parlor: ",",
+      dining: null,
+      study: ",",
+      storage: null,
+    };
+    const markSurface = (room: Room, kind: RoomKind): void => {
+      const surface = SURFACE_BY_KIND[kind];
+      if (!surface) return;
+      for (const t of room.tiles) {
+        // Only repaint plain wood floor — keys/notes/etc. keep their tile
+        // semantics so parseMap consumers (which read the original parsed
+        // arrays) still see them at their original positions.
+        if (parsed.tiles[t.z][t.x] === ".") {
+          parsed.tiles[t.z][t.x] = surface;
+        }
+      }
+    };
+
+    const dressRoom = (room: Room, kind: RoomKind, rng: () => number): void => {
+      markSurface(room, kind);
+      const area = room.tiles.length;
+      const tryWall = (k: PropKind, inset?: number): boolean => {
+        const t = pickWallTile(room, true, rng);
+        if (!t) return false;
+        return placeAgainstWall(k, t.x, t.z, t.out, rng, inset);
+      };
+      const tryAny = (k: PropKind): boolean => {
+        const t = pickWallTile(room, false, rng);
+        if (!t) return false;
+        return t.out
+          ? placeAgainstWall(k, t.x, t.z, t.out, rng)
+          : placeCenter(k, t.x, t.z, rng);
+      };
+      switch (kind) {
+        case "bedroom":
+          tryWall("bed", TILE_SIZE / 2 - 0.55);
+          tryWall("wardrobe", TILE_SIZE / 2 - 0.32);
+          if (area > 6) tryWall("nightstand", TILE_SIZE / 2 - 0.25);
+          break;
+        case "kitchen":
+          tryWall("stove", TILE_SIZE / 2 - 0.4);
+          tryWall("fridge", TILE_SIZE / 2 - 0.4);
+          tryWall("kitchenCounter", TILE_SIZE / 2 - 0.35);
+          if (area > 6) tryWall("sink", TILE_SIZE / 2 - 0.3);
+          break;
+        case "bathroom":
+          tryWall("bathtub", TILE_SIZE / 2 - 0.45);
+          tryWall("toilet", TILE_SIZE / 2 - 0.32);
+          if (area > 4) tryWall("sink", TILE_SIZE / 2 - 0.3);
+          break;
+        case "parlor":
+          tryWall("fireplace", TILE_SIZE / 2 - 0.3);
+          tryWall("sofa", TILE_SIZE / 2 - 0.5);
+          if (area > 8 && rng() < 0.6) tryWall("pianoUpright", TILE_SIZE / 2 - 0.3);
+          break;
+        case "dining":
+          tryAny("diningTable");
+          tryWall("kitchenCounter", TILE_SIZE / 2 - 0.35);
+          break;
+        case "study":
+          tryWall("shelf", TILE_SIZE / 2 - 0.25);
+          tryWall("shelf", TILE_SIZE / 2 - 0.25);
+          if (area > 5) tryAny("table");
+          break;
+        case "storage":
+          tryWall("shelf", TILE_SIZE / 2 - 0.25);
+          tryAny("crate");
+          tryAny("barrel");
+          break;
+      }
+    };
+
+    // Per-room tinted ambient light. Each dressed room gets a tiny
+    // low-intensity point light at its centroid — warm amber for living
+    // spaces, cool fluorescent for kitchens and baths — so the room reads
+    // as having its own atmosphere even from a doorway.
+    const ROOM_LIGHT_BUDGET = 14;
+    const ROOM_LIGHT_TINTS: Record<RoomKind, { color: number; intensity: number; distance: number }> = {
+      bedroom:  { color: 0xffb070, intensity: 0.30, distance: 5.5 },
+      kitchen:  { color: 0xb8d4ff, intensity: 0.32, distance: 6.0 },
+      bathroom: { color: 0xa0c8ff, intensity: 0.28, distance: 5.0 },
+      parlor:   { color: 0xffa050, intensity: 0.35, distance: 6.5 },
+      dining:   { color: 0xffc080, intensity: 0.28, distance: 6.0 },
+      study:    { color: 0xffb060, intensity: 0.26, distance: 5.5 },
+      storage:  { color: 0xb0a890, intensity: 0.20, distance: 4.5 },
+    };
+    let roomLightCount = 0;
+    const placeRoomLight = (room: Room, kind: RoomKind): void => {
+      if (roomLightCount >= ROOM_LIGHT_BUDGET) return;
+      const tint = ROOM_LIGHT_TINTS[kind];
+      let sumX = 0;
+      let sumZ = 0;
+      for (const t of room.tiles) {
+        sumX += t.x;
+        sumZ += t.z;
+      }
+      const cx = (sumX / room.tiles.length + 0.5) * TILE_SIZE;
+      const cz = (sumZ / room.tiles.length + 0.5) * TILE_SIZE;
+      const light = createPractical({
+        position: new THREE.Vector3(cx, WALL_HEIGHT * 0.7, cz),
+        color: tint.color,
+        intensity: tint.intensity,
+        distance: tint.distance,
+      });
+      scene.add(light);
+      lightCuller.register(light);
+      roomLightCount++;
+    };
+
+    const baseRoomSeed = ((options.seed ?? 0x484e54) ^ 0x524f4f4d) >>> 0;
+    rooms.forEach((room, i) => {
+      if (i === largestIdx) return;
+      if (room.tiles.length < 3) return;
+      // Per-room RNG keyed off the room's bounding box so each room's picks
+      // are independent — earlier rooms can't reshuffle later rooms' kinds
+      // or furniture by consuming extra random draws.
+      const roomSeed =
+        (baseRoomSeed ^
+          (room.minX * 73856093) ^
+          (room.minZ * 19349663) ^
+          (room.maxX * 83492791) ^
+          (room.maxZ * 50331653)) >>>
+        0;
+      const rng = mulberry32(roomSeed);
+      const kind = palette[Math.floor(rng() * palette.length)];
+      dressRoom(room, kind, rng);
+      placeRoomLight(room, kind);
+    });
+
+    // ── Themed floor overlays ────────────────────────────────────────────
+    // Render a thin patch quad over every tile whose surface has been
+    // repainted to ',' (carpet) or ':' (kitchen/bath tile). One merged mesh
+    // per surface kind, sitting 0.01m above the base wood floor with
+    // polygon offset so flashlight rays don't z-fight. Without this the
+    // footstep audio would change in kitchens but the floor would still
+    // look like wood.
+    const overlaySpec: { surface: string; material: THREE.Material; tiling: number }[] = [
+      {
+        surface: ",",
+        // Per-material instance for the overlay so we can use FrontSide
+        // (downward facing) without disturbing the global wood-floor mat.
+        material: (() => {
+          const base = getMaterial("carpet_runner");
+          const m = base.clone();
+          m.polygonOffset = true;
+          m.polygonOffsetFactor = -1;
+          m.polygonOffsetUnits = -1;
+          return m;
+        })(),
+        tiling: 1,
+      },
+      {
+        surface: ":",
+        material: (() => {
+          const base = getMaterial("tile_kitchen_dirty");
+          const m = base.clone();
+          m.polygonOffset = true;
+          m.polygonOffsetFactor = -1;
+          m.polygonOffsetUnits = -1;
+          return m;
+        })(),
+        tiling: 1,
+      },
+    ];
+
+    for (const { surface, material } of overlaySpec) {
+      // Collect tiles, then build one merged BufferGeometry: positions,
+      // normals (all +Y), and per-tile UVs that match the base material's
+      // tex.repeat to keep tile texture density consistent with the wall
+      // and base-floor materials.
+      const tileList: { x: number; z: number }[] = [];
+      for (let z = 0; z < parsed.height; z++) {
+        for (let x = 0; x < parsed.width; x++) {
+          if (parsed.tiles[z][x] === surface) tileList.push({ x, z });
+        }
+      }
+      if (tileList.length === 0) continue;
+      const positions = new Float32Array(tileList.length * 6 * 3);
+      const normals = new Float32Array(tileList.length * 6 * 3);
+      const uvs = new Float32Array(tileList.length * 6 * 2);
+      const Y = 0.01;
+      for (let i = 0; i < tileList.length; i++) {
+        const t = tileList[i];
+        const x0 = t.x * TILE_SIZE;
+        const x1 = x0 + TILE_SIZE;
+        const z0 = t.z * TILE_SIZE;
+        const z1 = z0 + TILE_SIZE;
+        // Two triangles (CCW from above, so normals face +Y).
+        const verts = [
+          [x0, Y, z1, 0, 1],
+          [x1, Y, z1, 1, 1],
+          [x1, Y, z0, 1, 0],
+          [x0, Y, z1, 0, 1],
+          [x1, Y, z0, 1, 0],
+          [x0, Y, z0, 0, 0],
+        ];
+        for (let v = 0; v < 6; v++) {
+          const p = i * 18 + v * 3;
+          positions[p + 0] = verts[v][0];
+          positions[p + 1] = verts[v][1];
+          positions[p + 2] = verts[v][2];
+          normals[p + 0] = 0;
+          normals[p + 1] = 1;
+          normals[p + 2] = 0;
+          const u = i * 12 + v * 2;
+          uvs[u + 0] = verts[v][3];
+          uvs[u + 1] = verts[v][4];
+        }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      geo.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+      geo.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
+      geo.computeBoundingSphere();
+      const mesh = new THREE.Mesh(geo, material);
+      mesh.receiveShadow = shadowsEnabled;
+      mesh.name = `floor_overlay_${surface}`;
+      scene.add(mesh);
+    }
+  }
+
   const propRng = mulberry32((options.seed ?? 0x484e54) ^ 0x484e54);
   // Theme-weighted prop tables. Order matches kinds[] for cumulative draw.
   const PROP_KIND_ORDER: PropKind[] = [
