@@ -1413,6 +1413,43 @@ export function startGame(
       }
     };
 
+    // Per-room tinted ambient light. Each dressed room gets a tiny
+    // low-intensity point light at its centroid — warm amber for living
+    // spaces, cool fluorescent for kitchens and baths — so the room reads
+    // as having its own atmosphere even from a doorway.
+    const ROOM_LIGHT_BUDGET = 14;
+    const ROOM_LIGHT_TINTS: Record<RoomKind, { color: number; intensity: number; distance: number }> = {
+      bedroom:  { color: 0xffb070, intensity: 0.30, distance: 5.5 },
+      kitchen:  { color: 0xb8d4ff, intensity: 0.32, distance: 6.0 },
+      bathroom: { color: 0xa0c8ff, intensity: 0.28, distance: 5.0 },
+      parlor:   { color: 0xffa050, intensity: 0.35, distance: 6.5 },
+      dining:   { color: 0xffc080, intensity: 0.28, distance: 6.0 },
+      study:    { color: 0xffb060, intensity: 0.26, distance: 5.5 },
+      storage:  { color: 0xb0a890, intensity: 0.20, distance: 4.5 },
+    };
+    let roomLightCount = 0;
+    const placeRoomLight = (room: Room, kind: RoomKind): void => {
+      if (roomLightCount >= ROOM_LIGHT_BUDGET) return;
+      const tint = ROOM_LIGHT_TINTS[kind];
+      let sumX = 0;
+      let sumZ = 0;
+      for (const t of room.tiles) {
+        sumX += t.x;
+        sumZ += t.z;
+      }
+      const cx = (sumX / room.tiles.length + 0.5) * TILE_SIZE;
+      const cz = (sumZ / room.tiles.length + 0.5) * TILE_SIZE;
+      const light = createPractical({
+        position: new THREE.Vector3(cx, WALL_HEIGHT * 0.7, cz),
+        color: tint.color,
+        intensity: tint.intensity,
+        distance: tint.distance,
+      });
+      scene.add(light);
+      lightCuller.register(light);
+      roomLightCount++;
+    };
+
     const baseRoomSeed = ((options.seed ?? 0x484e54) ^ 0x524f4f4d) >>> 0;
     rooms.forEach((room, i) => {
       if (i === largestIdx) return;
@@ -1430,6 +1467,7 @@ export function startGame(
       const rng = mulberry32(roomSeed);
       const kind = palette[Math.floor(rng() * palette.length)];
       dressRoom(room, kind, rng);
+      placeRoomLight(room, kind);
     });
 
     // ── Themed floor overlays ────────────────────────────────────────────
