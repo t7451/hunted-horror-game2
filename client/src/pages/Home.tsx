@@ -1,5 +1,6 @@
-import { Suspense, lazy, useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { TitleScreen } from "../ui/TitleScreen";
+import { MultiplayerLobby } from "../ui/MultiplayerLobby";
 import { type MapKey } from "@shared/maps";
 import { type GraphicsQuality } from "../util/device";
 
@@ -25,12 +26,20 @@ interface GameOptions {
   quality: GraphicsQuality;
   sensitivity: number;
   daily?: boolean;
+  mode?: "solo" | "multi";
+  playerName?: string;
+  roomCode?: string;
 }
 
 export default function Home() {
   const [opts, setOpts] = useState<GameOptions | null>(null);
   const [volume, setVolume] = useState(0.8);
+  const [lobbyReady, setLobbyReady] = useState(false);
   const webglSupported = detectWebGL();
+  // For multiplayer: the WebSocket opened by MultiplayerLobby is handed off
+  // to Game3D so it doesn't open a second connection.
+  const multiWsRef = useRef<WebSocket | null>(null);
+  const multiPlayerIdRef = useRef<string>("");
 
   // Apply master volume globally so the title screen and game share one knob.
   useEffect(() => {
@@ -39,13 +48,38 @@ export default function Home() {
       .catch(() => {});
   }, [volume]);
 
+  const returnToTitle = () => {
+    multiWsRef.current = null;
+    multiPlayerIdRef.current = "";
+    setLobbyReady(false);
+    setOpts(null);
+  };
+
+  // Title screen
   if (!opts) {
     return (
       <TitleScreen
-        onEnter={setOpts}
+        onEnter={o => { setLobbyReady(false); setOpts(o); }}
         webglSupported={webglSupported}
         volume={volume}
         onVolume={setVolume}
+      />
+    );
+  }
+
+  // Multiplayer lobby (pre-game waiting room)
+  if (opts.mode === "multi" && !lobbyReady) {
+    return (
+      <MultiplayerLobby
+        difficulty={opts.difficulty}
+        playerName={opts.playerName ?? "Player"}
+        roomCode={opts.roomCode}
+        onGameStart={(ws, localPlayerId) => {
+          multiWsRef.current = ws;
+          multiPlayerIdRef.current = localPlayerId;
+          setLobbyReady(true);
+        }}
+        onCancel={returnToTitle}
       />
     );
   }
@@ -64,7 +98,9 @@ export default function Home() {
         initialSensitivity={opts.sensitivity}
         initialVolume={volume}
         isDaily={opts.daily ?? false}
-        onReturnToTitle={() => setOpts(null)}
+        multiWs={opts.mode === "multi" ? (multiWsRef.current ?? undefined) : undefined}
+        localPlayerId={opts.mode === "multi" ? multiPlayerIdRef.current : undefined}
+        onReturnToTitle={returnToTitle}
         onVolumeChange={setVolume}
       />
     </Suspense>

@@ -23,25 +23,27 @@ export type PropKind =
   | "bookstack"
   | "painting"
   | "rug"
+  | "bed"
+  | "sofa"
+  | "counter"
+  | "bathtub"
+  | "candles"
+  | "ritual"
   | "clutter"
   // Room-defining furniture — placed by engine.ts roomDressing pass to give
   // each enclosed room a recognizable identity (bedroom / kitchen / bath /
   // parlor / dining / study). Geometry is still merged-box primitives so
   // each kind costs one draw call regardless of population.
-  | "bed"
   | "wardrobe"
   | "nightstand"
   | "kitchenCounter"
   | "stove"
   | "fridge"
   | "sink"
-  | "bathtub"
   | "toilet"
   | "fireplace"
-  | "sofa"
   | "diningTable"
   | "pianoUpright";
-
 type PropDef = {
   /** Max instances reserved on the InstancedMesh. */
   maxInstances: number;
@@ -64,18 +66,21 @@ const PROPS: Record<PropKind, PropDef> = {
   bookstack: { maxInstances: 48, yOffset: 0, build: buildBookstack },
   painting: { maxInstances: 56, yOffset: 0, build: buildPainting },
   rug: { maxInstances: 32, yOffset: 0, build: buildRug },
-  clutter: { maxInstances: 112, yOffset: 0, build: buildClutter },
   bed: { maxInstances: 16, yOffset: 0, build: buildBed },
+  sofa: { maxInstances: 12, yOffset: 0, build: buildSofa },
+  counter: { maxInstances: 36, yOffset: 0, build: buildCounter },
+  bathtub: { maxInstances: 8, yOffset: 0, build: buildBathtub },
+  candles: { maxInstances: 48, yOffset: 0, build: buildCandles },
+  ritual: { maxInstances: 20, yOffset: 0, build: buildRitual },
+  clutter: { maxInstances: 112, yOffset: 0, build: buildClutter },
   wardrobe: { maxInstances: 18, yOffset: 0, build: buildWardrobe },
   nightstand: { maxInstances: 24, yOffset: 0, build: buildNightstand },
   kitchenCounter: { maxInstances: 24, yOffset: 0, build: buildKitchenCounter },
   stove: { maxInstances: 8, yOffset: 0, build: buildStove },
   fridge: { maxInstances: 8, yOffset: 0, build: buildFridge },
   sink: { maxInstances: 12, yOffset: 0, build: buildSink },
-  bathtub: { maxInstances: 6, yOffset: 0, build: buildBathtub },
   toilet: { maxInstances: 6, yOffset: 0, build: buildToilet },
   fireplace: { maxInstances: 6, yOffset: 0, build: buildFireplace },
-  sofa: { maxInstances: 12, yOffset: 0, build: buildSofa },
   diningTable: { maxInstances: 8, yOffset: 0, build: buildDiningTable },
   pianoUpright: { maxInstances: 4, yOffset: 0, build: buildPianoUpright },
 };
@@ -88,6 +93,49 @@ type Slot = {
 };
 
 const PROP_CULL_DIST = 32;
+const LAMP_SHADE_WAVE_BASE = 18;
+const LAMP_SHADE_WAVE_FREQ = 0.34;
+const LAMP_SHADE_WAVE_AMPLITUDE = 12;
+const LAMP_SHADE_OPACITY_BASE = 0.06;
+const LAMP_SHADE_OPACITY_SCALE = 1 / 255;
+let lampShadeTexture: THREE.CanvasTexture | null = null;
+
+function getLampShadeTexture(): THREE.CanvasTexture {
+  if (lampShadeTexture) return lampShadeTexture;
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    lampShadeTexture = new THREE.CanvasTexture(canvas);
+    return lampShadeTexture;
+  }
+
+  ctx.fillStyle = "#c2ad86";
+  ctx.fillRect(0, 0, 128, 128);
+  for (let y = 0; y < 128; y++) {
+    const band =
+      LAMP_SHADE_WAVE_BASE +
+      Math.sin(y * LAMP_SHADE_WAVE_FREQ) * LAMP_SHADE_WAVE_AMPLITUDE;
+    ctx.fillStyle = `rgba(55,36,18,${(
+      LAMP_SHADE_OPACITY_BASE +
+      band * LAMP_SHADE_OPACITY_SCALE
+    ).toFixed(3)})`;
+    ctx.fillRect(0, y, 128, 1);
+  }
+  for (let x = 0; x < 128; x += 4) {
+    ctx.fillStyle = "rgba(70,48,26,0.10)";
+    ctx.fillRect(x, 0, 1, 128);
+  }
+
+  lampShadeTexture = new THREE.CanvasTexture(canvas);
+  lampShadeTexture.wrapS = THREE.RepeatWrapping;
+  lampShadeTexture.wrapT = THREE.RepeatWrapping;
+  lampShadeTexture.repeat.set(1.2, 2.6);
+  lampShadeTexture.colorSpace = THREE.SRGBColorSpace;
+  lampShadeTexture.needsUpdate = true;
+  return lampShadeTexture;
+}
 
 type PlacedInstance = { x: number; z: number; matrix: THREE.Matrix4 };
 
@@ -210,7 +258,13 @@ function mergeBoxes(
 
   for (const b of boxes) {
     const g = new THREE.BoxGeometry(b.w, b.h, b.d);
-    const matrix = new THREE.Matrix4().makeTranslation(b.x, b.y, b.z);
+    const matrix = new THREE.Matrix4().compose(
+      new THREE.Vector3(b.x, b.y, b.z),
+      new THREE.Quaternion().setFromEuler(
+        new THREE.Euler(b.rx ?? 0, b.ry ?? 0, b.rz ?? 0)
+      ),
+      new THREE.Vector3(1, 1, 1)
+    );
     g.applyMatrix4(matrix);
     const nonIndexed = g.toNonIndexed();
     const p = nonIndexed.attributes.position.array as Float32Array;
@@ -242,6 +296,9 @@ type BoxSpec = {
   w: number;
   h: number;
   d: number;
+  rx?: number;
+  ry?: number;
+  rz?: number;
 };
 
 function buildChair() {
@@ -265,6 +322,9 @@ function buildChair() {
     { x: half, y: seatY + 0.4, z: -half, w: legW, h: 0.8, d: legW },
     // Backrest cross
     { x: 0, y: seatY + 0.7, z: -half, w: seatW, h: 0.08, d: 0.04 },
+    // Armrests — horizontal slats bridging the back post to a short front post
+    { x: -half, y: seatY + 0.22, z: 0, w: legW * 1.4, h: legW * 0.9, d: seatD * 0.78 },
+    { x: half, y: seatY + 0.22, z: 0, w: legW * 1.4, h: legW * 0.9, d: seatD * 0.78 },
   ];
   return mergeBoxes(
     boxes,
@@ -300,6 +360,9 @@ function buildTable() {
     { x: 0, y: apronY, z: halfD - apronInset + legW, w: topW - legW * 2, h: apronH, d: apronT },
     { x: -half + apronInset - legW, y: apronY, z: 0, w: apronT, h: apronH, d: topD - legW * 2 },
     { x: half - apronInset + legW, y: apronY, z: 0, w: apronT, h: apronH, d: topD - legW * 2 },
+    // Floor stretcher — a central cross-piece near the floor ties the legs
+    // and makes the silhouette read as hand-crafted joinery.
+    { x: 0, y: 0.22, z: 0, w: topW - legW * 2.4, h: legW * 0.65, d: legW * 0.65 },
   ];
   return mergeBoxes(
     boxes,
@@ -312,40 +375,25 @@ function buildTable() {
 }
 
 function buildLamp() {
-  // Floor lamp: thin pole + flared shade. Shade is mildly emissive so it
-  // reads as "lit" in the Phase 3 dark scene without needing a real
-  // PointLight per lamp (which would blow the shadow budget).
-  const boxes: BoxSpec[] = [
-    { x: 0, y: 0.05, z: 0, w: 0.3, h: 0.06, d: 0.3 }, // base
-    { x: 0, y: 0.7, z: 0, w: 0.04, h: 1.3, d: 0.04 }, // pole
-  ];
-  const baseAndPole = mergeBoxes(
-    boxes,
+  return mergeBoxes(
+    [
+      { x: 0, y: 0.02, z: 0, w: 0.36, h: 0.04, d: 0.36 }, // base plate
+      { x: 0, y: 0.07, z: 0, w: 0.27, h: 0.06, d: 0.27 }, // base collar
+      { x: 0, y: 0.74, z: 0, w: 0.05, h: 1.34, d: 0.05 }, // pole
+      { x: 0, y: 1.35, z: 0, w: 0.15, h: 0.05, d: 0.15 }, // top collar
+      { x: 0, y: 1.48, z: 0, w: 0.50, h: 0.26, d: 0.50 }, // shade body
+      { x: 0, y: 1.60, z: 0, w: 0.40, h: 0.03, d: 0.40 }, // shade cap
+      { x: 0, y: 1.34, z: 0, w: 0.12, h: 0.09, d: 0.12 }, // bulb
+    ],
     new THREE.MeshStandardMaterial({
-      color: 0x222020,
-      roughness: 0.8,
-      metalness: 0.4,
-    })
-  );
-  // Shade as a separate emissive cone — but mergeBoxes only takes boxes,
-  // so we cheat: include the shade as a wide short box. Fine at distance,
-  // and the bloom from PostFX softens its silhouette.
-  const shade = mergeBoxes(
-    [{ x: 0, y: 1.45, z: 0, w: 0.4, h: 0.25, d: 0.4 }],
-    new THREE.MeshStandardMaterial({
-      color: 0xffd28a,
+      map: getLampShadeTexture(),
+      color: 0xb8a07f,
       emissive: 0xffaa55,
-      emissiveIntensity: 0.7,
-      roughness: 0.4,
-      metalness: 0.1,
+      emissiveIntensity: 0.18,
+      roughness: 0.52,
+      metalness: 0.16,
     })
   );
-  // Combine the two geometries; result has two material groups so we hand
-  // back a multi-material InstancedMesh isn't supported in three. To keep
-  // this single-geometry/single-material, we just use the shade emissive
-  // material for the whole lamp — readable enough at flashlight distance.
-  baseAndPole.geometry.dispose();
-  return shade;
 }
 
 function buildShelf() {
@@ -439,8 +487,9 @@ function buildBarrel() {
   const h = 0.95;
   const boxes: BoxSpec[] = [
     { x: 0, y: h / 2, z: 0, w: r * 1.7, h, d: r * 1.7 }, // body
-    { x: 0, y: h * 0.22, z: 0, w: r * 1.85, h: 0.06, d: r * 1.85 }, // hoop low
-    { x: 0, y: h * 0.78, z: 0, w: r * 1.85, h: 0.06, d: r * 1.85 }, // hoop high
+    { x: 0, y: h * 0.18, z: 0, w: r * 1.88, h: 0.055, d: r * 1.88 }, // hoop low
+    { x: 0, y: h * 0.50, z: 0, w: r * 1.90, h: 0.055, d: r * 1.90 }, // hoop mid
+    { x: 0, y: h * 0.82, z: 0, w: r * 1.88, h: 0.055, d: r * 1.88 }, // hoop high
     { x: 0, y: h - 0.02, z: 0, w: r * 1.55, h: 0.04, d: r * 1.55 }, // lid
   ];
   return mergeBoxes(
@@ -474,8 +523,8 @@ function buildPainting() {
   // Wall painting silhouette — frame + canvas. Caller is expected to push
   // these against walls (we orient + flush them via rotationY in engine).
   // Geometry sits at z≈-0.02 so the local origin is the wall surface.
-  const w = 0.7;
-  const h = 0.5;
+  const w = 0.72;
+  const h = 0.56;
   const t = 0.04;
   const cy = 1.7;
   const boxes: BoxSpec[] = [
@@ -484,15 +533,21 @@ function buildPainting() {
     { x: 0, y: cy - h / 2, z: -t / 2, w: w + 0.08, h: 0.06, d: t },
     { x: -w / 2, y: cy, z: -t / 2, w: 0.06, h: h + 0.06, d: t },
     { x: w / 2, y: cy, z: -t / 2, w: 0.06, h: h + 0.06, d: t },
-    // Canvas
+    // Canvas + crude portrait relief
     { x: 0, y: cy, z: -t / 2 - 0.005, w, h, d: 0.01 },
+    { x: 0, y: cy + h * 0.22, z: -t / 2 - 0.008, w: w * 0.26, h: h * 0.28, d: 0.008 },
+    { x: 0, y: cy - h * 0.1, z: -t / 2 - 0.008, w: w * 0.52, h: h * 0.35, d: 0.008 },
+    { x: -w * 0.22, y: cy, z: -t / 2 - 0.006, w: w * 0.28, h: h * 0.7, d: 0.006 },
+    { x: w * 0.22, y: cy, z: -t / 2 - 0.006, w: w * 0.28, h: h * 0.7, d: 0.006 },
   ];
   return mergeBoxes(
     boxes,
     new THREE.MeshStandardMaterial({
-      color: 0x3a2820,
-      roughness: 0.85,
-      metalness: 0.04,
+      color: 0x1c0e08,
+      emissive: 0x180808,
+      emissiveIntensity: 0.04,
+      roughness: 0.65,
+      metalness: 0.0,
     })
   );
 }
@@ -512,6 +567,97 @@ function buildRug() {
       color: 0x3a1820,
       roughness: 0.95,
       metalness: 0.0,
+    })
+  );
+}
+
+function buildCounter() {
+  const boxes: BoxSpec[] = [
+    { x: 0, y: 0.42, z: 0, w: 1.3, h: 0.78, d: 0.58 },
+    { x: 0, y: 0.84, z: 0, w: 1.42, h: 0.08, d: 0.66 },
+    { x: -0.24, y: 0.45, z: 0.31, w: 0.38, h: 0.42, d: 0.035 },
+    { x: 0.24, y: 0.45, z: 0.31, w: 0.38, h: 0.42, d: 0.035 },
+    { x: 0, y: 1.18, z: -0.26, w: 1.2, h: 0.55, d: 0.12 },
+  ];
+  return mergeBoxes(
+    boxes,
+    new THREE.MeshStandardMaterial({
+      color: 0x4a321f,
+      roughness: 0.82,
+      metalness: 0.04,
+    })
+  );
+}
+
+function buildCandles() {
+  // Clustered floor candles: three uneven wax pillars on a shallow dish with
+  // small upright flame slivers. Kept as one instanced geometry/material.
+  const boxes: BoxSpec[] = [
+    { x: 0, y: 0.015, z: 0, w: 0.54, h: 0.03, d: 0.34 },
+    { x: -0.18, y: 0.18, z: -0.04, w: 0.09, h: 0.32, d: 0.09 },
+    { x: 0.0, y: 0.25, z: 0.06, w: 0.1, h: 0.46, d: 0.1 },
+    { x: 0.18, y: 0.13, z: -0.02, w: 0.08, h: 0.24, d: 0.08 },
+    { x: -0.18, y: 0.36, z: -0.04, w: 0.045, h: 0.1, d: 0.025, ry: Math.PI / 4 },
+    { x: 0.0, y: 0.5, z: 0.06, w: 0.05, h: 0.12, d: 0.03, ry: Math.PI / 4 },
+    { x: 0.18, y: 0.27, z: -0.02, w: 0.04, h: 0.08, d: 0.025, ry: Math.PI / 4 },
+    // A few wax drips break up the columns so they don't read as posts.
+    { x: -0.22, y: 0.24, z: -0.04, w: 0.025, h: 0.12, d: 0.02 },
+    { x: 0.04, y: 0.34, z: 0.1, w: 0.025, h: 0.16, d: 0.02 },
+  ];
+  return mergeBoxes(
+    boxes,
+    new THREE.MeshStandardMaterial({
+      color: 0xffd6a0,
+      emissive: 0xff6a24,
+      emissiveIntensity: 0.16,
+      roughness: 0.62,
+      metalness: 0.02,
+    })
+  );
+}
+
+function buildRitual() {
+  // Low occult floor set-piece: a raised center stone, star strokes, and five
+  // short marker candles around it. Floor-only to avoid wall-placement rules.
+  const boxes: BoxSpec[] = [
+    { x: 0, y: 0.045, z: 0, w: 0.42, h: 0.09, d: 0.42 },
+    { x: 0, y: 0.03, z: 0, w: 1.24, h: 0.018, d: 0.04, ry: 0 },
+    { x: 0, y: 0.031, z: 0, w: 1.24, h: 0.018, d: 0.04, ry: Math.PI * 0.4 },
+    { x: 0, y: 0.032, z: 0, w: 1.24, h: 0.018, d: 0.04, ry: Math.PI * 0.8 },
+    { x: 0, y: 0.033, z: 0, w: 1.24, h: 0.018, d: 0.04, ry: Math.PI * 1.2 },
+    { x: 0, y: 0.034, z: 0, w: 1.24, h: 0.018, d: 0.04, ry: Math.PI * 1.6 },
+  ];
+
+  const markerRadius = 0.66;
+  for (let i = 0; i < 5; i++) {
+    const a = i * ((Math.PI * 2) / 5) + Math.PI / 10;
+    boxes.push({
+      x: Math.cos(a) * markerRadius,
+      y: 0.12,
+      z: Math.sin(a) * markerRadius,
+      w: 0.06,
+      h: 0.2,
+      d: 0.06,
+    });
+    boxes.push({
+      x: Math.cos(a) * markerRadius,
+      y: 0.25,
+      z: Math.sin(a) * markerRadius,
+      w: 0.035,
+      h: 0.06,
+      d: 0.025,
+      ry: Math.PI / 4,
+    });
+  }
+
+  return mergeBoxes(
+    boxes,
+    new THREE.MeshStandardMaterial({
+      color: 0x4a1014,
+      emissive: 0x2a0508,
+      emissiveIntensity: 0.08,
+      roughness: 0.9,
+      metalness: 0.02,
     })
   );
 }

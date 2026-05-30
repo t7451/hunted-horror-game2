@@ -5,6 +5,20 @@ import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import Anthropic from "@anthropic-ai/sdk";
+import {
+  MAPS,
+  MAP_KEYS,
+  parseMap as parseSharedMap,
+  validateParsedMap,
+  type MapDef,
+  type MapKey,
+} from "../shared/maps.ts";
+import {
+  buildRenderDiagnostics,
+  getRenderPreset,
+  getRenderHelperScripts,
+  listRenderPresets,
+} from "./renderHelpers.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -39,190 +53,45 @@ const DIFFICULTY_BONUS: Record<string, number> = {
   normal: 200,
   hard: 500,
 };
-
-// ═══════════════════════════════════════════════════════════════
-// MAPS (copied from server.js)
-// ═══════════════════════════════════════════════════════════════
-
-const MAPS: Record<string, { name: string; difficulty: number; timer: number; claudeSpeed: number; theme: string; raw: string[] }> = {
-  easy: {
-    name: "Granny's Kitchen",
-    difficulty: 1,
-    timer: 240,
-    claudeSpeed: 3.0,
-    theme: "kitchen",
-    raw: [
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
-      "WS.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W...W",
-      "W.....D.....D.....D.....D...W",
-      "W.....W.....W.....W.....W...W",
-      "W..H..W..K..W..H..W..K..W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W...W",
-      "W..K..D.....D.....D.....D...W",
-      "W.....W.....W.....W.....W...W",
-      "W..H..W.....W..H..W.....W...W",
-      "WWWDWWWWWWWWWWWDWWWWWDWWWWWWWW",
-      "W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W...W",
-      "W.....D.....D.....D.....D...W",
-      "W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W..XW",
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
-    ],
-  },
-  normal: {
-    name: "Granny's House",
-    difficulty: 2,
-    timer: 180,
-    claudeSpeed: 4.5,
-    theme: "house",
-    raw: [
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
-      "WS.....W.....W.....W.....W.....W...W",
-      "W.D....W.D...W.D...W.D...W.D...W...W",
-      "W.W....W.W...W.W...W.W...W.W...W...W",
-      "W.W..K.W.W.K.W.W..KW.W..KW.W..KW...W",
-      "W.D....W.D...W.D...W.D...W.D...W...W",
-      "W.W....W.W...W.W...W.W...W.W...W...W",
-      "W.H....W.H...W.H...W.H...W.H...W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.....W...........W.....W.....W...W",
-      "W.H...D...........D.....D.....D...W",
-      "W.W...W...........W.....W.....W...W",
-      "W.W..KW.....E.....W..H..W..K..W...W",
-      "W.D...W...........W.....W.....W...W",
-      "W.W...W...........W.....W.....W...W",
-      "W.W...D.....P.....D.....D.....D...W",
-      "W.H...W...........W.....W.....W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.....W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W.....W...W",
-      "W.....D.....D.....D.....D.....D...W",
-      "W.....W.....W.....W.....W.....W...W",
-      "W..H..W.....W..H..W..K..W.....W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.....W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W.....W...W",
-      "W.....D.....D.....D.....D.....D...W",
-      "W.....W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W.....W..XW",
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
-    ],
-  },
-  hard: {
-    name: "Granny's Nightmare",
-    difficulty: 3,
-    timer: 120,
-    claudeSpeed: 6.0,
-    theme: "nightmare",
-    raw: [
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
-      "WS.D...W.D...W.D...W.D...W.D...W.D...W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.KW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.D.D..W.D.D.W.D.D.W.D.D.W.D.D.W.D.D.W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.HW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.D...W.D...W.D...W.D...W.D...W.D...W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.KW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.D.D..W.D.D.W.D.D.W.D.D.W.D.D.W.D.D.W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.HW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.D...W.D...W.D...W.D...W.D...W.D...W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.KW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.D.D..W.D.D.W.D.D.W.D.D.W.D.D.W.D.D.W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.HW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.D...W.D...W.D...W.D...W.D...W.D...W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.KW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.D.D..W.D.D.W.D.D.W.D.D.W.D.D.W.D.D.W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.HW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.D...W.D...W.D...W.D...W.D...W.D...W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.KW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.D.D..W.D.D.W.D.D.W.D.D.W.D.D.W.D.D.W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.HW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.D...W.D...W.D...W.D...W.D...W.D...W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.KW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.D.D..W.D.D.W.D.D.W.D.D.W.D.D.W.D.D.W...W",
-      "W.W.W..W.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "W.W.W.HW.W.W.W.W.W.W.W.W.W.W.W.W.W.W.W...W",
-      "WWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWDWWWWWWWW",
-      "W.....W.....W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W.....W.....W...W",
-      "W.....D.....D.....D.....D.....D.....D...W",
-      "W.....W.....W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W.....W.....W...W",
-      "W.....W.....W.....W.....W.....W.....W..XW",
-      "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
-    ],
-  },
-};
+const VALID_MAP_KEYS = new Set<string>(MAP_KEYS);
 
 // ═══════════════════════════════════════════════════════════════
 // MAP PARSING
 // ═══════════════════════════════════════════════════════════════
 
-function tileCenter(r: number, c: number) {
-  return { x: c * TILE + TILE / 2, z: r * TILE + TILE / 2 };
+function tileCenter(row: number, col: number) {
+  return { x: col * TILE + TILE / 2, z: row * TILE + TILE / 2 };
 }
 
-function parseMap(mapData: typeof MAPS[string]) {
-  const raw = mapData.raw;
-  const H = raw.length;
-  const W = raw[0].length;
+function resolveMapKey(difficulty: string): MapKey {
+  return VALID_MAP_KEYS.has(difficulty) ? (difficulty as MapKey) : "normal";
+}
 
-  const keySpawns: { r: number; c: number }[] = [];
-  const hideSpots: { r: number; c: number }[] = [];
-  const doorTiles: { r: number; c: number }[] = [];
-  let exitTile: { r: number; c: number } | null = null;
-  let entitySpawn: { r: number; c: number } | null = null;
-  let playerSpawn: { r: number; c: number } | null = null;
-
-  for (let r = 0; r < H; r++) {
-    for (let c = 0; c < W; c++) {
-      const t = raw[r][c];
-      if (t === "K") keySpawns.push({ r, c });
-      if (t === "H") hideSpots.push({ r, c });
-      if (t === "D") doorTiles.push({ r, c });
-      if (t === "X") exitTile = { r, c };
-      if (t === "E") entitySpawn = { r, c };
-      if (t === "S") playerSpawn = { r, c };
-    }
+function parseMap(mapData: MapDef) {
+  const parsed = parseSharedMap(mapData);
+  const mapIssues = validateParsedMap(parsed);
+  if (mapIssues.length > 0) {
+    console.warn(`[map] ${mapData.name} integrity issues`, mapIssues);
   }
-
-  // Fallback spawns to a safe interior tile
-  if (!playerSpawn) playerSpawn = { r: 1, c: 1 };
-  if (!entitySpawn) entitySpawn = { r: Math.floor(H / 2), c: Math.floor(W / 2) };
-  if (!exitTile) exitTile = { r: H - 2, c: W - 2 };
+  const raw = parsed.tiles.map(row => row.join(""));
+  const H = parsed.height;
+  const W = parsed.width;
+  const exitTile = parsed.exit ?? { x: W - 2, z: H - 2 };
+  const entitySpawn = parsed.enemy ?? {
+    x: Math.floor(W / 2),
+    z: Math.floor(H / 2),
+  };
 
   return {
     raw,
     H,
     W,
-    keySpawns: keySpawns.map((p) => tileCenter(p.r, p.c)),
-    hideSpots: hideSpots.map((p) => tileCenter(p.r, p.c)),
-    doorTiles: doorTiles.map((p) => tileCenter(p.r, p.c)),
-    exitTile: tileCenter(exitTile.r, exitTile.c),
-    entitySpawn: tileCenter(entitySpawn.r, entitySpawn.c),
-    playerSpawn: tileCenter(playerSpawn.r, playerSpawn.c),
+    keySpawns: parsed.keys.map(p => tileCenter(p.z, p.x)),
+    hideSpots: parsed.hides.map(p => tileCenter(p.z, p.x)),
+    doorTiles: parsed.doors.map(p => tileCenter(p.z, p.x)),
+    exitTile: tileCenter(exitTile.z, exitTile.x),
+    entitySpawn: tileCenter(entitySpawn.z, entitySpawn.x),
+    playerSpawn: tileCenter(parsed.spawn.z, parsed.spawn.x),
   };
 }
 
@@ -313,6 +182,7 @@ interface Player {
   name: string;
   x: number;
   z: number;
+  rotY: number;
   alive: boolean;
   hiding: boolean;
   keys: number;
@@ -359,6 +229,8 @@ interface GameState {
   hideSpots: { x: number; z: number }[];
   exitTile: { x: number; z: number };
   nextTauntAt: number;
+  /** Set only for multi sessions; used to clean up roomCodes on session end. */
+  roomCode?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -368,9 +240,28 @@ interface GameState {
 const sessions = new Map<string, GameState>();
 const playerSession = new Map<WebSocket, string>();
 const playerIdMap = new Map<WebSocket, string>();
+// room code (e.g. "A3BX") → sessionId, for multiplayer lobby joins
+const roomCodes = new Map<string, string>();
+
+function generateRoomCode(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const buf = new Uint32Array(4);
+  crypto.getRandomValues(buf);
+  let code = "";
+  for (let i = 0; i < 4; i++) {
+    code += chars[buf[i] % chars.length];
+  }
+  return code;
+}
+
+/** Generates a cryptographically random hex token for player/session IDs. */
+function generateId(): string {
+  return crypto.randomUUID().replace(/-/g, "").slice(0, 9);
+}
 
 function createGameState(mode: string, sessionId: string, difficulty = "normal"): GameState {
-  const mapData = MAPS[difficulty] || MAPS.normal;
+  const mapKey = resolveMapKey(difficulty);
+  const mapData = MAPS[mapKey];
   const parsed = parseMap(mapData);
 
   const items: Item[] = parsed.keySpawns.map((pos, i) => ({
@@ -385,7 +276,7 @@ function createGameState(mode: string, sessionId: string, difficulty = "normal")
   return {
     sessionId,
     mode,
-    difficulty,
+    difficulty: mapKey,
     mapName: mapData.name,
     phase: "lobby",
     time: 0,
@@ -401,7 +292,7 @@ function createGameState(mode: string, sessionId: string, difficulty = "normal")
       targetX: parsed.entitySpawn.x,
       targetZ: parsed.entitySpawn.z,
       speed: mapData.claudeSpeed,
-      aggression: CLAUDE_AGGRESSION[difficulty] ?? 0.8,
+      aggression: CLAUDE_AGGRESSION[mapKey] ?? 0.8,
     },
     items,
     exit: { x: parsed.exitTile.x, z: parsed.exitTile.z, open: false },
@@ -421,10 +312,9 @@ function broadcastToSession(gs: GameState, msg: object) {
   }
 }
 
-function sendToPlayer(player: Player, msg: object) {
-  if (player.ws && player.ws.readyState === WebSocket.OPEN) {
-    player.ws.send(JSON.stringify(msg));
-  }
+function broadcastLobbyUpdate(gs: GameState) {
+  const players = Object.values(gs.players).map(p => ({ id: p.id, name: p.name }));
+  broadcastToSession(gs, { type: "lobbyUpdate", players, phase: gs.phase });
 }
 
 function buildStateBroadcast(gs: GameState) {
@@ -586,15 +476,51 @@ function updateGame(gs: GameState, dt: number) {
 // ═══════════════════════════════════════════════════════════════
 
 function handleJoin(ws: WebSocket, msg: Record<string, string>) {
-  const playerId = `player_${Math.random().toString(36).slice(2, 9)}`;
+  const playerId = `player_${generateId()}`;
   playerIdMap.set(ws, playerId);
 
-  const difficulty = msg.difficulty || "normal";
-  const gs = createGameState(msg.mode || "solo", `session_${Math.random().toString(36).slice(2, 9)}`, difficulty);
-  sessions.set(gs.sessionId, gs);
-  playerSession.set(ws, gs.sessionId);
+  const difficulty = resolveMapKey(msg.difficulty || "normal");
+  const playerName = String(msg.name || "Player").slice(0, 24);
+  const mode = msg.mode || "solo";
 
-  const parsed = parseMap(MAPS[difficulty] || MAPS.normal);
+  let gs: GameState;
+  let isHost = false;
+  let roomCode: string | undefined;
+
+  if (mode === "multi") {
+    const joinCode = String(msg.roomCode || "").toUpperCase().trim();
+    if (joinCode && roomCodes.has(joinCode)) {
+      // Join an existing multi lobby
+      const sid = roomCodes.get(joinCode)!;
+      const existing = sessions.get(sid);
+      if (!existing || existing.phase !== "lobby") {
+        ws.send(JSON.stringify({ type: "error", message: "Room not found or game already started" }));
+        playerIdMap.delete(ws);
+        return;
+      }
+      gs = existing;
+      playerSession.set(ws, sid);
+    } else {
+      // Create a new multi lobby
+      isHost = true;
+      let code = generateRoomCode();
+      let attempts = 0;
+      while (roomCodes.has(code) && attempts++ < 100) code = generateRoomCode();
+      roomCode = code;
+      gs = createGameState("multi", `session_${generateId()}`, difficulty);
+      gs.roomCode = code;
+      roomCodes.set(code, gs.sessionId);
+      sessions.set(gs.sessionId, gs);
+      playerSession.set(ws, gs.sessionId);
+    }
+  } else {
+    // Solo: create a fresh session and auto-start
+    gs = createGameState("solo", `session_${generateId()}`, difficulty);
+    sessions.set(gs.sessionId, gs);
+    playerSession.set(ws, gs.sessionId);
+  }
+
+  const parsed = parseMap(MAPS[resolveMapKey(gs.difficulty)]);
 
   // Spawn player away from Claude
   let spawnX = parsed.playerSpawn.x;
@@ -611,9 +537,10 @@ function handleJoin(ws: WebSocket, msg: Record<string, string>) {
 
   gs.players[playerId] = {
     id: playerId,
-    name: msg.name || "Player",
+    name: playerName,
     x: spawnX,
     z: spawnZ,
+    rotY: 0,
     alive: true,
     hiding: false,
     keys: 0,
@@ -621,9 +548,9 @@ function handleJoin(ws: WebSocket, msg: Record<string, string>) {
     ws,
   };
 
-  gs.spawnProtectionEnd = Date.now() + (SPAWN_PROTECTION_DURATION[difficulty] ?? 10000);
+  gs.spawnProtectionEnd = Date.now() + (SPAWN_PROTECTION_DURATION[gs.difficulty] ?? 10000);
 
-  // Send init immediately
+  // Send init with phase + room info so the client knows what to show
   ws.send(
     JSON.stringify({
       type: "init",
@@ -632,20 +559,17 @@ function handleJoin(ws: WebSocket, msg: Record<string, string>) {
       tileSize: TILE,
       hideSpots: gs.hideSpots,
       exitTile: gs.exitTile,
+      phase: gs.phase,
+      roomCode,   // defined only for the host of a new multi session
+      isHost,
     })
   );
 
-  ws.send(
-    JSON.stringify({
-      type: "playerJoined",
-      id: playerId,
-      name: msg.name || "Player",
-      mode: msg.mode || "solo",
-    })
-  );
-
-  // Auto-start solo games
-  if (msg.mode === "solo" || !msg.mode) {
+  if (mode === "multi") {
+    // Let all lobby members know the updated player list
+    broadcastLobbyUpdate(gs);
+  } else {
+    // Auto-start solo games
     gs.phase = "playing";
     gs.startTime = Date.now();
     ws.send(JSON.stringify({ type: "gameStart", gameId: gs.sessionId }));
@@ -661,6 +585,7 @@ function handleMove(ws: WebSocket, msg: Record<string, number>) {
   const p = gs.players[pid];
   if (typeof msg.x === "number") p.x = msg.x;
   if (typeof msg.z === "number") p.z = msg.z;
+  if (typeof msg.rotY === "number") p.rotY = msg.rotY;
   if (typeof msg.noise === "number") p.noise = msg.noise;
 }
 
@@ -739,13 +664,20 @@ function handleDisconnect(ws: WebSocket) {
   if (sid && pid) {
     const gs = sessions.get(sid);
     if (gs) {
-      broadcastToSession(gs, { type: "playerLeft", id: pid });
       delete gs.players[pid];
+      if (gs.mode === "multi" && gs.phase === "lobby") {
+        // In lobby phase, notify remaining players of updated list
+        broadcastLobbyUpdate(gs);
+      } else {
+        broadcastToSession(gs, { type: "playerLeft", id: pid });
+      }
       if (Object.keys(gs.players).length === 0) {
         // Clean up empty sessions after a delay
         setTimeout(() => {
           if (sessions.has(sid) && Object.keys(sessions.get(sid)!.players).length === 0) {
             sessions.delete(sid);
+            // O(1) room code cleanup via the code stored on the GameState
+            if (gs.roomCode) roomCodes.delete(gs.roomCode);
           }
         }, 30_000);
       }
@@ -804,6 +736,8 @@ async function startServer() {
               if (gs && gs.phase === "lobby") {
                 gs.phase = "playing";
                 gs.startTime = Date.now();
+                // Reset spawn protection so it counts from actual game start
+                gs.spawnProtectionEnd = Date.now() + (SPAWN_PROTECTION_DURATION[gs.difficulty] ?? 10000);
                 broadcastToSession(gs, { type: "gameStart", gameId: sid });
               }
             }
@@ -851,6 +785,49 @@ async function startServer() {
     });
   });
   app.options("/status", (_req, res) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.sendStatus(204);
+  });
+  app.get("/render/presets", (req, res) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.set("Cache-Control", "no-store");
+    const tier = typeof req.query.tier === "string" ? req.query.tier : undefined;
+    if (tier) {
+      res.json({
+        preset: getRenderPreset(tier),
+        helperScripts: getRenderHelperScripts(),
+      });
+      return;
+    }
+    res.json({
+      presets: listRenderPresets(),
+      helperScripts: getRenderHelperScripts(),
+    });
+  });
+  app.options("/render/presets", (_req, res) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.sendStatus(204);
+  });
+  app.get("/render/diagnostics", (_req, res) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.set("Cache-Control", "no-store");
+    const players = Array.from(sessions.values()).reduce(
+      (n, gs) => n + Object.keys(gs.players).length,
+      0
+    );
+    res.json(
+      buildRenderDiagnostics({
+        sessions: sessions.size,
+        players,
+        uptime: process.uptime(),
+      })
+    );
+  });
+  app.options("/render/diagnostics", (_req, res) => {
     res.set("Access-Control-Allow-Origin", "*");
     res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
     res.sendStatus(204);

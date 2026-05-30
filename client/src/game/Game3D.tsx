@@ -45,8 +45,6 @@ const MOBILE_START_HINT =
   "Drag left pad to move · swipe the screen to look · use sprint/hide buttons";
 const DESKTOP_CONTROL_HINT =
   "WASD/Arrows move · Mouse look · Shift sprint · E hide near closets";
-const MOBILE_CONTROL_HINT =
-  "Drag left pad to move · swipe view to look · sprint / hide buttons";
 const JOYSTICK_RADIUS_FACTOR = 0.36;
 // Input shaping — see shapeJoystick. Values picked from Batch 10 spec to
 // kill stick drift, give precise sub-walk control, and saturate before the
@@ -74,6 +72,10 @@ interface Props {
   initialSensitivity: number;
   initialVolume: number;
   isDaily?: boolean;
+  /** For multiplayer: the WebSocket already established by the lobby screen. */
+  multiWs?: WebSocket;
+  /** For multiplayer: the local player ID assigned by the server during lobby. */
+  localPlayerId?: string;
   onReturnToTitle: () => void;
   onVolumeChange?: (v: number) => void;
 }
@@ -84,12 +86,16 @@ export default function Game3D({
   initialSensitivity,
   initialVolume,
   isDaily,
+  multiWs,
+  localPlayerId,
   onReturnToTitle,
   onVolumeChange,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const engineRef = useRef<EngineHandle | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  // Tracks the local player ID so we can filter it from remote-player broadcasts.
+  const localPlayerIdRef = useRef<string>(localPlayerId ?? "");
   // Read by onCaught/onEscape callbacks, which capture state at engine init.
   const timeLeftRef = useRef<number | null>(null);
   const [status, setStatus] = useState<Status>("loading");
@@ -107,6 +113,7 @@ export default function Game3D({
     collected: 0,
     total: 0,
   });
+  const [notesRequired, setNotesRequired] = useState(0);
   const [danger, setDanger] = useState<Danger>("safe");
   const [hidden, setHidden] = useState(false);
   const [director, setDirector] = useState<DirectorUpdate>(INITIAL_DIRECTOR);
@@ -190,6 +197,7 @@ export default function Game3D({
     setDanger("safe");
     setHidden(false);
     setDirector(INITIAL_DIRECTOR);
+    setNotesRequired(0);
     setHint(isMobile ? MOBILE_START_HINT : DESKTOP_START_HINT);
 
     let handle: EngineHandle | null = null;
@@ -204,11 +212,12 @@ export default function Game3D({
             setKeysLeft(info.keys);
             setTimeLeft(info.timer);
             setNotes({ collected: 0, total: info.notesTotal });
+            setNotesRequired(info.notesRequired);
             setBatteryPct(100);
             setHint(
               isMobile
-                ? `${info.mapName}: collect keys, then reach the green exit. Drag to look.`
-                : `${info.mapName}: collect every key, then reach the green exit.`
+                ? `${info.mapName}: collect keys + ${info.notesRequired} evidence notes, then reach the green exit.`
+                : `${info.mapName}: collect every key and ${info.notesRequired} evidence notes, then reach the green exit.`
             );
           },
           onKeyPickup: remaining => {
@@ -216,7 +225,7 @@ export default function Game3D({
             setPickupFlashAt(performance.now());
             setHint(
               remaining === 0
-                ? "All keys found. The exit is open."
+                ? "All keys found. Gather required evidence notes, then head for the exit."
                 : "Key collected."
             );
           },
@@ -282,29 +291,35 @@ export default function Game3D({
     // Best-effort multiplayer wiring. If no server is reachable (e.g. on a
     // static Netlify deploy without the websocket gateway), we silently
     // remain in single-player mode rather than failing the render.
-    const wsUrl = buildWsUrl();
     let ws: WebSocket | null = null;
     let stateTimer: number | null = null;
-    try {
-      ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-      ws.addEventListener("open", () => {
-        ws?.send(JSON.stringify({ type: "join", difficulty }));
-        stateTimer = window.setInterval(() => {
-          if (!handle || ws?.readyState !== WebSocket.OPEN) return;
-          const s = handle.getPlayerState();
-          ws.send(
-            JSON.stringify({ type: "move", x: s.x, z: s.z, rotY: s.rotY })
-          );
-        }, 80);
-      });
-      ws.addEventListener("message", ev => {
+    let ownedWs = false; // whether we created the WS (so we close it on cleanup)
+
+    const wireWs = (socket: WebSocket) => {
+      ws = socket;
+      wsRef.current = socket;
+      stateTimer = window.setInterval(() => {
+        if (!handle || socket.readyState !== WebSocket.OPEN) return;
+        const s = handle.getPlayerState();
+        socket.send(
+          JSON.stringify({ type: "move", x: s.x, z: s.z, rotY: s.rotY })
+        );
+      }, 80);
+      socket.addEventListener("message", ev => {
         try {
           const msg = JSON.parse(typeof ev.data === "string" ? ev.data : "");
-          if (msg.type === "state" && Array.isArray(msg.players)) {
-            const remotes: RemotePlayer[] = msg.players
-              .filter((p: RemotePlayer & { self?: boolean }) => !p.self)
-              .map((p: RemotePlayer) => ({
+          if (
+            msg.type === "state" &&
+            msg.players &&
+            typeof msg.players === "object" &&
+            !Array.isArray(msg.players)
+          ) {
+            const myId = localPlayerIdRef.current;
+            const remotes: RemotePlayer[] = (
+              Object.values(msg.players) as Array<RemotePlayer & { id: string }>
+            )
+              .filter(p => p.id !== myId)
+              .map(p => ({
                 id: p.id,
                 x: p.x,
                 z: p.z,
@@ -312,27 +327,49 @@ export default function Game3D({
                 name: p.name,
               }));
             handle.setRemotePlayers(remotes);
-            if (msg.enemy) handle.setEnemy({ x: msg.enemy.x, z: msg.enemy.z });
+            if (typeof msg.entity?.x === "number" && typeof msg.entity?.z === "number") {
+              handle.setEnemy({ x: msg.entity.x, z: msg.entity.z });
+            }
           }
         } catch {
           // ignore malformed frames
         }
       });
-      ws.addEventListener("error", () =>
+      socket.addEventListener("error", () =>
         setHint("Multiplayer offline · local Observer enabled")
       );
-    } catch {
-      setHint("Multiplayer offline · local Observer enabled");
+    };
+
+    if (multiWs && multiWs.readyState !== WebSocket.CLOSED) {
+      // Re-use the WebSocket that was established during the multiplayer lobby.
+      wireWs(multiWs);
+    } else {
+      // Solo or fallback: open a fresh connection and join as solo.
+      try {
+        const wsUrl = buildWsUrl();
+        const freshWs = new WebSocket(wsUrl);
+        ownedWs = true;
+        freshWs.addEventListener("open", () => {
+          freshWs.send(
+            JSON.stringify({ type: "join", mode: "solo", difficulty, name: "Player" })
+          );
+        });
+        wireWs(freshWs);
+      } catch {
+        setHint("Multiplayer offline · local Observer enabled");
+      }
     }
 
     return () => {
       if (stateTimer != null) window.clearInterval(stateTimer);
-      ws?.close();
+      // Only close a WebSocket we opened ourselves; a multiWs handed in from
+      // the lobby is the caller's responsibility to manage.
+      if (ownedWs) ws?.close();
       wsRef.current = null;
       handle?.dispose();
       engineRef.current = null;
     };
-  }, [difficulty, isMobile, quality, selectedMap.timer, sensitivity, status]);
+  }, [difficulty, isMobile, multiWs, quality, selectedMap.timer, sensitivity, status]);
 
   useEffect(() => {
     if (status !== "playing") return;
@@ -398,10 +435,27 @@ export default function Game3D({
             }`}
           />
           <div
-            className={`absolute top-3 left-3 max-w-sm text-xs font-mono px-3 py-2 rounded border ${DANGER_STYLES[danger]}`}
+            className={`absolute font-mono rounded border ${DANGER_STYLES[danger]} ${
+              isMobile
+                ? "left-2 right-2 max-w-[min(72vw,280px)] px-2.5 py-1.5 text-[11px] leading-tight"
+                : "top-3 left-3 max-w-sm px-3 py-2 text-xs"
+            }`}
+            style={
+              isMobile
+                ? {
+                    top: "calc(var(--safe-top) + 10px)",
+                    left: "calc(var(--safe-left) + 8px)",
+                  }
+                : undefined
+            }
           >
             <div>
-              Objective: {keysLeft === 0 ? "Reach the exit" : "Find every key"}
+              Objective:{" "}
+              {keysLeft === 0
+                ? notesRequired > 0 && notes.collected < notesRequired
+                  ? "Collect evidence notes"
+                  : "Reach the exit"
+                : "Find every key"}
             </div>
             <div>Keys remaining: {keysLeft ?? "—"}</div>
             <div>Cans: {throwables}/3 (F to throw)</div>
@@ -435,27 +489,34 @@ export default function Game3D({
             </div>
             {notes.total > 0 && (
               <div>
-                Notes: {notes.collected}/{notes.total}
+                Notes: {notes.collected}/{notes.total}{" "}
+                {notesRequired > 0 ? `(need ${notesRequired})` : ""}
               </div>
             )}
-            <div>
-              Stealth:{" "}
-              {hidden
-                ? "hidden"
-                : danger === "safe"
-                  ? "clear"
-                  : "The Observer is close"}
-            </div>
-            <div>
-              AI Director: {Math.round(director.tension * 100)}% tension · pace{" "}
-              {director.enemySpeedMultiplier.toFixed(2)}x
-            </div>
-            <div className="opacity-60">Mode: {director.reason}</div>
+            {!isMobile && (
+              <>
+                <div>
+                  Stealth:{" "}
+                  {hidden
+                    ? "hidden"
+                    : danger === "safe"
+                      ? "clear"
+                      : "The Observer is close"}
+                </div>
+                <div>
+                  AI Director: {Math.round(director.tension * 100)}% tension ·
+                  pace {director.enemySpeedMultiplier.toFixed(2)}x
+                </div>
+                <div className="opacity-60">Mode: {director.reason}</div>
+              </>
+            )}
             <div className="mt-1 opacity-70">{hint}</div>
           </div>
-          <div className="pointer-events-none absolute bottom-3 left-1/2 w-[min(92vw,520px)] -translate-x-1/2 rounded bg-black/50 px-3 py-2 text-center text-xs opacity-80">
-            {isMobile ? MOBILE_CONTROL_HINT : DESKTOP_CONTROL_HINT}
-          </div>
+          {!isMobile && (
+            <div className="pointer-events-none absolute bottom-3 left-1/2 w-[min(92vw,520px)] -translate-x-1/2 rounded bg-black/50 px-3 py-2 text-center text-xs opacity-80">
+              {DESKTOP_CONTROL_HINT}
+            </div>
+          )}
           {danger !== "safe" && (
             <div className="pointer-events-none absolute top-1/2 right-4 -translate-y-1/2 text-[10px] uppercase tracking-[0.35em] text-red-200/50 [writing-mode:vertical-rl]">
               {danger === "critical" ? "do not turn around" : "he heard you"}

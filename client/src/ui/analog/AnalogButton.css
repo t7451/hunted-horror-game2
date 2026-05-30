@@ -1,0 +1,40 @@
+.ana-btn {
+  font-family: var(--ana-font-mono);
+  text-transform: uppercase;
+  letter-spacing: 4px;
+  font-size: 12px;
+  padding: 10px 22px;
+  cursor: pointer;
+  border: 1px solid var(--ana-rust);
+  background: rgba(20, 12, 8, 0.85);
+  color: var(--ana-bone);
+  transition: transform 150ms ease, color 150ms linear;
+  position: relative;
+}
+
+.ana-btn:hover:not(:disabled) {
+  transform: translateX(1px);
+  color: var(--ana-fg);
+}
+
+.ana-btn:active:not(:disabled) {
+  text-shadow:
+    -2px 0 var(--ana-magenta),
+    2px 0 var(--ana-cyan);
+}
+
+.ana-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ana-btn-primary {
+  background: rgba(106, 58, 42, 0.55);
+  border-color: var(--ana-rec);
+  color: var(--ana-fg);
+}
+
+.ana-btn-ghost {
+  background: rgba(0, 0, 0, 0.55);
+  border-color: rgba(255, 255, 255, 0.25);
+}

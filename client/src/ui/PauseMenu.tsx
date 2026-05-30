@@ -1,9 +1,15 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Haptics, loadHapticsPref, setHapticsEnabled } from "../util/haptics";
 import {
   isBatterySaverEnabled,
   setBatterySaverEnabled,
 } from "../util/batterySaver";
+import {
+  AnalogPanel,
+  AnalogButton,
+  RecBadge,
+  ChromaticText,
+} from "./analog";
 
 interface Props {
   volume: number;
@@ -25,12 +31,26 @@ export function PauseMenu({
   const [hapticsOn, setHapticsOn] = useState(() => loadHapticsPref());
   const [batterySaver, setSaver] = useState(() => isBatterySaverEnabled());
 
+  useEffect(() => {
+    document.documentElement.setAttribute("data-paused", "true");
+    return () => {
+      document.documentElement.setAttribute("data-paused", "false");
+    };
+  }, []);
+
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-      <div className="flex w-72 flex-col gap-4 rounded border border-white/20 bg-black/90 px-8 py-6">
-        <h2 className="text-center font-mono text-xl tracking-widest text-white/80">
-          PAUSED
-        </h2>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+      <AnalogPanel className="w-[min(92vw,460px)] flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <ChromaticText
+            as="h2"
+            className="text-3xl font-bold tracking-[0.4em] uppercase"
+            style={{ fontFamily: "var(--ana-font-stencil)" }}
+          >
+            ‖ Paused
+          </ChromaticText>
+          <RecBadge paused label="TAPE 04" />
+        </div>
 
         <label className="flex flex-col gap-1 text-xs">
           <span className="uppercase tracking-widest opacity-60">
@@ -106,27 +126,27 @@ export function PauseMenu({
         </label>
 
         <div className="mt-2 flex flex-col gap-2">
-          <button
-            type="button"
+          <AnalogButton
+            variant="primary"
             onClick={onResume}
             autoFocus
-            className="w-full rounded border border-white/25 bg-white/10 py-2 text-sm font-semibold tracking-widest transition-colors hover:bg-white/20"
+            className="w-full"
           >
             Resume
-          </button>
-          <button
-            type="button"
+          </AnalogButton>
+          <AnalogButton
+            variant="ghost"
             onClick={onQuit}
-            className="w-full rounded border border-red-500/30 bg-red-950/50 py-2 text-sm tracking-widest text-red-300 transition-colors hover:bg-red-900/60"
+            className="w-full"
           >
             Quit to Menu
-          </button>
+          </AnalogButton>
         </div>
 
         <p className="text-center font-mono text-[10px] opacity-30">
           ESC to resume
         </p>
-      </div>
+      </AnalogPanel>
     </div>
   );
 }

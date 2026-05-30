@@ -1,9 +1,10 @@
 import { useState } from "react";
+import { AnalogPanel, ChromaticText } from "./analog";
 
 const STEPS = [
   {
-    title: "Find the keys",
-    body: "Glowing keys are scattered through the house. Collect every one before time runs out.",
+    title: "Find keys and evidence",
+    body: "Collect all glowing keys and enough scattered notes to satisfy the evidence objective before time runs out.",
     icon: "🔑",
   },
   {
@@ -13,7 +14,7 @@ const STEPS = [
   },
   {
     title: "Reach the green door",
-    body: "When all keys are collected, the exit unlocks. Watch the minimap — the blue dot is The Observer.",
+    body: "The exit opens only after keys and required notes are secured. Watch the minimap — the blue dot is The Observer.",
     icon: "🚪",
   },
 ];
@@ -43,11 +44,11 @@ export function Tutorial({ onDone }: { onDone: () => void }) {
 
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/85 backdrop-blur-sm">
-      <div className="mx-4 max-w-md rounded border border-white/20 bg-black/95 px-8 py-6">
+      <AnalogPanel tone="paper" className="mx-4 w-[min(92vw,560px)]">
         <div className="mb-4 text-center text-5xl">{s.icon}</div>
-        <h2 className="mb-3 text-center text-2xl font-bold tracking-wide text-red-300">
+        <ChromaticText as="h2" offset="fixed" className="mb-3 text-center text-2xl font-bold tracking-wide">
           {s.title}
-        </h2>
+        </ChromaticText>
         <p className="mb-6 text-center text-sm leading-relaxed text-white/70">
           {s.body}
         </p>
@@ -79,7 +80,7 @@ export function Tutorial({ onDone }: { onDone: () => void }) {
             {isLast ? "Begin" : "Next"}
           </button>
         </div>
-      </div>
+      </AnalogPanel>
     </div>
   );
 }

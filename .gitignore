@@ -108,6 +108,9 @@ temp/
 # Claude agent worktrees
 .claude/worktrees/
 
+# Brainstorming visual-companion sessions
+.superpowers/
+
 # Generated PBR texture assets (downloaded/encoded by scripts/fetch-textures.mjs)
 client/public/assets/textures/**/*.ktx2
 client/public/assets/textures/**/*.jpg

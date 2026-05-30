@@ -100,30 +100,31 @@ export async function createPostFX(
 
   const bloom = new mod.BloomEffect({
     intensity: opts.uniforms.bloomIntensity.value,
-    luminanceThreshold: 0.85, // only practicals bloom
+    luminanceThreshold: 0.2,
     luminanceSmoothing: 0.2,
     mipmapBlur: true,
   });
 
   const vignette = new mod.VignetteEffect({
     darkness: opts.uniforms.vignetteDarkness.value,
-    offset: opts.uniforms.vignetteOffset.value,
+    offset: 0.28,
   });
 
   const noise = new mod.NoiseEffect({ premultiply: true });
-  noise.blendMode.opacity.value = opts.uniforms.noiseOpacity.value;
+  noise.blendMode.opacity.value = quality === "high" ? 0.055 : 0.04;
 
   const effects: Effect[] = [];
   // Mobile drops chromatic aberration and LUT for cost; SMAA fills in for
   // the missing native MSAA. CA is now driven by uniforms.chromaticAberrationStrength
   // each frame so gameplay (sprint, Observer proximity, catch sequence) can
   // dynamically intensify the effect.
+  const chromaticAberrationBase = new THREE.Vector2(0.0028, 0.0018);
   let chromaticAberration:
     | (Effect & { offset: THREE.Vector2 })
     | null = null;
   if (!isMobile && mod.ChromaticAberrationEffect) {
     chromaticAberration = new mod.ChromaticAberrationEffect({
-      offset: new THREE.Vector2(0, 0),
+      offset: chromaticAberrationBase.clone(),
     }) as Effect & { offset: THREE.Vector2 };
     effects.push(chromaticAberration);
   }
@@ -169,10 +170,15 @@ export async function createPostFX(
       live.bloom.intensity = opts.uniforms.bloomIntensity.value;
       live.vignette.darkness = opts.uniforms.vignetteDarkness.value;
       live.vignette.offset = opts.uniforms.vignetteOffset.value;
-      live.noise.blendMode.opacity.value = opts.uniforms.noiseOpacity.value;
+      live.noise.blendMode.opacity.value = quality === "high" ? 0.055 : 0.04;
       if (live.chromaticAberration) {
         const s = opts.uniforms.chromaticAberrationStrength.value;
-        live.chromaticAberration.offset.set(s, s);
+        const baseRatio =
+          chromaticAberrationBase.y / chromaticAberrationBase.x;
+        live.chromaticAberration.offset.set(
+          chromaticAberrationBase.x + s,
+          chromaticAberrationBase.y + s * baseRatio
+        );
       }
       composer.render(dt);
     },

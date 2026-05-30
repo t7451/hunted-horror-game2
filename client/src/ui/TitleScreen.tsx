@@ -11,6 +11,14 @@ import { useInstallPrompt } from "../hooks/useInstallPrompt";
 import { useIsMobile } from "../hooks/useMobile";
 import { loadJoystickPrefs, saveJoystickPrefs } from "../util/joystickPrefs";
 import type { JoystickPrefs } from "../util/joystickPrefs";
+import {
+  ChromaticText,
+  RecBadge,
+  AnalogPanel,
+  AnalogButton,
+  useAnalogTension,
+  useAnalogQuality,
+} from "./analog";
 
 function formatTime(s: number) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -22,11 +30,16 @@ interface Props {
     quality: GraphicsQuality;
     sensitivity: number;
     daily?: boolean;
+    mode?: "solo" | "multi";
+    playerName?: string;
+    roomCode?: string;
   }) => void;
   webglSupported: boolean;
   volume: number;
   onVolume: (v: number) => void;
 }
+
+type MultiTab = "none" | "create" | "join";
 
 export function TitleScreen({
   onEnter,
@@ -37,10 +50,16 @@ export function TitleScreen({
   const [difficulty, setDifficulty] = useState<MapKey>("easy");
   const [quality, setQuality] = useState<GraphicsQuality>("auto");
   const [sensitivity, setSensitivity] = useState(1);
+  const [multiTab, setMultiTab] = useState<MultiTab>("none");
+  const [playerName, setPlayerName] = useState("");
+  const [joinCode, setJoinCode] = useState("");
 
   const { canInstall, accept: acceptInstall, dismiss: dismissInstall } = useInstallPrompt();
   const isMobile = useIsMobile();
   const [joyPrefs, setJoyPrefs] = useState<JoystickPrefs>(() => loadJoystickPrefs());
+
+  useAnalogTension(0.55);
+  useAnalogQuality(quality);
 
   const updateJoyPrefs = (patch: Partial<JoystickPrefs>) => {
     const next = { ...joyPrefs, ...patch };
@@ -52,28 +71,15 @@ export function TitleScreen({
 
   return (
     <div className="relative flex min-h-screen flex-col items-center overflow-x-hidden overflow-y-auto bg-black px-4 py-8 text-white touch-auto" style={{ height: "100dvh" }}>
-      {/* Atmospheric drifting radial gradient */}
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-0 opacity-40"
-        style={{
-          background:
-            "radial-gradient(ellipse at 30% 40%, #1a0808 0%, #050202 50%, #000 100%)",
-          animation: "title-drift 18s ease-in-out infinite",
-        }}
-      />
-      {/* Subtle red scanlines (CRT decay) */}
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-0 opacity-20 mix-blend-screen"
-        style={{
-          background:
-            "repeating-linear-gradient(0deg, transparent 0 2px, rgba(255,80,80,0.05) 2px 3px)",
-        }}
-      />
-      <h1 className="relative mb-2 text-5xl font-bold tracking-widest">
+      <div className="absolute top-4 left-4 z-10">
+        <RecBadge label="TAPE 01" />
+      </div>
+      <ChromaticText
+        as="h1"
+        className="relative mb-2 text-5xl font-bold tracking-widest"
+      >
         HUNTED
-      </h1>
+      </ChromaticText>
       <p className="mb-6 text-sm opacity-70">
         A browser-first horror escape · adaptive AI · no install
       </p>
@@ -91,17 +97,17 @@ export function TitleScreen({
             key={opt.key}
             type="button"
             onClick={() => setDifficulty(opt.key)}
-            className={`rounded border px-4 py-3 text-left transition-colors ${
-              difficulty === opt.key
-                ? "border-red-400 bg-red-950/70"
-                : "border-white/20 bg-black/50 hover:border-white/50"
+            className={`text-left transition-transform hover:translate-x-[1px] ${
+              difficulty === opt.key ? "ring-2 ring-red-400" : ""
             }`}
           >
-            <div className="font-semibold tracking-wide">{opt.name}</div>
-            <div className="mt-1 text-xs opacity-70">{opt.summary}</div>
-            <div className="mt-2 text-[11px] opacity-60">
-              {formatTime(opt.timer)} · danger {opt.difficulty}/3
-            </div>
+            <AnalogPanel classified={true}>
+              <div className="font-semibold tracking-wide">{opt.name}</div>
+              <div className="mt-1 text-xs opacity-70">{opt.summary}</div>
+              <div className="mt-2 text-[11px] opacity-60">
+                {formatTime(opt.timer)} · danger {opt.difficulty}/3
+              </div>
+            </AnalogPanel>
           </button>
         ))}
       </div>
@@ -151,14 +157,97 @@ export function TitleScreen({
         </label>
       </div>
 
-      <button
-        type="button"
+      <AnalogButton
+        variant="primary"
         disabled={!webglSupported}
-        onClick={() => onEnter({ difficulty, quality, sensitivity })}
-        className="rounded bg-red-700 px-8 py-3 font-semibold tracking-widest transition-colors hover:bg-red-600 disabled:opacity-40"
+        onClick={() => onEnter({ difficulty, quality, sensitivity, mode: "solo" })}
       >
-        ENTER THE HOUSE
-      </button>
+        Enter the House
+      </AnalogButton>
+
+      {/* ── Multiplayer lobby ── */}
+      <div className="mt-3 w-[min(92vw,520px)]">
+        <div className="mb-2 flex gap-2">
+          <button
+            type="button"
+            disabled={!webglSupported}
+            onClick={() => setMultiTab(t => (t === "create" ? "none" : "create"))}
+            className={`flex-1 rounded border px-3 py-2 text-xs font-semibold uppercase tracking-widest transition-colors disabled:opacity-40 ${
+              multiTab === "create"
+                ? "border-red-400 bg-red-950/60 text-red-200"
+                : "border-white/20 bg-black/40 hover:border-white/40"
+            }`}
+          >
+            Create Lobby
+          </button>
+          <button
+            type="button"
+            disabled={!webglSupported}
+            onClick={() => setMultiTab(t => (t === "join" ? "none" : "join"))}
+            className={`flex-1 rounded border px-3 py-2 text-xs font-semibold uppercase tracking-widest transition-colors disabled:opacity-40 ${
+              multiTab === "join"
+                ? "border-red-400 bg-red-950/60 text-red-200"
+                : "border-white/20 bg-black/40 hover:border-white/40"
+            }`}
+          >
+            Join Lobby
+          </button>
+        </div>
+
+        {(multiTab === "create" || multiTab === "join") && (
+          <div className="rounded border border-white/10 bg-black/40 px-4 py-3 space-y-3">
+            <label className="block">
+              <div className="mb-1 text-[10px] uppercase tracking-widest opacity-60">
+                Your Name
+              </div>
+              <input
+                type="text"
+                maxLength={24}
+                value={playerName}
+                onChange={e => setPlayerName(e.target.value)}
+                placeholder="Player"
+                className="w-full rounded border border-white/20 bg-black/60 px-3 py-2 text-sm focus:border-red-400/60 focus:outline-none"
+              />
+            </label>
+
+            {multiTab === "join" && (
+              <label className="block">
+                <div className="mb-1 text-[10px] uppercase tracking-widest opacity-60">
+                  Room Code
+                </div>
+                <input
+                  type="text"
+                  maxLength={4}
+                  value={joinCode}
+                  onChange={e => setJoinCode(e.target.value.toUpperCase())}
+                  placeholder="ABCD"
+                  className="w-full rounded border border-white/20 bg-black/60 px-3 py-2 font-mono text-sm uppercase tracking-widest focus:border-red-400/60 focus:outline-none"
+                />
+              </label>
+            )}
+
+            <AnalogButton
+              variant="primary"
+              disabled={
+                !webglSupported ||
+                (multiTab === "join" && joinCode.trim().length < 1)
+              }
+              onClick={() =>
+                onEnter({
+                  difficulty,
+                  quality,
+                  sensitivity,
+                  mode: "multi",
+                  playerName: playerName.trim() || "Player",
+                  roomCode: multiTab === "join" ? joinCode.trim() : undefined,
+                })
+              }
+            >
+              {multiTab === "create" ? "Create Lobby" : "Join Lobby"}
+            </AnalogButton>
+          </div>
+        )}
+      </div>
 
       <DailyChallengeButton
         onEnter={onEnter}
@@ -336,8 +425,8 @@ function DailyChallengeButton({
 
   return (
     <div className="mt-3 flex flex-col items-center gap-2">
-      <button
-        type="button"
+      <AnalogButton
+        variant="ghost"
         disabled={!!result || !webglSupported}
         onClick={() =>
           onEnter({
@@ -347,12 +436,11 @@ function DailyChallengeButton({
             daily: true,
           })
         }
-        className="w-[min(92vw,520px)] rounded border border-amber-500/40 bg-amber-950/40 px-4 py-3 text-sm tracking-widest transition-colors hover:bg-amber-900/50 disabled:cursor-not-allowed disabled:opacity-40"
       >
         {result
           ? `Daily ${result.result === "escaped" ? "✓ escaped" : "✗ caught"} (${formatTime(result.timeUsed)})`
           : `Today's Challenge — ${id}`}
-      </button>
+      </AnalogButton>
       {result && (
         <button
           type="button"

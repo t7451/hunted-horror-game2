@@ -5,6 +5,8 @@ import {
   TILE_SIZE,
   WALL_HEIGHT,
   isBlocked,
+  isDecorFloorTile,
+  validateParsedMap,
   type MapKey,
   type MapDef,
   type ParsedMap,
@@ -51,6 +53,7 @@ import { buildWalls } from "../world/WallBuilder";
 import { WallDecals } from "../world/WallDecals";
 import { buildDoorFrames } from "../world/DoorFrames";
 import { WallFixtures } from "../world/WallFixtures";
+import { buildCeilingFixtures } from "../world/CeilingFixtures.ts";
 import { createAIDirector, type DirectorUpdate } from "./aiDirector";
 import { findPath } from "./pathfinding";
 import { TheObserver, disposeObserverCache } from "../world/TheObserver";
@@ -64,6 +67,18 @@ import { dumpLightingState } from "../util/lightingDebug";
 const LIGHT_DEBUG =
   typeof window !== "undefined" &&
   new URLSearchParams(window.location.search).has("lightdebug");
+
+const NOTE_TIME_BONUS_BY_DIFFICULTY: Record<number, number> = {
+  1: 6,
+  2: 4,
+  3: 3,
+};
+const NOTE_OBJECTIVE_RATIO_BY_DIFFICULTY: Record<number, number> = {
+  1: 0.34,
+  2: 0.5,
+  3: 0.67,
+};
+const DEFAULT_NOTE_OBJECTIVE_RATIO = 0.5;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rendering backend for HUNTED BY CLAUDE.
@@ -94,6 +109,7 @@ export type EngineEvents = {
     timer: number;
     mapName: string;
     notesTotal: number;
+    notesRequired: number;
     batteriesTotal: number;
   }) => void;
   onKeyPickup?: (remaining: number) => void;
@@ -319,6 +335,10 @@ export function startGame(
 ): EngineHandle {
   const mapDef: MapDef = MAPS[options.mapKey ?? "easy"];
   const parsed = parseMap(mapDef);
+  const mapIssues = validateParsedMap(parsed);
+  if (mapIssues.length > 0) {
+    console.warn(`[map] ${mapDef.name} integrity issues`, mapIssues);
+  }
   const events = options.events ?? {};
   const quality = resolveGraphicsQuality(options.quality);
   const shadowsEnabled = quality !== "low";
@@ -338,7 +358,10 @@ export function startGame(
   // Adaptive renderer DPR — drops on sustained <30fps, rises on >55fps.
   const adaptiveQuality = new AdaptiveQuality(renderer, isMobile ? 1.5 : 2.0);
   // Distance-based light culler — practicals dim/disable beyond ~18 tiles.
-  const lightCuller = new LightCuller(isMobile ? 14 : 20);
+  // LightCuller uses world units (not tile counts): 32 ≈ 8 tiles on mobile,
+  // 44 ≈ 11 tiles on desktop (TILE_SIZE=4). Keep this wide enough to prevent
+  // rooms from going unnaturally dark while still culling distant lights.
+  const lightCuller = new LightCuller(isMobile ? 32 : 44);
   let lastPropCullAt = 0;
 
   // KTX2 texture pipeline: getMaterial() returns procedural fallbacks
@@ -458,11 +481,8 @@ export function startGame(
     metalness: 0.85,
     roughness: 0.3,
   });
-  const hideMat = new THREE.MeshStandardMaterial({
-    color: 0x40291a,
-    roughness: 0.9,
-    metalness: 0.05,
-  });
+  // Wardrobe/closet uses the PBR wood_panel_dark material for a richer look.
+  const wardrobeMat = getMaterial("wood_panel_dark");
   const exitMat = new THREE.MeshStandardMaterial({
     color: 0x1a4a1a,
     emissive: 0x0a4a0a,
@@ -493,6 +513,8 @@ export function startGame(
   ceiling.position.set(worldW / 2, WALL_HEIGHT, worldD / 2);
   scene.add(ceiling);
 
+  const baseSeed = options.seed ?? 0x484e54;
+
   // Water-stained ceiling — irregular sepia blotches over interior tiles.
   // Plane meshes facing down, slightly below the ceiling plane with
   // polygonOffset to avoid z-fighting. Density target: ~one stain per
@@ -517,7 +539,7 @@ export function startGame(
     const floorTiles: { x: number; z: number }[] = [];
     for (let z = 0; z < parsed.height; z++) {
       for (let x = 0; x < parsed.width; x++) {
-        if (parsed.tiles[z][x] === ".") floorTiles.push({ x, z });
+        if (isDecorFloorTile(parsed.tiles[z][x])) floorTiles.push({ x, z });
       }
     }
     const stainCount = Math.max(4, Math.floor(floorTiles.length / 12));
@@ -552,6 +574,63 @@ export function startGame(
     scene.add(stainGroup);
   }
 
+  // Floor grime and blood patches — horror atmosphere overlaid on the floor.
+  // Thin planes sitting 3mm above the floor face so they don't z-fight.
+  if (quality !== "low") {
+    const grimeRng = mulberry32((baseSeed ^ 0xf100d5) >>> 0);
+    const grimeGroup = new THREE.Group();
+    grimeGroup.name = "floor_grime";
+
+    const bloodMat = new THREE.MeshStandardMaterial({
+      color: 0x3a0000,
+      emissive: 0x120000,
+      emissiveIntensity: 0.12,
+      roughness: 0.98,
+      metalness: 0.0,
+      transparent: true,
+      opacity: 0.82,
+      depthWrite: false,
+    });
+    const grimeMat = new THREE.MeshStandardMaterial({
+      color: 0x151210,
+      roughness: 0.99,
+      metalness: 0.0,
+      transparent: true,
+      opacity: 0.65,
+      depthWrite: false,
+    });
+
+    const floorTilesForGrime: { x: number; z: number }[] = [];
+    for (let gz2 = 0; gz2 < parsed.height; gz2++) {
+      for (let gx2 = 0; gx2 < parsed.width; gx2++) {
+        if (isDecorFloorTile(parsed.tiles[gz2]?.[gx2] ?? "D")) {
+          floorTilesForGrime.push({ x: gx2, z: gz2 });
+        }
+      }
+    }
+
+    const bloodCount = Math.max(2, Math.floor(floorTilesForGrime.length / 14));
+    const grimeCount = Math.max(3, Math.floor(floorTilesForGrime.length / 9));
+
+    for (let i = 0; i < bloodCount + grimeCount; i++) {
+      const isBlood = i < bloodCount;
+      const t = floorTilesForGrime[Math.floor(grimeRng() * floorTilesForGrime.length)];
+      const patchW = (isBlood ? 1.2 : 1.8) + grimeRng() * 1.4;
+      const patchD = (isBlood ? 1.0 : 1.5) + grimeRng() * 1.2;
+      const patchGeo = new THREE.PlaneGeometry(patchW, patchD);
+      const patch = new THREE.Mesh(patchGeo, isBlood ? bloodMat : grimeMat);
+      patch.rotation.x = -Math.PI / 2;
+      patch.rotation.z = grimeRng() * Math.PI * 2;
+      patch.position.set(
+        t.x * TILE_SIZE + TILE_SIZE / 2 + (grimeRng() - 0.5) * TILE_SIZE * 0.5,
+        0.003,
+        t.z * TILE_SIZE + TILE_SIZE / 2 + (grimeRng() - 0.5) * TILE_SIZE * 0.5
+      );
+      grimeGroup.add(patch);
+    }
+    scene.add(grimeGroup);
+  }
+
   // Walls — coalesced into per-run boxes by WallBuilder. Replaces the old
   // per-tile InstancedMesh, which produced visible seams/z-fighting at tile
   // edges and identical-tile striping along long runs. Collision still reads
@@ -581,7 +660,6 @@ export function startGame(
   //
   // Each constructor gets its own independent RNG stream so tweaking decal
   // density doesn't shift every fixture's placement.
-  const baseSeed = options.seed ?? 0x484e54;
   const decalRng = mulberry32((baseSeed ^ 0x57414c4c) >>> 0);
   const fixtureRng = mulberry32((baseSeed ^ 0x46585452) >>> 0);
   const wallDecals = new WallDecals(parsed, TILE_SIZE, decalRng);
@@ -607,7 +685,7 @@ export function startGame(
           const nz = z + d.dz;
           if (nz < 0 || nz >= parsed.height || nx < 0 || nx >= parsed.width)
             continue;
-          if (parsed.tiles[nz][nx] !== ".") continue;
+          if (!isDecorFloorTile(parsed.tiles[nz][nx])) continue;
           const wx =
             x * TILE_SIZE + TILE_SIZE / 2 + d.dx * (TILE_SIZE / 2 - 0.04);
           const wz =
@@ -673,24 +751,108 @@ export function startGame(
         );
         scene.add(crownMesh);
       }
+
+      // Wainscoting dado rail — kitchen and house themes only.
+      // A dado cap strip at ~1 m height + a flat wood panel below it give
+      // period-appropriate depth and break up the long wall expanses.
+      if (mapDef.theme === "kitchen" || mapDef.theme === "house") {
+        const dadoMat = getMaterial("wood_panel_dark");
+        // Cap molding: projects proud of the wall face
+        const dadoCapGeo = new THREE.BoxGeometry(TILE_SIZE, 0.065, 0.055);
+        const dadoCapMesh = new THREE.InstancedMesh(
+          dadoCapGeo,
+          dadoMat,
+          trimSegments.length
+        );
+        dadoCapMesh.castShadow = false;
+        dadoCapMesh.receiveShadow = shadowsEnabled;
+        // Flat panel from baseboard top (≈0.12) to dado cap bottom (≈0.97)
+        const panelH = 0.85;
+        const dadoPanelGeo = new THREE.BoxGeometry(TILE_SIZE, panelH, 0.022);
+        const dadoPanelMesh = new THREE.InstancedMesh(
+          dadoPanelGeo,
+          dadoMat,
+          trimSegments.length
+        );
+        dadoPanelMesh.castShadow = false;
+        dadoPanelMesh.receiveShadow = shadowsEnabled;
+        for (let i = 0; i < trimSegments.length; i++) {
+          const s = trimSegments[i];
+          trimTmp.position.set(s.x, 1.0, s.z);
+          trimTmp.rotation.set(0, s.rotY, 0);
+          trimTmp.updateMatrix();
+          dadoCapMesh.setMatrixAt(i, trimTmp.matrix);
+          trimTmp.position.set(s.x, 0.12 + panelH * 0.5, s.z);
+          trimTmp.rotation.set(0, s.rotY, 0);
+          trimTmp.updateMatrix();
+          dadoPanelMesh.setMatrixAt(i, trimTmp.matrix);
+        }
+        dadoCapMesh.instanceMatrix.needsUpdate = true;
+        dadoPanelMesh.instanceMatrix.needsUpdate = true;
+        applyInstanceTint(
+          dadoCapMesh,
+          trimSegments.map(s => ({ x: s.x, z: s.z })),
+          0.08,
+          0.02,
+        );
+        applyInstanceTint(
+          dadoPanelMesh,
+          trimSegments.map(s => ({ x: s.x, z: s.z })),
+          0.08,
+          0.02,
+        );
+        scene.add(dadoCapMesh);
+        scene.add(dadoPanelMesh);
+      }
     }
   }
 
-  const doorGeo = new THREE.BoxGeometry(
-    TILE_SIZE * 0.95,
-    WALL_HEIGHT * 0.92,
-    0.2
-  );
+  // ── Paneled door geometry ───────────────────────────────────────────────────
+  // A classic 6-piece door: thinner body + proud left/right stiles +
+  // top/bottom/mid rails. The depth difference casts shadow lines under
+  // point-light illumination and reads as a real door leaf.
+  function buildPaneledDoorGeo(w: number, h: number): THREE.BufferGeometry {
+    const bodyD = 0.12;
+    const frameD = 0.20;
+    const sw = Math.min(0.20, w * 0.055); // stile width
+    const rh = Math.min(0.22, h * 0.065); // top/bottom rail height
+    const mh = 0.16; // mid rail height
+    const pieces: Array<{ sx: number; sy: number; sz: number; px: number; py: number; pz: number }> = [
+      { sx: w, sy: h, sz: bodyD, px: 0, py: h * 0.5, pz: 0 },                       // body
+      { sx: sw, sy: h, sz: frameD, px: -(w * 0.5 - sw * 0.5), py: h * 0.5, pz: 0 }, // left stile
+      { sx: sw, sy: h, sz: frameD, px: (w * 0.5 - sw * 0.5), py: h * 0.5, pz: 0 },  // right stile
+      { sx: w - sw * 2, sy: rh, sz: frameD, px: 0, py: h - rh * 0.5, pz: 0 },       // top rail
+      { sx: w - sw * 2, sy: rh, sz: frameD, px: 0, py: rh * 0.5, pz: 0 },           // bottom rail
+      { sx: w - sw * 2, sy: mh, sz: frameD, px: 0, py: h * 0.5, pz: 0 },            // mid rail
+    ];
+    const positions: number[] = [], normals: number[] = [], uvs: number[] = [];
+    for (const p of pieces) {
+      const g = new THREE.BoxGeometry(p.sx, p.sy, p.sz);
+      g.applyMatrix4(new THREE.Matrix4().makeTranslation(p.px, p.py, p.pz));
+      const ni = g.toNonIndexed();
+      const pa = ni.attributes.position.array as Float32Array;
+      const na = ni.attributes.normal.array as Float32Array;
+      const ua = ni.attributes.uv.array as Float32Array;
+      for (let i = 0; i < pa.length; i++) positions.push(pa[i]);
+      for (let i = 0; i < na.length; i++) normals.push(na[i]);
+      for (let i = 0; i < ua.length; i++) uvs.push(ua[i]);
+      g.dispose(); ni.dispose();
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
+    geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+    geo.computeBoundingBox();
+    geo.computeBoundingSphere();
+    return geo;
+  }
+
+  const doorGeo = buildPaneledDoorGeo(TILE_SIZE * 0.95, WALL_HEIGHT * 0.92);
   const keyGeo = new THREE.TorusGeometry(
     0.25,
     0.08,
     8,
     quality === "low" ? 16 : 24
-  );
-  const hideGeo = new THREE.BoxGeometry(
-    TILE_SIZE * 0.9,
-    WALL_HEIGHT * 0.8,
-    TILE_SIZE * 0.9
   );
 
   // Seed grime/blood/water decals on random wall faces and floor patches
@@ -804,9 +966,10 @@ export function startGame(
   // Auto-open doors near the player. Slow swing speeds give a horror-house
   // feel; OPEN_SPEED < CLOSE_SPEED so doors close just a touch faster than
   // they open (creates a subtle "behind-you" pressure).
-  const DOOR_OPEN_RANGE = 2.4;
+  const DOOR_OPEN_RANGE = 3.4;
   const DOOR_OPEN_SPEED = 2.4; // rad/s
   const DOOR_CLOSE_SPEED = 1.6; // rad/s
+  const DOOR_PASSABLE_ROT = Math.PI * 0.35;
   function tickDoorSwings(dt: number): void {
     const now = performance.now();
     for (const door of doorStates) {
@@ -877,18 +1040,48 @@ export function startGame(
   });
   scene.add(keyGroup);
 
-  // Hiding closets
-  parsed.hides.forEach(h => {
-    const closet = new THREE.Mesh(hideGeo, hideMat);
-    closet.castShadow = shadowsEnabled;
-    closet.receiveShadow = shadowsEnabled;
-    closet.position.set(
-      h.x * TILE_SIZE + TILE_SIZE / 2,
-      (WALL_HEIGHT * 0.8) / 2,
-      h.z * TILE_SIZE + TILE_SIZE / 2
-    );
-    scene.add(closet);
-  });
+  // Hiding closets — rendered as standing wardrobes with crown rail,
+  // base plinth, and horizontal door-divider strips.
+  {
+    const bodyW = TILE_SIZE * 0.82;
+    const bodyH = WALL_HEIGHT * 0.72;
+    const bodyD = TILE_SIZE * 0.82;
+    // Shared geometry pieces (created once, reused per hide instance)
+    const wBodyGeo = new THREE.BoxGeometry(bodyW, bodyH, bodyD);
+    const wCrownGeo = new THREE.BoxGeometry(bodyW + 0.12, 0.12, bodyD + 0.12);
+    const wPlinthGeo = new THREE.BoxGeometry(bodyW + 0.12, 0.16, bodyD + 0.12);
+    const wDivGeo = new THREE.BoxGeometry(bodyW + 0.04, 0.07, bodyD + 0.04);
+    parsed.hides.forEach(h => {
+      const cx = h.x * TILE_SIZE + TILE_SIZE / 2;
+      const cz = h.z * TILE_SIZE + TILE_SIZE / 2;
+      const ward = new THREE.Group();
+      const body = new THREE.Mesh(wBodyGeo, wardrobeMat);
+      body.position.y = 0.16 + bodyH * 0.5;
+      body.castShadow = shadowsEnabled;
+      body.receiveShadow = shadowsEnabled;
+      ward.add(body);
+      const crown = new THREE.Mesh(wCrownGeo, wardrobeMat);
+      crown.position.y = 0.16 + bodyH + 0.06;
+      crown.castShadow = false;
+      crown.receiveShadow = shadowsEnabled;
+      ward.add(crown);
+      const plinth = new THREE.Mesh(wPlinthGeo, wardrobeMat);
+      plinth.position.y = 0.08;
+      plinth.castShadow = false;
+      plinth.receiveShadow = shadowsEnabled;
+      ward.add(plinth);
+      // Two horizontal divider strips suggesting three-panel doors
+      for (const divY of [0.16 + bodyH * 0.35, 0.16 + bodyH * 0.70]) {
+        const div = new THREE.Mesh(wDivGeo, wardrobeMat);
+        div.position.y = divY;
+        div.castShadow = false;
+        div.receiveShadow = shadowsEnabled;
+        ward.add(div);
+      }
+      ward.position.set(cx, 0, cz);
+      scene.add(ward);
+    });
+  }
 
   // ── Pickups: batteries (refill flashlight) and notes (lore pages) ─────────
   const batteryGroup = new THREE.Group();
@@ -943,6 +1136,17 @@ export function startGame(
   scene.add(noteGroup);
 
   const totalNotes = noteMeshes.length;
+  const notesRequired =
+    totalNotes > 0
+      ? Math.max(
+          1,
+          Math.ceil(
+            totalNotes *
+              (NOTE_OBJECTIVE_RATIO_BY_DIFFICULTY[mapDef.difficulty] ??
+                DEFAULT_NOTE_OBJECTIVE_RATIO)
+          )
+        )
+      : 0;
   let notesCollected = 0;
 
   // Prop dressing — theme-weighted prop selection over the full kind set.
@@ -1332,13 +1536,28 @@ export function startGame(
     "bookstack",
     "painting",
     "rug",
+    "bed",
+    "sofa",
+    "counter",
+    "bathtub",
+    "candles",
+    "ritual",
     "clutter",
   ];
   const PROP_WEIGHTS_BY_THEME: Record<string, number[]> = {
-    // chair, table, lamp, shelf, crate, barrel, bookstack, painting, rug, clutter
-    kitchen: [0.2, 0.14, 0.1, 0.1, 0.05, 0.04, 0.1, 0.08, 0.07, 0.12],
-    house: [0.1, 0.08, 0.1, 0.08, 0.16, 0.16, 0.04, 0.06, 0.04, 0.18],
-    nightmare: [0.06, 0.05, 0.06, 0.05, 0.18, 0.2, 0.04, 0.04, 0.02, 0.3],
+    // chair, table, lamp, shelf, crate, barrel, bookstack, painting, rug, bed, sofa, counter, bathtub, candles, ritual, clutter
+    kitchen: [
+      0.15, 0.11, 0.08, 0.07, 0.03, 0.02, 0.06, 0.06, 0.05, 0.04, 0.05,
+      0.12, 0.02, 0.07, 0.02, 0.05,
+    ],
+    house: [
+      0.08, 0.07, 0.08, 0.08, 0.12, 0.11, 0.04, 0.06, 0.04, 0.04, 0.04,
+      0.03, 0.02, 0.06, 0.05, 0.08,
+    ],
+    nightmare: [
+      0.04, 0.03, 0.04, 0.03, 0.15, 0.16, 0.02, 0.03, 0.02, 0.02, 0.01,
+      0.02, 0.01, 0.08, 0.1, 0.24,
+    ],
   };
   const propWeights =
     PROP_WEIGHTS_BY_THEME[mapDef.theme] ?? PROP_WEIGHTS_BY_THEME.kitchen;
@@ -1359,9 +1578,69 @@ export function startGame(
     return null;
   };
   // Per-room budget: we don't have proper room volumes yet, so cap globally.
-  const PROP_DENSITY = 0.3; // bumped up to fill the larger Phase-2 maps
-  const MAX_LAMP_LIGHTS = 12;
+  const PROP_DENSITY_BY_QUALITY: Record<"low" | "mid" | "high", number> = {
+    low: 0.32,
+    mid: 0.38,
+    high: 0.42,
+  };
+  const PROP_DENSITY = PROP_DENSITY_BY_QUALITY[quality] ?? PROP_DENSITY_BY_QUALITY.mid;
+  const MAX_LAMP_LIGHTS = quality === "high" ? 18 : 14;
   let lampLightCount = 0;
+  const placeSignatureProp = (
+    kind: PropKind,
+    gx: number,
+    gz: number,
+    rotY = 0,
+    scale = 1
+  ): void => {
+    const key = `${gx},${gz}`;
+    if (blocked.has(key) || isBlocked(parsed, gx, gz)) return;
+    blocked.add(key);
+    props.place(
+      kind,
+      new THREE.Vector3(
+        gx * TILE_SIZE + TILE_SIZE / 2,
+        0,
+        gz * TILE_SIZE + TILE_SIZE / 2
+      ),
+      rotY,
+      scale
+    );
+  };
+  // The "easy" map key is the level-one Farmhouse in shared/maps.ts.
+  if ((options.mapKey ?? "easy") === "easy") {
+    const N = 0;
+    const E = -Math.PI / 2;
+    const S = Math.PI;
+    const W = Math.PI / 2;
+
+    // Hand-authored anchor pieces give each room a readable purpose; random
+    // scatter still fills gaps after these reserved cells are placed.
+    placeSignatureProp("bed", 4, 2, W, 1.15);
+    placeSignatureProp("bathtub", 9, 2, N, 1.15);
+    placeSignatureProp("shelf", 16, 2, S, 1.25);
+    placeSignatureProp("bed", 22, 2, E, 1.05);
+
+    placeSignatureProp("counter", 28, 2, S, 1.35);
+    placeSignatureProp("counter", 31, 2, S, 1.35);
+    placeSignatureProp("counter", 34, 2, S, 1.35);
+    placeSignatureProp("table", 32, 7, 0, 1.3);
+    placeSignatureProp("chair", 31, 7, E, 1.15);
+    placeSignatureProp("chair", 33, 7, W, 1.15);
+
+    placeSignatureProp("rug", 17, 12, 0, 1.45);
+    placeSignatureProp("sofa", 16, 13, N, 1.25);
+    placeSignatureProp("table", 18, 12, Math.PI / 2, 1.15);
+    placeSignatureProp("lamp", 21, 14, 0, 1.1);
+    placeSignatureProp("candles", 19, 14, Math.PI / 5, 1.2);
+
+    placeSignatureProp("shelf", 8, 13, S, 1.2);
+    placeSignatureProp("bed", 3, 17, E, 1.05);
+    placeSignatureProp("ritual", 7, 17, Math.PI / 7, 1.25);
+    placeSignatureProp("counter", 32, 17, S, 1.2);
+    placeSignatureProp("counter", 36, 17, S, 1.2);
+    placeSignatureProp("sofa", 10, 21, S, 1.2);
+  }
   for (let gz = 0; gz < parsed.height; gz++) {
     for (let gx = 0; gx < parsed.width; gx++) {
       if (blocked.has(`${gx},${gz}`)) continue;
@@ -1408,8 +1687,8 @@ export function startGame(
         const light = createPractical({
           position: new THREE.Vector3(px, 1.55, pz),
           color: 0xffb066,
-          intensity: 0.55,
-          distance: 5,
+          intensity: 0.95,
+          distance: 7.5,
         });
         scene.add(light);
         lightCuller.register(light);
@@ -1421,6 +1700,18 @@ export function startGame(
     }
   }
   props.commit();
+
+  // Ceiling pendant fixtures — warm overhead lights that define room volumes
+  // and create the lit-pools-vs-dark-corners contrast of a horror interior.
+  const ceilRng = mulberry32((baseSeed ^ 0x43454c4c) >>> 0);
+  const ceilingFixtures = buildCeilingFixtures(parsed, TILE_SIZE, quality, ceilRng);
+  scene.add(ceilingFixtures.group);
+  for (const l of ceilingFixtures.lights) {
+    lightCuller.register(l);
+  }
+  for (const l of ceilingFixtures.flickerLights) {
+    flickers.add(new LightFlicker(l, l.intensity, 0.10, 4 + ceilRng() * 4));
+  }
 
   // Cobwebs in the upper corners of every wall tile that has a free
   // neighbor — gives an "in the corner of the room" feel without needing
@@ -1472,15 +1763,58 @@ export function startGame(
 
   // Exit
   if (parsed.exit) {
+    const exitX = parsed.exit.x * TILE_SIZE + TILE_SIZE / 2;
+    const exitZ = parsed.exit.z * TILE_SIZE + TILE_SIZE / 2;
+
     const exitMesh = new THREE.Mesh(doorGeo, exitMat);
-    exitMesh.position.set(
-      parsed.exit.x * TILE_SIZE + TILE_SIZE / 2,
-      (WALL_HEIGHT * 0.92) / 2,
-      parsed.exit.z * TILE_SIZE + TILE_SIZE / 2
-    );
+    exitMesh.position.set(exitX, (WALL_HEIGHT * 0.92) / 2, exitZ);
+    exitMesh.castShadow = false;
+    exitMesh.receiveShadow = false;
     scene.add(exitMesh);
+
+    const exitOuterRing = new THREE.Mesh(new THREE.TorusGeometry(0.95, 0.07, 12, 32), exitMat);
+    exitOuterRing.position.set(exitX, 0.07, exitZ);
+    exitOuterRing.rotation.x = -Math.PI / 2;
+    exitOuterRing.castShadow = false;
+    exitOuterRing.receiveShadow = false;
+    scene.add(exitOuterRing);
+
+    const exitInnerRing = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.045, 10, 24), exitMat);
+    exitInnerRing.position.set(exitX, 0.05, exitZ);
+    exitInnerRing.rotation.x = -Math.PI / 2;
+    exitInnerRing.castShadow = false;
+    exitInnerRing.receiveShadow = false;
+    scene.add(exitInnerRing);
+
+    const exitLeftPillar = new THREE.Mesh(
+      new THREE.BoxGeometry(0.12, WALL_HEIGHT, 0.12),
+      exitMat
+    );
+    exitLeftPillar.position.set(exitX - TILE_SIZE * 0.51, WALL_HEIGHT / 2, exitZ);
+    exitLeftPillar.castShadow = false;
+    exitLeftPillar.receiveShadow = false;
+    scene.add(exitLeftPillar);
+
+    const exitRightPillar = new THREE.Mesh(
+      new THREE.BoxGeometry(0.12, WALL_HEIGHT, 0.12),
+      exitMat
+    );
+    exitRightPillar.position.set(exitX + TILE_SIZE * 0.51, WALL_HEIGHT / 2, exitZ);
+    exitRightPillar.castShadow = false;
+    exitRightPillar.receiveShadow = false;
+    scene.add(exitRightPillar);
+
+    const exitLintel = new THREE.Mesh(
+      new THREE.BoxGeometry(TILE_SIZE * 1.06, 0.14, 0.14),
+      exitMat
+    );
+    exitLintel.position.set(exitX, WALL_HEIGHT - 0.07, exitZ);
+    exitLintel.castShadow = false;
+    exitLintel.receiveShadow = false;
+    scene.add(exitLintel);
+
     if (quality !== "low") {
-      const exitLight = new THREE.PointLight(0x44ff66, 1.2, 8, 2);
+      const exitLight = new THREE.PointLight(0x44ff66, 2.0, 12, 2);
       exitLight.position.copy(exitMesh.position);
       scene.add(exitLight);
       lightCuller.register(exitLight);
@@ -1611,6 +1945,7 @@ export function startGame(
   let dangerState: "safe" | "near" | "critical" = "safe";
   let isHiding = false;
   let timeLeft = mapDef.timer;
+  const NOTE_TIME_BONUS = NOTE_TIME_BONUS_BY_DIFFICULTY[mapDef.difficulty] ?? 3;
   // Flashlight battery — drains while flashlight is on. Pickup batteries
   // (parsed.batteries) refill it. Drains slow enough that a full map needs
   // ~3 batteries to keep the cone bright; running out doesn't kill, just
@@ -1702,6 +2037,7 @@ export function startGame(
     timer: mapDef.timer,
     mapName: mapDef.name,
     notesTotal: totalNotes,
+    notesRequired,
     batteriesTotal: batteryMeshes.length,
   });
   events.onTimer?.(lastTimerSecond);
@@ -1980,7 +2316,7 @@ export function startGame(
     }
   }
 
-  function canOccupy(x: number, z: number, radius: number) {
+  function canOccupy(x: number, z: number, radius: number, ignoreDoors = false) {
     const samples: Array<[number, number]> = [
       [x - radius, z - radius],
       [x + radius, z - radius],
@@ -1991,7 +2327,15 @@ export function startGame(
     return samples.every(([sx, sz]) => {
       const gx = Math.floor(sx / TILE_SIZE);
       const gz = Math.floor(sz / TILE_SIZE);
-      return !isBlocked(parsed, gx, gz);
+      const closedDoor =
+        !ignoreDoors &&
+        doorStates.some(
+          door =>
+            door.tileX === gx &&
+            door.tileZ === gz &&
+            door.currentRot < DOOR_PASSABLE_ROT
+        );
+      return !isBlocked(parsed, gx, gz) && !closedDoor;
     });
   }
 
@@ -2007,9 +2351,9 @@ export function startGame(
   function tryMoveEnemy(dx: number, dz: number) {
     const nx = enemyMesh.position.x + dx;
     const nz = enemyMesh.position.z + dz;
-    if (canOccupy(nx, enemyMesh.position.z, ENEMY_RADIUS))
+    if (canOccupy(nx, enemyMesh.position.z, ENEMY_RADIUS, true))
       enemyMesh.position.x = nx;
-    if (canOccupy(enemyMesh.position.x, nz, ENEMY_RADIUS))
+    if (canOccupy(enemyMesh.position.x, nz, ENEMY_RADIUS, true))
       enemyMesh.position.z = nz;
     enemyLight.position.set(enemyMesh.position.x, 1.6, enemyMesh.position.z);
   }
@@ -2218,11 +2562,14 @@ export function startGame(
         noteGroup.remove(n);
         noteMeshes.splice(i, 1);
         notesCollected++;
+        timeLeft += NOTE_TIME_BONUS;
+        lastTimerSecond = Math.ceil(timeLeft);
+        events.onTimer?.(lastTimerSecond);
         events.onNotesChange?.(notesCollected, totalNotes);
         events.onHint?.(
-          notesCollected === totalNotes
-            ? "All notes collected."
-            : `Note ${notesCollected}/${totalNotes}.`
+          notesCollected >= notesRequired
+            ? `Evidence secured (${notesCollected}/${totalNotes}). +${NOTE_TIME_BONUS}s.`
+            : `Evidence ${notesCollected}/${notesRequired} · +${NOTE_TIME_BONUS}s.`
         );
         Haptics.pickup();
       }
@@ -2233,13 +2580,19 @@ export function startGame(
       const dx = ex - camera.position.x;
       const dz = ez - camera.position.z;
       const exitDistSq = dx * dx + dz * dz;
-      if (keyMeshes.length === 0) {
+      if (keyMeshes.length === 0 && notesCollected >= notesRequired) {
         if (exitDistSq < 2 * 2) events.onEscape?.();
       } else if (exitDistSq < 2.2 * 2.2) {
         const now = performance.now();
         if (now - lastExitHintAt > 1800) {
           lastExitHintAt = now;
-          events.onHint?.(`${keyMeshes.length} key(s) still missing.`);
+          if (keyMeshes.length > 0) {
+            events.onHint?.(`${keyMeshes.length} key(s) still missing.`);
+          } else {
+            events.onHint?.(
+              `${notesRequired - notesCollected} evidence note(s) still needed.`
+            );
+          }
         }
       }
     }
@@ -2764,6 +3117,7 @@ export function startGame(
       for (const g of wallBuild.geometries) g.dispose();
       for (const g of doorFrameBuild.geometries) g.dispose();
       doorFrameMat.dispose();
+      ceilingFixtures.dispose();
       props.dispose();
       cobwebs.dispose();
       dust?.dispose();
@@ -2823,7 +3177,7 @@ export function startGame(
       keys: keyMeshes.map(k => ({ x: k.position.x, z: k.position.z })),
       exitX: parsed.exit ? parsed.exit.x * TILE_SIZE + TILE_SIZE / 2 : 0,
       exitZ: parsed.exit ? parsed.exit.z * TILE_SIZE + TILE_SIZE / 2 : 0,
-      exitOpen: keyMeshes.length === 0,
+      exitOpen: keyMeshes.length === 0 && notesCollected >= notesRequired,
       mapWidth: parsed.width,
       mapHeight: parsed.height,
       tileSize: TILE_SIZE,

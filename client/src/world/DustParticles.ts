@@ -49,7 +49,7 @@ function getSpriteTexture(): THREE.Texture {
     0,
     size / 2,
     size / 2,
-    size / 2,
+    size / 2
   );
   // Warm white core fading smoothly to fully transparent at the rim.
   grad.addColorStop(0.0, "rgba(255, 248, 230, 1.0)");
@@ -58,6 +58,31 @@ function getSpriteTexture(): THREE.Texture {
   grad.addColorStop(1.0, "rgba(255, 220, 180, 0.0)");
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, size, size);
+
+  // One-time sprite detail: faint grain plus an off-center glint makes the
+  // additive motes sparkle subtly without any per-frame shader or CPU work.
+  ctx.globalCompositeOperation = "lighter";
+  for (let i = 0; i < 18; i++) {
+    const a = i * 2.399963;
+    const r = Math.sqrt((i + 0.5) / 18) * size * 0.38;
+    const x = size * 0.5 + Math.cos(a) * r;
+    const y = size * 0.5 + Math.sin(a) * r;
+    const dotRadius = 0.45 + (i % 4) * 0.18;
+    ctx.fillStyle = `rgba(255, ${240 + (i % 3) * 5}, 210, ${0.035 + (i % 5) * 0.01})`;
+    ctx.beginPath();
+    ctx.arc(x, y, dotRadius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.strokeStyle = "rgba(255, 248, 220, 0.12)";
+  ctx.lineWidth = 0.75;
+  ctx.beginPath();
+  ctx.moveTo(size * 0.5 - 5, size * 0.5 + 1);
+  ctx.lineTo(size * 0.5 + 5, size * 0.5 - 1);
+  ctx.moveTo(size * 0.5 + 1, size * 0.5 - 4);
+  ctx.lineTo(size * 0.5 - 1, size * 0.5 + 4);
+  ctx.stroke();
+  ctx.globalCompositeOperation = "source-over";
+
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.needsUpdate = true;
@@ -76,6 +101,8 @@ export class DustParticles {
   private readonly velocities: Float32Array;
   /** Per-particle size scale so motes aren't all uniform. */
   private readonly sizes: Float32Array;
+  /** Per-particle tint/intensity variation, interpreted by PointsMaterial. */
+  private readonly colors: Float32Array;
   /** Reused per-frame Vector3 to avoid alloc churn at 60Hz. */
   private readonly tmpCamPos = new THREE.Vector3();
 
@@ -88,6 +115,7 @@ export class DustParticles {
     const positions = new Float32Array(this.count * 3);
     this.velocities = new Float32Array(this.count * 3);
     this.sizes = new Float32Array(this.count);
+    this.colors = new Float32Array(this.count * 3);
     for (let i = 0; i < this.count; i++) {
       positions[i * 3 + 0] = (Math.random() - 0.5) * this.volume.x;
       positions[i * 3 + 1] = (Math.random() - 0.5) * this.volume.y;
@@ -96,15 +124,25 @@ export class DustParticles {
       this.velocities[i * 3 + 0] = (Math.random() - 0.5) * this.speed;
       this.velocities[i * 3 + 1] = (Math.random() * 0.3 + 0.1) * this.speed;
       this.velocities[i * 3 + 2] = (Math.random() - 0.5) * this.speed;
-      // Vary mote size between ~0.4× and ~1.4× of the base size for a more
-      // organic look — uniform sprites read as "specks", varied ones as dust.
-      this.sizes[i] = 0.4 + Math.random() * 1.0;
+      // Vary mote size between ~0.35× and ~1.65× of the base size, with a
+      // slight bias toward tiny motes and a few larger glowing flecks.
+      this.sizes[i] = 0.35 + Math.random() * Math.random() * 1.3;
+
+      const warmth = Math.random();
+      const intensity = Math.min(
+        1,
+        0.45 + Math.random() * 0.5 + (this.sizes[i] > 1.25 ? 0.12 : 0)
+      );
+      this.colors[i * 3 + 0] = intensity * (0.86 + warmth * 0.14);
+      this.colors[i * 3 + 1] = intensity * (0.78 + Math.random() * 0.16);
+      this.colors[i * 3 + 2] = intensity * (0.62 + (1 - warmth) * 0.24);
     }
 
     this.geom = new THREE.BufferGeometry();
     this.geom.setAttribute("position", new THREE.BufferAttribute(positions, 3));
     this.geom.setAttribute("aScale", new THREE.BufferAttribute(this.sizes, 1));
-    // Note: per-particle aScale (0.4–1.4) effectively scales each mote, so
+    this.geom.setAttribute("color", new THREE.BufferAttribute(this.colors, 3));
+    // Note: per-particle aScale (~0.35–1.65) effectively scales each mote, so
     // the base size here is the average mote size before that multiplier.
     const baseSize = opts.size ?? 0.04;
     this.mat = new THREE.PointsMaterial({
@@ -116,6 +154,7 @@ export class DustParticles {
       opacity: 0.35,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
+      vertexColors: true,
       sizeAttenuation: true,
       // Discard fully transparent fragments to avoid square halos when
       // additively blending with bright surfaces.
@@ -126,10 +165,7 @@ export class DustParticles {
     // PointsMaterial pipeline while still varying per-mote size.
     this.mat.onBeforeCompile = shader => {
       shader.vertexShader = shader.vertexShader
-        .replace(
-          "void main() {",
-          "attribute float aScale;\nvoid main() {",
-        )
+        .replace("void main() {", "attribute float aScale;\nvoid main() {")
         .replace("gl_PointSize = size;", "gl_PointSize = size * aScale;");
     };
     this.points = new THREE.Points(this.geom, this.mat);
