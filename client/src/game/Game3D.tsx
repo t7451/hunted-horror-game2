@@ -343,21 +343,6 @@ export default function Game3D({
     if (multiWs && multiWs.readyState !== WebSocket.CLOSED) {
       // Re-use the WebSocket that was established during the multiplayer lobby.
       wireWs(multiWs);
-    } else {
-      // Solo or fallback: open a fresh connection and join as solo.
-      try {
-        const wsUrl = buildWsUrl();
-        const freshWs = new WebSocket(wsUrl);
-        ownedWs = true;
-        freshWs.addEventListener("open", () => {
-          freshWs.send(
-            JSON.stringify({ type: "join", mode: "solo", difficulty, name: "Player" })
-          );
-        });
-        wireWs(freshWs);
-      } catch {
-        setHint("Multiplayer offline · local Observer enabled");
-      }
     }
 
     return () => {

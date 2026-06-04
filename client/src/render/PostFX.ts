@@ -94,7 +94,7 @@ export async function createPostFX(
   }
 
   const composer = new mod.EffectComposer(renderer, {
-    multisampling: quality === "high" ? 4 : 0,
+    multisampling: 0,
   });
   composer.addPass(new mod.RenderPass(scene, camera));
 

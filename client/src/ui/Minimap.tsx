@@ -8,6 +8,7 @@ const MOBILE_MAP_SCALE = 1.8;
 const PLAYER_R = 3;
 const ENEMY_R = 2.5;
 const DOT_R = 2;
+const MINIMAP_FRAME_MS = 100;
 
 export function Minimap({ engine }: { engine: EngineHandle | null }) {
   const isMobile = useIsMobile();
@@ -23,7 +24,13 @@ export function Minimap({ engine }: { engine: EngineHandle | null }) {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const draw = () => {
+    let lastDrawAt = 0;
+    const draw = (now: number) => {
+      if (now - lastDrawAt < MINIMAP_FRAME_MS) {
+        rafRef.current = requestAnimationFrame(draw);
+        return;
+      }
+      lastDrawAt = now;
       const s = engine.getMinimapState();
       const W = s.mapWidth * mapScale;
       const H = s.mapHeight * mapScale;

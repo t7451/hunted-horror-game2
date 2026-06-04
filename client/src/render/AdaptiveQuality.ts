@@ -1,12 +1,12 @@
 import type { WebGLRenderer } from "three";
 
 const SAMPLE_WINDOW_MS = 3000;
-const FPS_DROP_THRESHOLD = 30;
-const FPS_RAISE_THRESHOLD = 55;
+const FPS_DROP_THRESHOLD = 45;
+const FPS_RAISE_THRESHOLD = 58;
 const MIN_DPR = 0.6;
 const MAX_DPR = 2.0;
-const STEP = 0.1;
-const MIN_SAMPLES = 60;
+const STEP = 0.2;
+const MIN_SAMPLES = 30;
 
 /**
  * Watches frame deltas and adjusts the renderer pixel ratio when the FPS
@@ -18,7 +18,7 @@ export class AdaptiveQuality {
   private lastTs = performance.now();
   private currentDpr: number;
   private lastChange = 0;
-  private readonly cooldownMs = 4000;
+  private readonly cooldownMs = 2500;
   private readonly maxSamples = SAMPLE_WINDOW_MS / 16;
 
   constructor(
