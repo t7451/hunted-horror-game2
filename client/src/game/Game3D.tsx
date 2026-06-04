@@ -54,6 +54,9 @@ const JOYSTICK_OUTER_LIMIT = 0.85;
 const JOYSTICK_RESPONSE_CURVE = 1.6;
 const INPUT_LERP_RATE = 18;
 const SPRINT_DOUBLE_TAP_MS = 280;
+const MULTIPLAYER_STATE_INTERVAL_MS = 140;
+const MULTIPLAYER_MOVE_EPSILON = 0.025;
+const MULTIPLAYER_ROT_EPSILON = 0.01;
 
 function shapeJoystick(rawX: number, rawY: number): { x: number; z: number } {
   const mag = Math.hypot(rawX, rawY);
@@ -298,13 +301,24 @@ export default function Game3D({
     const wireWs = (socket: WebSocket) => {
       ws = socket;
       wsRef.current = socket;
+      let lastSentX = Number.NaN;
+      let lastSentZ = Number.NaN;
+      let lastSentRotY = Number.NaN;
       stateTimer = window.setInterval(() => {
         if (!handle || socket.readyState !== WebSocket.OPEN) return;
         const s = handle.getPlayerState();
+        const moved =
+          !Number.isFinite(lastSentX) ||
+          Math.hypot(s.x - lastSentX, s.z - lastSentZ) >= MULTIPLAYER_MOVE_EPSILON ||
+          Math.abs(s.rotY - lastSentRotY) >= MULTIPLAYER_ROT_EPSILON;
+        if (!moved) return;
+        lastSentX = s.x;
+        lastSentZ = s.z;
+        lastSentRotY = s.rotY;
         socket.send(
           JSON.stringify({ type: "move", x: s.x, z: s.z, rotY: s.rotY })
         );
-      }, 80);
+      }, MULTIPLAYER_STATE_INTERVAL_MS);
       socket.addEventListener("message", ev => {
         try {
           const msg = JSON.parse(typeof ev.data === "string" ? ev.data : "");
@@ -315,17 +329,19 @@ export default function Game3D({
             !Array.isArray(msg.players)
           ) {
             const myId = localPlayerIdRef.current;
-            const remotes: RemotePlayer[] = (
-              Object.values(msg.players) as Array<RemotePlayer & { id: string }>
-            )
-              .filter(p => p.id !== myId)
-              .map(p => ({
-                id: p.id,
+            const remotes: RemotePlayer[] = [];
+            for (const [id, p] of Object.entries(msg.players) as Array<
+              [string, RemotePlayer]
+            >) {
+              if (id === myId) continue;
+              remotes.push({
+                id,
                 x: p.x,
                 z: p.z,
                 rotY: p.rotY ?? 0,
                 name: p.name,
-              }));
+              });
+            }
             handle.setRemotePlayers(remotes);
             if (typeof msg.entity?.x === "number" && typeof msg.entity?.z === "number") {
               handle.setEnemy({ x: msg.entity.x, z: msg.entity.z });
@@ -343,21 +359,6 @@ export default function Game3D({
     if (multiWs && multiWs.readyState !== WebSocket.CLOSED) {
       // Re-use the WebSocket that was established during the multiplayer lobby.
       wireWs(multiWs);
-    } else {
-      // Solo or fallback: open a fresh connection and join as solo.
-      try {
-        const wsUrl = buildWsUrl();
-        const freshWs = new WebSocket(wsUrl);
-        ownedWs = true;
-        freshWs.addEventListener("open", () => {
-          freshWs.send(
-            JSON.stringify({ type: "join", mode: "solo", difficulty, name: "Player" })
-          );
-        });
-        wireWs(freshWs);
-      } catch {
-        setHint("Multiplayer offline · local Observer enabled");
-      }
     }
 
     return () => {

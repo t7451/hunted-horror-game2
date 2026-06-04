@@ -49,9 +49,9 @@ export function pixelRatioForQuality(quality: GraphicsQuality = "auto") {
   const resolved = resolveGraphicsQuality(quality);
   if (typeof window === "undefined") return 1;
   const raw = window.devicePixelRatio || 1;
-  if (resolved === "low") return Math.min(raw, isMobile ? 1.25 : 1.5);
-  if (resolved === "mid") return Math.min(raw, 1.75);
-  return Math.min(raw, 2);
+  if (resolved === "low") return Math.min(raw, isMobile ? 1 : 1.15);
+  if (resolved === "mid") return Math.min(raw, isMobile ? 1.15 : 1.35);
+  return Math.min(raw, 1.5);
 }
 
 export function supportsWebGL() {

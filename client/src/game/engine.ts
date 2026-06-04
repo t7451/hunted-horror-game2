@@ -312,6 +312,13 @@ const REMOTE_ENEMY_TIMEOUT_MS = 1200;
 const INVESTIGATING_SPEED_FACTOR = 0.25;
 const MOUSE_LOOK_SCALE = 0.0022; // pointer-lock — typical FPS feel
 const MOBILE_LOOK_SCALE = 0.0055; // touch drag — slightly faster for thumbs
+const COLLISION_SAMPLE_OFFSETS: Array<[number, number]> = [
+  [-1, -1],
+  [1, -1],
+  [-1, 1],
+  [1, 1],
+  [0, 0],
+];
 
 function calculateMoveSpeed(
   isHidden: boolean,
@@ -2333,13 +2340,16 @@ export function startGame(
     return false;
   }
 
+  const closedTiles = new Set<string>();
+
   function buildClosedTiles(): Set<string> {
     const now = performance.now();
-    const set = new Set<string>();
+    closedTiles.clear();
     for (const door of doorStates) {
-      if (door.closedUntil > now) set.add(`${door.tileX},${door.tileZ}`);
+      if (door.closedUntil > now)
+        closedTiles.add(`${door.tileX},${door.tileZ}`);
     }
-    return set;
+    return closedTiles;
   }
 
   function setVirtualInput(input: Partial<VirtualInput>) {
@@ -2355,14 +2365,9 @@ export function startGame(
   }
 
   function canOccupy(x: number, z: number, radius: number, ignoreDoors = false) {
-    const samples: Array<[number, number]> = [
-      [x - radius, z - radius],
-      [x + radius, z - radius],
-      [x - radius, z + radius],
-      [x + radius, z + radius],
-      [x, z],
-    ];
-    return samples.every(([sx, sz]) => {
+    for (const [ox, oz] of COLLISION_SAMPLE_OFFSETS) {
+      const sx = x + ox * radius;
+      const sz = z + oz * radius;
       const gx = Math.floor(sx / TILE_SIZE);
       const gz = Math.floor(sz / TILE_SIZE);
       const closedDoor =
@@ -2373,8 +2378,9 @@ export function startGame(
             door.tileZ === gz &&
             door.currentRot < DOOR_PASSABLE_ROT
         );
-      return !isBlocked(parsed, gx, gz) && !closedDoor;
-    });
+      if (isBlocked(parsed, gx, gz) || closedDoor) return false;
+    }
+    return true;
   }
 
   // Collision: prevents clipping through wall barriers while still allowing
